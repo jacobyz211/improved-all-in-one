@@ -1,5 +1,5 @@
 /* ============================================================
-   Eclipse All-in-One Addon v2.1  –  Cloudflare Worker
+   m All-in-One Addon v2.1  –  Cloudflare Worker
    Sources: Qobuz · Tidal · Deezer · SoundCloud · MusicBrainz
             Internet Archive · Podcast Index · Radio Browser
    ============================================================ */
