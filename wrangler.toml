@@ -1,0 +1,30 @@
+name = "improved-all-in-one"
+main = "index.js"
+compatibility_date = "2024-09-23"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# Qobuz
+QOBUZ_APP_ID = ""
+QOBUZ_APP_SECRET = ""
+QOBUZ_EMAIL = ""
+QOBUZ_PASSWORD = ""
+
+# Tidal
+TIDAL_ACCESS_TOKEN = ""
+TIDAL_REFRESH_TOKEN = ""
+TIDAL_CLIENT_ID = ""
+TIDAL_CLIENT_SECRET = ""
+
+# Deezer
+DEEZER_ARL = ""
+
+# SoundCloud
+SOUNDCLOUD_CLIENT_ID = ""
+
+# Podcast Index
+PODCAST_INDEX_API_KEY = ""
+PODCAST_INDEX_API_SECRET = ""
+
+# Optional overrides (can be set per-deploy)
+ALLOWED_ORIGINS = "*"
