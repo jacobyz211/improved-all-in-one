@@ -1723,7 +1723,7 @@ async function appleSearch(query) {
 
 // ─── Deezer (via your Cloudflare Worker proxy) ───────────────────────────────
 // ─── Deezer (via dawn-art-79bc.cyrusna29.workers.dev addon) ─────────────────
-const DEEZER_ADDON  = 'https://dawn-art-79bc.cyrusna29.workers.dev/u/47de8a3c8fc2dc25191faf9ee71f';
+const DEEZER_ADDON  = 'https://dawn-art-79bc.cyrusna29.workers.dev/u/e91b254bb5e8a17a97420339188c';
 const DEEZER_API    = 'https://api.deezer.com'; // for albums/artists/playlists metadata
 
 async function deezerSearch(query) {
@@ -1799,8 +1799,10 @@ async function deezerStream(trackId) {
     });
     const data = r.data || {};
     if (data.url) {
-      const result = { url: data.url + (data.url.includes('?') ? '&' : '?') + '_t=' + Date.now(), format: data.format || 'mp3', quality: data.quality || '128kbps', source: 'deezer' };
-      await cacheSet(cacheKey, result, 1800);
+      const result = { url: data.url, format: data.format || 'mp3', quality: data.quality || '320kbps', source: 'deezer' };
+      // FIX: use expiresAt from addon response for cache TTL (was hardcoded 1800s)
+      const ttlSec = data.expiresAt ? Math.max(60, Math.floor((data.expiresAt - Date.now()) / 1000) - 30) : 1200;
+      await cacheSet(cacheKey, result, ttlSec);
       return result;
     }
     return null;
@@ -2953,6 +2955,7 @@ async function handleStream(c) {
       console.log(`[stream fallback] HiFi failed for "${meta.title}", trying: ${_fbOrder.join(',')}`);
       for (const _fb of _fbOrder) {
         // ── Qobuz ────────────────────────────────────────────────────────
+        // FIX: _fbOrder already filtered by streamOrder, so these checks are safeguards only
         if (_fb === 'qobuz' && !cfg.noQobuz && !_skipQobuz) continue; // already tried above
         if (_fb === 'qobuz' && !cfg.noQobuz && _skipQobuz) {
           try {
@@ -3204,7 +3207,8 @@ async function handleStream(c) {
     // Qobuz failed — try HiFi then SC as ordered fallback
     const _qMeta = await cacheGet(`qobuz:track:meta:${qobuzId}`);
     if (_qMeta?.title) {
-      const _qFbOrder = (cfg.streamOrder?.length
+      // FIX: only fall back to sources in streamOrder when it's explicitly set
+    const _qFbOrder = (cfg.streamOrder?.length
         ? cfg.streamOrder.filter(s => s !== 'qobuz')
         : ['hifi', 'deezer', 'sc']
       );
@@ -3319,11 +3323,19 @@ async function handleStream(c) {
     const dzArtist2 = dzArtist || _dzCachedMeta?.artist || '';
     const dzIsrc    = dzIsrc0  || _dzCachedMeta?.isrc   || null;
 
+    // FIX: when streamOrder is set and non-empty, treat any source NOT in it as disabled.
+    // e.g. streamOrder=['deezer'] → qobuz/hifi/sc are all implicitly excluded,
+    // even if cfg.noQobuz etc. aren't explicitly true.
+    const _dzHasExplicitOrder = _dzStreamOrder.length > 0;
+    const _dzEffNoQobuz = _dzHasExplicitOrder ? !_dzStreamOrder.includes('qobuz') : (cfg.noQobuz || false);
+    const _dzEffNoHifi  = _dzHasExplicitOrder ? !_dzStreamOrder.includes('hifi')  : (cfg.noHifi  || false);
+    const _dzEffNoSc    = _dzHasExplicitOrder ? !_dzStreamOrder.includes('sc')    : (cfg.noSc    || false);
+
     // If deezer is NOT in streamOrder, skip deezerStream() entirely and cross-source immediately
     const dzSkipDeezer = _dzIdx === -1 && !cfg.noDeezer; // not in stream list — skip addon
 
     // Qobuz priority (or fallback when deezer skipped)
-    if ((dzSkipDeezer || (_dzQIdx !== -1 && _dzQIdx < _dzIdx)) && !cfg.noQobuz) {
+    if ((dzSkipDeezer || (_dzQIdx !== -1 && _dzQIdx < _dzIdx)) && !_dzEffNoQobuz) {
       try {
         if (dzIsrc) {
           const qTrack = await qobuzFindByIsrc(dzIsrc);
@@ -3343,7 +3355,7 @@ async function handleStream(c) {
     }
 
     // HiFi/Tidal priority (or fallback when deezer skipped)
-    if ((dzSkipDeezer || (_dzHIdx !== -1 && _dzHIdx < _dzIdx)) && !cfg.noHifi && dzTitle2) {
+    if ((dzSkipDeezer || (_dzHIdx !== -1 && _dzHIdx < _dzIdx)) && !_dzEffNoHifi && dzTitle2) {
       try {
         const hifiRes = await hifiSearch(`${dzArtist2} ${dzTitle2}`, cfg.hifiInstances);
         const hifiTracks = Array.isArray(hifiRes) ? hifiRes : (hifiRes?.tracks || []);
@@ -3355,7 +3367,7 @@ async function handleStream(c) {
     }
 
     // SoundCloud fallback when deezer skipped
-    if (dzSkipDeezer && !cfg.noSc && dzTitle2) {
+    if (dzSkipDeezer && !_dzEffNoSc && dzTitle2) {
       try {
         const cid = await getSCClientId(cfg.scClientId);
         if (cid) {
@@ -3380,7 +3392,7 @@ async function handleStream(c) {
         ? cfg.streamOrder.filter(x => x !== 'deezer')
         : ['qobuz', 'hifi', 'sc'];
       for (const _fbSrc of _dzFbOrder) {
-        if (_fbSrc === 'qobuz' && !cfg.noQobuz) {
+        if (_fbSrc === 'qobuz' && !_dzEffNoQobuz) {
           try {
             const qTrack = dzIsrc
               ? await qobuzFindByIsrc(dzIsrc)
@@ -3391,7 +3403,7 @@ async function handleStream(c) {
             }
           } catch(e) { console.warn('[Deezer→Qobuz fallback]', e.message); }
         }
-        if (_fbSrc === 'hifi' && !cfg.noHifi && dzTitle2) {
+        if (_fbSrc === 'hifi' && !_dzEffNoHifi && dzTitle2) {
           try {
             const hifiRes = await hifiSearch(`${dzArtist2} ${dzTitle2}`, cfg.hifiInstances);
             const hifiTracks = Array.isArray(hifiRes) ? hifiRes : (hifiRes?.tracks || []);
