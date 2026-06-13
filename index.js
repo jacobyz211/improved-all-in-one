@@ -3000,6 +3000,14 @@ async function handleSearch(c) {
     ia:     [],
     deezer: effectiveMusicOrder.includes('deezer') ? (deezerRes?.albums || []) : [],
   };
+  // Artist source map — mirrors effectiveMusicOrder so artist dedup respects search priority
+  const musicArtistMap = {
+    hifi:   effectiveMusicOrder.includes('hifi')   ? (hifiArtistList   || []) : [],
+    qobuz:  effectiveMusicOrder.includes('qobuz')  ? (qobuzArtists     || []) : [],
+    sc:     [],   // SC search doesn't return distinct artist objects
+    ia:     [],
+    deezer: effectiveMusicOrder.includes('deezer') ? (deezerRes?.artists || []) : [],
+  };
 
   // ── Canonical dedup ─────────────────────────────────────────────────────────
   // Key priority: ISRC (exact) → title+artist+year+duration-bucket (fuzzy, ±2 s)
@@ -3076,10 +3084,33 @@ async function handleSearch(c) {
     return result;
   };
 
-  const orderedTrackLists = effectiveMusicOrder.map(k => musicSourceMap[k] || []);
-  const orderedAlbumLists = effectiveMusicOrder.map(k => musicAlbumMap[k] || []);
-  const orderedMusicTracks = interleave(orderedTrackLists);
-  const orderedMusicAlbums = interleaveAlbums(orderedAlbumLists);
+  const orderedTrackLists  = effectiveMusicOrder.map(k => musicSourceMap[k]  || []);
+  const orderedAlbumLists  = effectiveMusicOrder.map(k => musicAlbumMap[k]   || []);
+  const orderedArtistLists = effectiveMusicOrder.map(k => musicArtistMap[k]  || []);
+  const orderedMusicTracks  = interleave(orderedTrackLists);
+  const orderedMusicAlbums  = interleaveAlbums(orderedAlbumLists);
+  // Interleave artists by search priority: 1st source fills, then 2nd fills gaps, etc.
+  const orderedMusicArtists = (() => {
+    const result = [];
+    const seenIds  = new Set();
+    const seenKeys = new Set();
+    const maxLen = Math.max(0, ...orderedArtistLists.map(l => l.length));
+    for (let i = 0; i < maxLen; i++) {
+      for (const list of orderedArtistLists) {
+        if (i >= list.length) continue;
+        const item = list[i];
+        if (!item) continue;
+        const ik = item.id;
+        const ck = _normStr(item.name || '');
+        if (ik && seenIds.has(ik))   continue;
+        if (ck && seenKeys.has(ck))  continue;
+        if (ik) seenIds.add(ik);
+        if (ck) seenKeys.add(ck);
+        result.push(item);
+      }
+    }
+    return result;
+  })();
 
   // Merge qobuz playlists into the playlists (allSeries) pool — dedupe by title
   for (const p of qobuzPlaylists) {
@@ -3107,19 +3138,19 @@ async function handleSearch(c) {
   if (isPodcastQuery) {
     allTracks  = [...allEpisodes, ...orderedMusicTracks, ...radio];
     allAlbums  = [...podcastAlbums, ...allBooks, ...orderedMusicAlbums];
-    allArtists = [...hifiArtistList, ...qobuzArtists, ...(deezerRes?.artists || [])];
+    allArtists = orderedMusicArtists;
   } else if (isRadioQuery) {
     allTracks  = [...radio, ...orderedMusicTracks, ...allEpisodes];
     allAlbums  = [...orderedMusicAlbums, ...allBooks, ...podcastAlbums];
-    allArtists = [...hifiArtistList, ...qobuzArtists, ...(deezerRes?.artists || [])];
+    allArtists = orderedMusicArtists;
   } else if (isAudiobookQuery) {
     allTracks  = [...orderedMusicTracks, ...allEpisodes, ...radio];
     allAlbums  = [...allBooks, ...orderedMusicAlbums, ...podcastAlbums];
-    allArtists = [...qobuzArtists];
+    allArtists = orderedMusicArtists.filter(a => a.source === 'qobuz');
   } else {
     allTracks  = [...orderedMusicTracks, ...radio, ...allEpisodes];
     allAlbums  = [...orderedMusicAlbums, ...allBooks, ...podcastAlbums];
-    allArtists = [...hifiArtistList, ...qobuzArtists, ...(deezerRes?.artists || [])];
+    allArtists = orderedMusicArtists;
   }
 
   allArtists = _dedupeArtists(allArtists);
