@@ -3177,7 +3177,7 @@ async function handleStream(c) {
             const dzTrack = dzRes?.tracks?.[0];
             if (dzTrack?.id) {
               const dzId = dzTrack.id.replace('deezer:', '');
-              const dzStream = await deezerStream(dzId);
+              const dzStream = await deezerStream(dzId, c.env);
               if (dzStream) { console.log(`[SC→Deezer] ${scMeta.title} → ${dzId}`); statHit('deezer'); return c.json({ ...dzStream, fallback: 'deezer' }); }
             }
           } catch(e) { console.warn('[SC→Deezer]', e.message); }
@@ -3346,7 +3346,7 @@ async function handleStream(c) {
     const _dzEffNoSc    = _dzHasExplicitOrder ? !_dzStreamOrder.includes('sc')    : (cfg.noSc    || false);
 
     // If deezer is NOT in streamOrder, skip deezerStream() entirely and cross-source immediately
-    const dzSkipDeezer = _dzIdx === -1 && !cfg.noDeezer; // not in stream list — skip addon
+    const dzSkipDeezer = _dzIdx === -1 && _dzStreamOrder.length > 0; // skip when streamOrder is set and deezer not in it
 
     // Qobuz priority (or fallback when deezer skipped)
     if ((dzSkipDeezer || (_dzQIdx !== -1 && _dzQIdx < _dzIdx)) && !_dzEffNoQobuz) {
@@ -3399,12 +3399,16 @@ async function handleStream(c) {
 
     // Only attempt deezer addon if deezer IS in streamOrder
     if (!dzSkipDeezer) {
-      const s = await deezerStream(dzId);
+      const s = await deezerStream(dzId, c.env);
       if (s) return c.json(s);
       // Deezer failed — walk full streamOrder for best available source
       const _dzFbOrder = cfg.streamOrder && cfg.streamOrder.length
         ? cfg.streamOrder.filter(x => x !== 'deezer')
         : ['qobuz', 'hifi', 'sc'];
+      // Hard-stop: if streamOrder was explicit and only had deezer, don't bleed into other sources
+      if (cfg.streamOrder && cfg.streamOrder.length > 0 && _dzFbOrder.length === 0) {
+        return c.json({ error: 'Deezer stream not found' }, 404);
+      }
       for (const _fbSrc of _dzFbOrder) {
         if (_fbSrc === 'qobuz' && !_dzEffNoQobuz) {
           try {
