@@ -149,6 +149,32 @@ function encodeBase64Url(str) {
   return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
 }
 
+async function upstashCmd(env, ...args) {
+  if (!env?.UPSTASH_REDIS_REST_URL || !env?.UPSTASH_REDIS_REST_TOKEN) return null;
+  try {
+    const cmd = args[0]?.toUpperCase();
+    if (cmd === 'MSET') {
+      const pairs = args.slice(1);
+      const pipeline = [];
+      for (let i = 0; i < pairs.length; i += 2) {
+        pipeline.push(['SET', pairs[i], pairs[i + 1], 'EX', '3600']);
+      }
+      const r = await fetch(env.UPSTASH_REDIS_REST_URL + '/pipeline', {
+        method: 'POST',
+        headers: { Authorization: 'Bearer ' + env.UPSTASH_REDIS_REST_TOKEN, 'Content-Type': 'application/json' },
+        body: JSON.stringify(pipeline),
+      });
+      return r.ok ? 'OK' : null;
+    }
+    const r = await fetch(env.UPSTASH_REDIS_REST_URL + '/' + args.map(encodeURIComponent).join('/'), {
+      headers: { Authorization: 'Bearer ' + env.UPSTASH_REDIS_REST_TOKEN },
+    });
+    if (!r.ok) return null;
+    const j = await r.json();
+    return j?.result ?? null;
+  } catch { return null; }
+}
+
 function getConfig(c) {
   const token = c.req.param('token') || '';
   const cfg = parseToken(token);
@@ -728,7 +754,7 @@ async function hifiSearch(query, instances) {
         _origId: origId,
       });
       // Cache track metadata so stream handler can fall back to SC if HiFi fails
-      cacheSet(`hifi:track:meta:${instB64}_${origId}`, { title: t.title || 'Unknown', artist: artistNames, isrc: t.isrc || null }, 3600);
+      cacheSet(`hifi:track:meta:${instB64}_${origId}`, { title: t.title || 'Unknown', artist: artistNames, isrc: t.isrc ? t.isrc.toUpperCase().replace(/[^A-Z0-9]/g,'') : null, duration: t.duration ? Math.floor(t.duration) : undefined }, 3600);
       if (t.album?.id) {
         const aid = String(t.album.id);
         if (!albumMap[aid]) albumMap[aid] = {
@@ -1039,7 +1065,7 @@ async function scSearch(query, clientId) {
       if (turl) await cacheSet(`sc:transcodings:${t.id}`, turl, 3600);
       // Cache title/artist for fallback lookup when track turns out to be snipped
       if (t.title) {
-        const _scMetaVal = { title: t.publisher_metadata?.title || t.title, artist: t.publisher_metadata?.artist || t.user?.name || t.user?.username || '', isrc: t.publisher_metadata?.isrc || null };
+        const _scMetaVal = { title: t.publisher_metadata?.title || t.title, artist: t.publisher_metadata?.artist || t.user?.name || t.user?.username || '', isrc: t.publisher_metadata?.isrc ? t.publisher_metadata.isrc.toUpperCase().replace(/[^A-Z0-9]/g,'') : null, duration: Math.floor((t.full_duration || t.duration || 0) / 1000) || undefined };
         await cacheSet(`sc:meta:${t.id}`, _scMetaVal, 3600);
         // Also persist to Upstash so stream handler can find it across isolates
         // Upstash persist done in handleSearch (which has c.env access)
@@ -2120,7 +2146,7 @@ async function qobuzGet(url, params, timeout = 7000) {
 // Tier 1: 300 req/min  — kills burst attacks (legit peak is ~50/min)
 // Tier 2: 2000 req/10min — kills sustained scrapers
 async function checkRateLimit(env, ip) {
-  if (!env?.UPSTASH_REDIS_REST_URL) return true;
+  if (!env?.UPSTASH_REDIS_REST_URL || !env?.UPSTASH_REDIS_REST_TOKEN) return true;
   const now10 = Math.floor(Date.now() / 600000); // 10-min bucket
   const now1  = Math.floor(Date.now() / 60000);  // 1-min bucket
   const k1  = `rl1:${ip}:${now1}`;
@@ -2292,7 +2318,7 @@ async function handleSearch(c) {
   // Cache deezer track metadata so stream handler can cross-source fallback without query params
   for (const dt of deezerTracks) {
     const rawId = String(dt.id).replace(/^deezer:/, '');
-    cacheSet(`dz:track:meta:${rawId}`, { title: dt.title, artist: dt.artist, isrc: dt.isrc || null }, 3600);
+    cacheSet(`dz:track:meta:${rawId}`, { title: dt.title, artist: dt.artist, isrc: dt.isrc ? dt.isrc.toUpperCase().replace(/[^A-Z0-9]/g,'') : null }, 3600);
   }
   // Cache ytm track meta for stream fallback
   const musicSourceMap = {
@@ -2315,11 +2341,13 @@ async function handleSearch(c) {
   const _normStr = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 60);
 
   const _canonKey = item => {
-    if (item.isrc) return 'isrc:' + item.isrc.toUpperCase();
+    if (item.isrc) return 'isrc:' + item.isrc.toUpperCase().replace(/[^A-Z0-9]/g, '');
     const t  = _normStr(item.title  || '');
     const a  = _normStr((item.artist || '').split(/[,&]/)[0]);
     const y  = item.year ? String(item.year).slice(0, 4) : '';
-    const db = (item.duration && item.duration > 0) ? '|' + (Math.round(item.duration / 2) * 2) : '';
+    // Duration bucket: ±5 s tolerance — same song from different sources dedupes, short edits don't false-positive
+    const db = (item.duration && item.duration > 5) ? '|d' + (Math.round(item.duration / 5) * 5) : '';
+    if (!t && !a) return null; // don't dedup unknown tracks against each other
     return 'ta:' + t + '|' + a + '|' + y + db;
   };
 
