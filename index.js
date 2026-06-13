@@ -244,6 +244,7 @@ async function getSCClientId(providedId) {
 
 // ─── HiFi Instance Helpers ───────────────────────────────────────────────────
 const DEFAULT_HIFI_INSTANCES = [
+  'https://hifi-api-workers.anothermoumen4.workers.dev',
   'https://hifi-api-bffw.onrender.com',
   'https://hifi-api-pj08.onrender.com',
   'https://hifi-api.kennyy.com.br',
@@ -929,28 +930,21 @@ async function hifiStream(id, extraInstances, preferredQuality) {
   // Each tier is tried fully before falling to the next, so LOSSLESS is always
   // attempted before HIGH or LOW (fixes the bug where LOW won the race).
   async function tryInstance(inst, ql) {
-    const MAX_RETRIES = 3;
-    const RETRY_DELAY = 600; // ms between retries
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        const r = await axios.get(`${inst}/track/`, {
-          params: { id: origId, quality: ql },
-          headers: { 'User-Agent': UA, 'Accept': 'application/json' },
-          timeout: 4000,
-        });
-        const parsed = parseTrackResponse(r.data);
-        if (parsed) return { ...parsed, quality: ql };
-      } catch (e) {
-        const status = e.response?.status;
-        // Don't retry permanent errors (auth/geo/not found)
-        if (status === 403 || status === 404 || status === 401) return null;
-        if (attempt < MAX_RETRIES) {
-          await new Promise(res => setTimeout(res, RETRY_DELAY));
-          continue;
-        }
-        const msg = e.response?.data?.userMessage || e.response?.data?.error || e.message;
-        console.warn(`[HiFi stream] ${inst}/track/ ql=${ql} -> ${status || 'ERR'}: ${msg} (gave up after ${MAX_RETRIES} attempts)`);
-      }
+    // FIX: no retries — we race ALL instances in parallel via Promise.any so a single
+    // instance failing immediately lets the race move on; retries only added ~1.2s of dead time
+    try {
+      const r = await axios.get(`${inst}/track/`, {
+        params: { id: origId, quality: ql },
+        headers: { 'User-Agent': UA, 'Accept': 'application/json' },
+        timeout: 3000, // FIX: reduced from 4000ms — slow instances drop out faster
+      });
+      const parsed = parseTrackResponse(r.data);
+      if (parsed) return { ...parsed, quality: ql };
+    } catch (e) {
+      const status = e.response?.status;
+      const msg = e.response?.data?.userMessage || e.response?.data?.error || e.message;
+      if (status !== 403 && status !== 404 && status !== 401)
+        console.warn(`[HiFi stream] ${inst}/track/ ql=${ql} -> ${status || 'ERR'}: ${msg}`);
     }
     return null;
   }
@@ -4092,7 +4086,13 @@ async function handleArtist(c) {
             const tArtist = ((t.artists || []).filter(a => a.type === 'MAIN' || a.type === 'FEATURED').length ? (t.artists || []).filter(a => a.type === 'MAIN' || a.type === 'FEATURED') : (t.artists || [])).map(a => a.name).join(', ').toLowerCase();
             if (!tArtist.includes(wantName) && !wantName.includes(tArtist)) continue;
             const alId = String(t.album.id);
-            if (!albumMap[alId]) albumMap[alId] = { id: t.album.id, title: t.album.title, cover: t.album.cover, releaseDate: t.album.releaseDate, source: 'hifi' };
+            if (!albumMap[alId]) albumMap[alId] = {
+              id: t.album.id, title: t.album.title, cover: t.album.cover,
+              // FIX: t.album.releaseDate is often null on track objects; fall back to
+              // streamStartDate (ISO string) or track-level releaseDate
+              releaseDate: t.album.releaseDate || t.album.streamStartDate || t.releaseDate || null,
+              source: 'hifi',
+            };
             if (!trackMap[String(t.id)] && t.streamReady !== false) trackMap[String(t.id)] = t;
           }
         } catch (e6) { console.log('[HiFi] search fallback failed:', e6.message); }
@@ -4117,14 +4117,22 @@ async function handleArtist(c) {
         }));
 
       const albums = Object.values(albumMap)
-        .sort((a, b) => (b.releaseDate || '').localeCompare(a.releaseDate || ''))
+        // FIX: sort by numeric year descending; null/0 years go to the end
+        .sort((a, b) => {
+          const ya = safeYear(a.releaseDate || a.streamStartDate);
+          const yb = safeYear(b.releaseDate || b.streamStartDate);
+          if (!ya && !yb) return 0;
+          if (!ya) return 1;  // a has no year → push to end
+          if (!yb) return -1; // b has no year → push to end
+          return yb - ya;     // newest first
+        })
         .slice(0, 60)
         .map(a => ({
           id:         `hifi_album_${instB64}_${a.id}`,
           title:      a.title || 'Unknown Album',
           artist:     artistName,
           artworkURL: a.cover ? coverUrl(a.cover, 320) : undefined,
-          year:       safeYear(a.releaseDate),
+          year:       safeYear(a.releaseDate || a.streamStartDate),
           source:     'hifi',
         }));
 
@@ -4389,7 +4397,15 @@ async function handleArtist(c) {
         }
 
         const albums = Object.values(albumMap)
-          .sort((a, b) => (b.release_date_original || '').localeCompare(a.release_date_original || ''))
+          // FIX: numeric year sort descending, nulls/0s at end (consistent with hifi)
+          .sort((a, b) => {
+            const ya = safeYear(a.release_date_original);
+            const yb = safeYear(b.release_date_original);
+            if (!ya && !yb) return 0;
+            if (!ya) return 1;
+            if (!yb) return -1;
+            return yb - ya;
+          })
           .slice(0, 80)
           .map(a => ({
             id:         `qobuzalbum_${a.id}`,
