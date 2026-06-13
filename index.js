@@ -4466,428 +4466,391 @@ app.get('/health', async (c) => {
 // ─── Config / Generator Page ─────────────────────────────────────────────────
 
 function buildConfigPage(baseUrl) {
-  var ev = function(s) {
-    return String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  };
+  var S = [];
+  function w(s) { S.push(s); }
 
-  var html = `<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Eclipse Universal Addon</title>
-<link href="https://api.fontshare.com/v2/css?f[]=satoshi@300,400,500,600,700&display=swap" rel="stylesheet">
-<style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
-:root{
-  --bg:#0a0a0d;--surf:#111115;--surf2:#17171d;--surf3:#1e1e26;
-  --bdr:#242430;--bdrh:#343448;
-  --txt:#dddde8;--muted:#6e6e88;--faint:#2e2e3e;
-  --pri:#7c6af5;--prih:#9083f8;--glow:rgba(124,106,245,.15);
-  --ok:#3dba7a;--err:#e05555;--warn:#f0a030;
-  --r:10px;--rsm:6px;--rlg:16px;
-  --tr:160ms cubic-bezier(0.16,1,0.3,1);
+  w('<!DOCTYPE html>');
+  w('<html lang="en">');
+  w('<head>');
+  w('<meta charset="UTF-8">');
+  w('<meta name="viewport" content="width=device-width,initial-scale=1">');
+  w('<title>Eclipse Universal Addon</title>');
+  w('<link href="https://api.fontshare.com/v2/css?f[]=satoshi@300,400,500,600,700&display=swap" rel="stylesheet">');
+  w('<style>');
+  w('*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}');
+  w(':root{');
+  w('  --bg:#0a0a0d;--surf:#111115;--surf2:#17171d;--surf3:#1e1e26;');
+  w('  --bdr:#242430;--bdrh:#343448;');
+  w('  --txt:#dddde8;--muted:#6e6e88;--faint:#2e2e3e;');
+  w('  --pri:#7c6af5;--prih:#9083f8;--glow:rgba(124,106,245,.15);');
+  w('  --ok:#3dba7a;--err:#e05555;');
+  w('  --r:10px;--rsm:6px;--rlg:16px;--tr:160ms cubic-bezier(0.16,1,0.3,1);');
+  w('}');
+  w('html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;scroll-behavior:smooth}');
+  w('body{font-family:"Satoshi",system-ui,sans-serif;background:var(--bg);color:var(--txt);min-height:100dvh;line-height:1.55}');
+  w('.page{max-width:600px;margin:0 auto;padding:48px 20px 80px}');
+  w('.hdr{display:flex;align-items:center;gap:14px;margin-bottom:36px}');
+  w('.hdr-logo{width:44px;height:44px;border-radius:12px;background:var(--glow);border:1px solid rgba(124,106,245,.3);display:flex;align-items:center;justify-content:center;flex-shrink:0}');
+  w('.hdr-text h1{font-size:1.2rem;font-weight:700;letter-spacing:-.025em;color:#fff}');
+  w('.hdr-text p{font-size:.78rem;color:var(--muted);margin-top:2px}');
+  w('.card{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--rlg);padding:22px;margin-bottom:12px}');
+  w('.ctitle{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:14px;display:flex;align-items:center;gap:8px}');
+  w('.otag{font-size:.62rem;font-weight:500;text-transform:none;color:var(--muted);opacity:.7;background:var(--surf3);padding:1px 7px;border-radius:99px;border:1px solid var(--bdr)}');
+  w('.tip{background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);padding:10px 13px;font-size:.78rem;color:var(--muted);line-height:1.65;margin-bottom:12px}');
+  w('.tip b{color:var(--txt)}');
+  w('label.lbl{display:block;font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:5px;margin-top:12px}');
+  w('label.lbl:first-child{margin-top:0}');
+  w('input[type=text],input[type=password]{width:100%;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);color:var(--txt);padding:9px 12px;font-size:.875rem;font-family:"Satoshi",system-ui,sans-serif;transition:border-color var(--tr),box-shadow var(--tr);outline:none}');
+  w('input:focus{border-color:var(--pri);box-shadow:0 0 0 3px var(--glow)}');
+  w('input::placeholder{color:var(--faint)}');
+  w('.hint{font-size:.72rem;color:var(--faint);line-height:1.6;margin-top:5px}');
+  w('.hint a{color:var(--pri);text-decoration:none}.hint a:hover{text-decoration:underline}');
+  w('.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}');
+  w('@media(max-width:460px){.row2{grid-template-columns:1fr}}');
+  w('.ct-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:4px}');
+  w('.ct-btn{display:flex;align-items:center;gap:8px;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--r);padding:10px 14px;cursor:pointer;transition:all var(--tr);user-select:none;min-width:130px}');
+  w('.ct-btn:hover{border-color:var(--bdrh);background:var(--surf3)}');
+  w('.ct-btn.on{background:rgba(124,106,245,.12);border-color:rgba(124,106,245,.45)}');
+  w('.ct-btn.on .ct-dot{background:var(--pri);box-shadow:0 0 6px rgba(124,106,245,.5)}');
+  w('.ct-dot{width:8px;height:8px;border-radius:50%;background:var(--faint);transition:all var(--tr);flex-shrink:0}');
+  w('.ct-label{font-size:.8rem;font-weight:600;color:var(--muted);transition:color var(--tr)}');
+  w('.ct-btn.on .ct-label{color:#c0b8ff}');
+  w('.ct-sub{font-size:.67rem;color:var(--faint);margin-top:1px}');
+  w('.ct-info{display:flex;flex-direction:column}');
+  w('.stitle{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:7px;margin-top:16px}');
+  w('.srow{display:flex;flex-wrap:wrap;gap:7px}');
+  w('.sbtn{display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--r);padding:9px 13px;cursor:pointer;color:var(--muted);transition:all var(--tr);min-width:86px;position:relative;user-select:none}');
+  w('.sbtn:hover{background:var(--surf3);color:var(--txt);border-color:var(--bdrh)}');
+  w('.sbtn.on{background:rgba(124,106,245,.12);border-color:rgba(124,106,245,.5);color:#c0b8ff}');
+  w('.sbtn .sn{font-size:.78rem;font-weight:700;line-height:1.3}');
+  w('.sbtn .st{font-size:.67rem;opacity:.5;margin-top:2px}');
+  w('.sbadge{position:absolute;top:-8px;left:50%;transform:translateX(-50%);background:var(--pri);color:#fff;font-size:.58rem;font-weight:800;padding:1px 6px;border-radius:99px;white-space:nowrap}');
+  w('.shint{font-size:.72rem;color:var(--faint);margin-top:6px;line-height:1.6}');
+  w('.brow{display:flex;gap:10px;flex-wrap:wrap}');
+  w('.btn{padding:11px 24px;border-radius:var(--rsm);font-size:.875rem;font-weight:700;font-family:"Satoshi",system-ui,sans-serif;cursor:pointer;transition:all var(--tr);border:none;outline:none}');
+  w('.bprimary{background:var(--pri);color:#fff;box-shadow:0 2px 12px rgba(124,106,245,.3)}');
+  w('.bprimary:hover{background:var(--prih);box-shadow:0 4px 20px rgba(124,106,245,.4);transform:translateY(-1px)}');
+  w('.bprimary:active{transform:none;box-shadow:none}');
+  w('.bprimary:disabled{background:var(--surf3);color:var(--muted);box-shadow:none;cursor:not-allowed;transform:none}');
+  w('.bsec{background:var(--surf2);border:1px solid var(--bdr);color:var(--muted)}');
+  w('.bsec:hover{border-color:var(--bdrh);color:var(--txt)}');
+  w('.status{padding:10px 14px;border-radius:var(--rsm);font-size:.8rem;margin-top:10px;display:none;line-height:1.5}');
+  w('.s-ok{background:rgba(61,186,122,.1);border:1px solid rgba(61,186,122,.25);color:var(--ok)}');
+  w('.s-err{background:rgba(224,85,85,.1);border:1px solid rgba(224,85,85,.25);color:var(--err)}');
+  w('.outbox{display:none;margin-top:16px}');
+  w('.out-item{margin-bottom:14px}');
+  w('.out-item:last-child{margin-bottom:0}');
+  w('.olbl{font-size:.67rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:5px}');
+  w('.orow{display:flex;gap:8px;align-items:stretch}');
+  w('.ourl{flex:1;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);padding:9px 12px;font-size:.72rem;font-family:"SF Mono",ui-monospace,monospace;color:#a09aff;word-break:break-all;line-height:1.5;min-height:38px;display:flex;align-items:center}');
+  w('.cbtn{background:var(--surf2);border:1px solid var(--bdr);color:var(--muted);padding:8px 14px;border-radius:var(--rsm);cursor:pointer;font-size:.78rem;font-family:"Satoshi",system-ui,sans-serif;white-space:nowrap;transition:all var(--tr);flex-shrink:0}');
+  w('.cbtn:hover{border-color:rgba(124,106,245,.4);color:var(--pri)}');
+  w('.cbtn.cp{border-color:rgba(61,186,122,.4);color:var(--ok);background:rgba(61,186,122,.08)}');
+  w('.steps{display:flex;flex-direction:column;gap:10px}');
+  w('.step{display:flex;gap:12px;align-items:flex-start}');
+  w('.stepn{width:24px;height:24px;border-radius:50%;background:var(--glow);border:1px solid rgba(124,106,245,.3);color:var(--pri);font-size:.75rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}');
+  w('.stept{font-size:.8rem;color:var(--muted);line-height:1.55}');
+  w('.stept b{color:var(--txt)}');
+  w('footer{margin-top:32px;text-align:center;font-size:.7rem;color:var(--faint);line-height:1.8}');
+  w('</style>');
+  w('</head>');
+  w('<body>');
+  w('<div class="page">');
+
+  w('<div class="hdr">');
+  w('  <div class="hdr-logo">');
+  w('    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(124,106,245,.9)" stroke-width="2" stroke-linecap="round">');
+  w('      <circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/>');
+  w('      <line x1="12" y1="3" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="21"/>');
+  w('      <line x1="3" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="21" y2="12"/>');
+  w('    </svg>');
+  w('  </div>');
+  w('  <div class="hdr-text">');
+  w('    <h1>Eclipse Universal Addon</h1>');
+  w('    <p>HiFi &middot; Qobuz &middot; SoundCloud &middot; Deezer &middot; Podcasts &middot; Audiobooks &middot; Radio</p>');
+  w('  </div>');
+  w('</div>');
+
+  w('<div class="card">');
+  w('  <div class="ctitle">Deployment URL <span class="otag">pre-filled</span></div>');
+  w('  <input type="text" id="vercelUrl" value="' + String(baseUrl).replace(/&/g,'&amp;').replace(/"/g,'&quot;') + '" placeholder="https://your-addon.vercel.app">');
+  w('  <p class="hint">Only change this if you host on a different URL.</p>');
+  w('</div>');
+
+  w('<div class="card">');
+  w('  <div class="ctitle">HiFi / Tidal Instance URLs <span class="otag">optional</span></div>');
+  w('  <input type="text" id="hifiInst" placeholder="https://hifi.yourdomain.com (comma-separated)">');
+  w('  <p class="hint">Leave blank to use the built-in public instance pool.</p>');
+  w('</div>');
+
+  w('<div class="card">');
+  w('  <div class="ctitle">SoundCloud Client ID <span class="otag">optional</span></div>');
+  w('  <input type="text" id="scId" placeholder="Leave blank for auto-discovery">');
+  w('</div>');
+
+  w('<div class="card">');
+  w('  <div class="ctitle">Podcast Index <span class="otag">optional &mdash; <a href="https://podcastindex.org/login" target="_blank" rel="noopener">podcastindex.org/login</a></span></div>');
+  w('  <div class="row2">');
+  w('    <div><label class="lbl">API Key</label><input type="text" id="piKey" placeholder="API Key"></div>');
+  w('    <div><label class="lbl">API Secret</label><input type="password" id="piSecret" placeholder="API Secret"></div>');
+  w('  </div>');
+  w('  <p class="hint">Without these, podcast search uses Taddy + Apple Podcasts only.</p>');
+  w('</div>');
+
+  w('<div class="card">');
+  w('  <div class="ctitle">Taddy <span class="otag">optional &mdash; <a href="https://taddy.org/developers" target="_blank" rel="noopener">taddy.org/developers</a></span></div>');
+  w('  <div class="row2">');
+  w('    <div><label class="lbl">API Key</label><input type="text" id="taddyKey" placeholder="API Key"></div>');
+  w('    <div><label class="lbl">User ID</label><input type="text" id="taddyUid" placeholder="User ID"></div>');
+  w('  </div>');
+  w('</div>');
+
+  w('<div class="card">');
+  w('  <div class="ctitle">Content Types</div>');
+  w('  <div class="tip"><b>Enabled types get their own install URL.</b> Disable any you don\'t want &mdash; they\'ll be excluded from search and no URL shown.</div>');
+  w('  <div class="ct-row">');
+  w('    <div class="ct-btn on" id="ct-podcast" onclick="toggleCT(\'podcast\')">');
+  w('      <div class="ct-dot"></div>');
+  w('      <div class="ct-info"><div class="ct-label">Podcasts</div><div class="ct-sub">PI &middot; Taddy &middot; Apple</div></div>');
+  w('    </div>');
+  w('    <div class="ct-btn on" id="ct-audiobook" onclick="toggleCT(\'audiobook\')">');
+  w('      <div class="ct-dot"></div>');
+  w('      <div class="ct-info"><div class="ct-label">Audiobooks</div><div class="ct-sub">LibriVox &middot; Archive</div></div>');
+  w('    </div>');
+  w('    <div class="ct-btn on" id="ct-radio" onclick="toggleCT(\'radio\')">');
+  w('      <div class="ct-dot"></div>');
+  w('      <div class="ct-info"><div class="ct-label">Radio</div><div class="ct-sub">Radio Browser &middot; SomaFM</div></div>');
+  w('    </div>');
+  w('  </div>');
+  w('  <p class="hint" style="margin-top:10px">Music is always included and cannot be disabled.</p>');
+  w('</div>');
+
+  w('<div class="card">');
+  w('  <div class="ctitle">Music Source Priority <span class="otag">optional</span></div>');
+  w('  <div class="tip"><b>Click to set priority order.</b> First clicked = highest priority. Defaults are pre-selected. Click an active source to remove it.</div>');
+  w('  <div class="stitle">Search Sources</div>');
+  w('  <div class="srow" id="searchRow">');
+  w('    <div class="sbtn" id="ss-hifi"   onclick="toggleSearch(\'hifi\')">  <span class="sn">Tidal HiFi</span><span class="st">Hi-Res FLAC</span></div>');
+  w('    <div class="sbtn" id="ss-qobuz"  onclick="toggleSearch(\'qobuz\')"> <span class="sn">Qobuz</span>     <span class="st">Hi-Res FLAC</span></div>');
+  w('    <div class="sbtn" id="ss-sc"     onclick="toggleSearch(\'sc\')">    <span class="sn">SoundCloud</span><span class="st">MP3 Free</span></div>');
+  w('    <div class="sbtn" id="ss-ia"     onclick="toggleSearch(\'ia\')">    <span class="sn">Archive</span>   <span class="st">Various</span></div>');
+  w('    <div class="sbtn" id="ss-deezer" onclick="toggleSearch(\'deezer\')"><span class="sn">Deezer</span>    <span class="st">MP3 Free</span></div>');
+  w('  </div>');
+  w('  <div class="shint" id="searchHint">Loading...</div>');
+  w('  <div class="stitle">Stream Sources</div>');
+  w('  <div class="srow" id="streamRow">');
+  w('    <div class="sbtn" id="st-hifi"   onclick="toggleStream(\'hifi\')">  <span class="sn">Tidal HiFi</span><span class="st">Hi-Res FLAC</span></div>');
+  w('    <div class="sbtn" id="st-qobuz"  onclick="toggleStream(\'qobuz\')"> <span class="sn">Qobuz</span>     <span class="st">Hi-Res FLAC</span></div>');
+  w('    <div class="sbtn" id="st-sc"     onclick="toggleStream(\'sc\')">    <span class="sn">SoundCloud</span><span class="st">MP3 Free</span></div>');
+  w('    <div class="sbtn" id="st-ia"     onclick="toggleStream(\'ia\')">    <span class="sn">Archive</span>   <span class="st">Various</span></div>');
+  w('    <div class="sbtn" id="st-deezer" onclick="toggleStream(\'deezer\')"><span class="sn">Deezer</span>    <span class="st">MP3 Free</span></div>');
+  w('  </div>');
+  w('  <div class="shint" id="streamHint">Loading...</div>');
+  w('</div>');
+
+  w('<div class="card">');
+  w('  <div class="ctitle">Generate URLs</div>');
+  w('  <div class="brow">');
+  w('    <button class="btn bprimary" id="genBtn" onclick="doGenerate()">Generate My Addon URLs</button>');
+  w('  </div>');
+  w('  <div class="status" id="genStatus"></div>');
+  w('  <div class="outbox" id="genBox">');
+  w('    <div class="out-item" id="out-music">');
+  w('      <div class="olbl">&#9834; Music</div>');
+  w('      <div class="orow"><div class="ourl" id="urlMusic"></div><button class="cbtn" id="cpMusic" onclick="copyIt(\'urlMusic\',\'cpMusic\')">Copy</button></div>');
+  w('    </div>');
+  w('    <div class="out-item" id="out-podcast">');
+  w('      <div class="olbl">&#127897; Podcasts</div>');
+  w('      <div class="orow"><div class="ourl" id="urlPodcast"></div><button class="cbtn" id="cpPodcast" onclick="copyIt(\'urlPodcast\',\'cpPodcast\')">Copy</button></div>');
+  w('    </div>');
+  w('    <div class="out-item" id="out-audiobook">');
+  w('      <div class="olbl">&#128214; Audiobooks</div>');
+  w('      <div class="orow"><div class="ourl" id="urlAudiobook"></div><button class="cbtn" id="cpAudiobook" onclick="copyIt(\'urlAudiobook\',\'cpAudiobook\')">Copy</button></div>');
+  w('    </div>');
+  w('    <div class="out-item" id="out-radio">');
+  w('      <div class="olbl">&#128251; Radio</div>');
+  w('      <div class="orow"><div class="ourl" id="urlRadio"></div><button class="cbtn" id="cpRadio" onclick="copyIt(\'urlRadio\',\'cpRadio\')">Copy</button></div>');
+  w('    </div>');
+  w('  </div>');
+  w('</div>');
+
+  w('<div class="card">');
+  w('  <div class="ctitle">Refresh Existing URL <span class="otag">optional</span></div>');
+  w('  <input type="text" id="existingUrl" placeholder="Paste your existing addon URL here">');
+  w('  <div class="brow" style="margin-top:10px">');
+  w('    <button class="btn bsec" onclick="doRefresh()">Refresh URL</button>');
+  w('  </div>');
+  w('  <div class="status" id="refStatus"></div>');
+  w('  <div class="outbox" id="refBox">');
+  w('    <div class="olbl">Refreshed URL</div>');
+  w('    <div class="orow"><div class="ourl" id="urlRef"></div><button class="cbtn" id="cpRef" onclick="copyIt(\'urlRef\',\'cpRef\')">Copy</button></div>');
+  w('  </div>');
+  w('</div>');
+
+  w('<div class="card">');
+  w('  <div class="ctitle">How to Install</div>');
+  w('  <div class="steps">');
+  w('    <div class="step"><div class="stepn">1</div><div class="stept">Fill in any optional API keys, then click <b>Generate My Addon URLs</b></div></div>');
+  w('    <div class="step"><div class="stepn">2</div><div class="stept">Open <b>Eclipse</b> &rarr; Settings &rarr; Connections &rarr; Add Connection &rarr; Addon</div></div>');
+  w('    <div class="step"><div class="stepn">3</div><div class="stept">Paste a Manifest URL and tap <b>Install</b>. Install each content type separately for its dedicated player.</div></div>');
+  w('  </div>');
+  w('</div>');
+
+  w('<footer>Eclipse Universal Addon &bull; Keys encoded in URL &bull; Never stored server-side</footer>');
+  w('</div>');
+
+  w('<script>');
+  w('var searchOrder = ["hifi","qobuz","deezer","sc","ia"];');
+  w('var streamOrder = ["qobuz","hifi","deezer","sc","ia"];');
+  w('var ctEnabled = { podcast: true, audiobook: true, radio: true };');
+  w('var SRCLABELS = { hifi:"Tidal HiFi", qobuz:"Qobuz", sc:"SoundCloud", ia:"Internet Archive", deezer:"Deezer" };');
+  w('var ALL_SRCS = ["hifi","qobuz","sc","ia","deezer"];');
+  w('');
+  w('function toggleCT(type) {');
+  w('  ctEnabled[type] = !ctEnabled[type];');
+  w('  var btn = document.getElementById("ct-" + type);');
+  w('  if (ctEnabled[type]) btn.classList.add("on"); else btn.classList.remove("on");');
+  w('}');
+  w('');
+  w('function toggleSearch(src) {');
+  w('  var idx = searchOrder.indexOf(src);');
+  w('  if (idx === -1) searchOrder.push(src); else searchOrder.splice(idx, 1);');
+  w('  renderSRow("ss-", searchOrder);');
+  w('  updateHint("searchHint", searchOrder);');
+  w('}');
+  w('');
+  w('function toggleStream(src) {');
+  w('  var idx = streamOrder.indexOf(src);');
+  w('  if (idx === -1) streamOrder.push(src); else streamOrder.splice(idx, 1);');
+  w('  renderSRow("st-", streamOrder);');
+  w('  updateHint("streamHint", streamOrder);');
+  w('}');
+  w('');
+  w('function renderSRow(pfx, order) {');
+  w('  ALL_SRCS.forEach(function(src) {');
+  w('    var el = document.getElementById(pfx + src);');
+  w('    if (!el) return;');
+  w('    var pos = order.indexOf(src);');
+  w('    var badge = el.querySelector(".sbadge");');
+  w('    if (pos === -1) {');
+  w('      el.classList.remove("on");');
+  w('      if (badge) badge.remove();');
+  w('    } else {');
+  w('      el.classList.add("on");');
+  w('      if (!badge) { badge = document.createElement("span"); badge.className = "sbadge"; el.appendChild(badge); }');
+  w('      badge.textContent = pos + 1;');
+  w('    }');
+  w('  });');
+  w('}');
+  w('');
+  w('function updateHint(hintId, order) {');
+  w('  var el = document.getElementById(hintId);');
+  w('  if (!el) return;');
+  w('  if (!order.length) { el.textContent = "Nothing selected — all sources used with default priority."; return; }');
+  w('  var names = order.map(function(s) { return SRCLABELS[s]; });');
+  w('  var unsel = ALL_SRCS.filter(function(s) { return order.indexOf(s) === -1; });');
+  w('  var msg = "Priority: " + names.join(" > ");');
+  w('  if (unsel.length) msg += "  |  disabled: " + unsel.map(function(s) { return SRCLABELS[s]; }).join(", ");');
+  w('  el.textContent = msg;');
+  w('}');
+  w('');
+  w('function showStatus(id, msg, type) {');
+  w('  var el = document.getElementById(id);');
+  w('  el.textContent = msg;');
+  w('  el.className = "status " + (type === "ok" ? "s-ok" : "s-err");');
+  w('  el.style.display = "block";');
+  w('}');
+  w('');
+  w('function copyIt(urlId, btnId) {');
+  w('  var text = document.getElementById(urlId).textContent.trim();');
+  w('  if (!text) return;');
+  w('  navigator.clipboard.writeText(text).then(function() {');
+  w('    var btn = document.getElementById(btnId);');
+  w('    btn.textContent = "Copied!"; btn.classList.add("cp");');
+  w('    setTimeout(function() { btn.textContent = "Copy"; btn.classList.remove("cp"); }, 2000);');
+  w('  });');
+  w('}');
+  w('');
+  w('function doGenerate() {');
+  w('  var btn = document.getElementById("genBtn");');
+  w('  var vercel = (document.getElementById("vercelUrl").value || "").trim().replace(/[/]+$/, "");');
+  w('  if (!vercel) vercel = window.location.origin;');
+  w('  if (vercel.indexOf("http") !== 0) vercel = "https://" + vercel;');
+  w('  btn.disabled = true; btn.textContent = "Generating...";');
+  w('  document.getElementById("genStatus").style.display = "none";');
+  w('  var body = { vercelUrl: vercel };');
+  w('  var v = function(id) { return (document.getElementById(id).value || "").trim(); };');
+  w('  if (v("hifiInst"))  body.hifi       = v("hifiInst");');
+  w('  if (v("scId"))      body.sc         = v("scId");');
+  w('  if (v("piKey"))     body.pi_key     = v("piKey");');
+  w('  if (v("piSecret"))  body.pi_secret  = v("piSecret");');
+  w('  if (v("taddyKey"))  body.taddy_key  = v("taddyKey");');
+  w('  if (v("taddyUid"))  body.taddy_uid  = v("taddyUid");');
+  w('  if (!ctEnabled.podcast)   body.no_podcast   = true;');
+  w('  if (!ctEnabled.audiobook) body.no_audiobook = true;');
+  w('  if (!ctEnabled.radio)     body.no_radio     = true;');
+  w('  if (searchOrder.length) {');
+  w('    body.search_order = searchOrder;');
+  w('    ALL_SRCS.forEach(function(s) { if (searchOrder.indexOf(s) === -1) body["no_" + s] = true; });');
+  w('  }');
+  w('  if (streamOrder.length) body.stream_order = streamOrder;');
+  w('  fetch("/generate", {');
+  w('    method: "POST",');
+  w('    headers: { "Content-Type": "application/json" },');
+  w('    body: JSON.stringify(body)');
+  w('  })');
+  w('  .then(function(r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })');
+  w('  .then(function(data) {');
+  w('    if (data.error) throw new Error(data.error);');
+  w('    document.getElementById("urlMusic").textContent = data.manifestUrl || "";');
+  w('    var sp = data.podcastManifestUrl, sa = data.audiobookManifestUrl, sr = data.radioManifestUrl;');
+  w('    document.getElementById("out-podcast").style.display   = (ctEnabled.podcast   && sp) ? "" : "none";');
+  w('    document.getElementById("out-audiobook").style.display = (ctEnabled.audiobook && sa) ? "" : "none";');
+  w('    document.getElementById("out-radio").style.display     = (ctEnabled.radio     && sr) ? "" : "none";');
+  w('    if (sp) document.getElementById("urlPodcast").textContent   = sp;');
+  w('    if (sa) document.getElementById("urlAudiobook").textContent = sa;');
+  w('    if (sr) document.getElementById("urlRadio").textContent     = sr;');
+  w('    document.getElementById("genBox").style.display = "block";');
+  w('    showStatus("genStatus", "Done! Copy your install URLs above.", "ok");');
+  w('  })');
+  w('  .catch(function(e) { showStatus("genStatus", "Error: " + e.message, "err"); })');
+  w('  .finally(function() { btn.disabled = false; btn.textContent = "Generate My Addon URLs"; });');
+  w('}');
+  w('');
+  w('function doRefresh() {');
+  w('  var raw = (document.getElementById("existingUrl").value || "").trim();');
+  w('  if (!raw) { showStatus("refStatus", "Paste your existing URL first.", "err"); return; }');
+  w('  fetch("/refresh", {');
+  w('    method: "POST",');
+  w('    headers: { "Content-Type": "application/json" },');
+  w('    body: JSON.stringify({ existingUrl: raw })');
+  w('  })');
+  w('  .then(function(r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })');
+  w('  .then(function(data) {');
+  w('    if (data.error) throw new Error(data.error);');
+  w('    document.getElementById("urlRef").textContent = data.manifestUrl || "";');
+  w('    document.getElementById("refBox").style.display = "block";');
+  w('    showStatus("refStatus", "Refreshed!", "ok");');
+  w('  })');
+  w('  .catch(function(e) { showStatus("refStatus", "Error: " + e.message, "err"); });');
+  w('}');
+  w('');
+  w('renderSRow("ss-", searchOrder);');
+  w('updateHint("searchHint", searchOrder);');
+  w('renderSRow("st-", streamOrder);');
+  w('updateHint("streamHint", streamOrder);');
+  w('</script>');
+  w('</body>');
+  w('</html>');
+
+  return S.join('\n');
 }
-html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;scroll-behavior:smooth}
-body{font-family:'Satoshi',system-ui,sans-serif;background:var(--bg);color:var(--txt);min-height:100dvh;line-height:1.55}
-.page{max-width:600px;margin:0 auto;padding:48px 20px 80px}
-
-.hdr{display:flex;align-items:center;gap:14px;margin-bottom:36px}
-.hdr-logo{width:44px;height:44px;border-radius:12px;background:var(--glow);border:1px solid rgba(124,106,245,.3);display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.hdr-text h1{font-size:1.2rem;font-weight:700;letter-spacing:-.025em;color:#fff}
-.hdr-text p{font-size:.78rem;color:var(--muted);margin-top:2px}
-
-.card{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--rlg);padding:22px;margin-bottom:12px}
-.ctitle{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:14px;display:flex;align-items:center;gap:8px}
-.otag{font-size:.62rem;font-weight:500;text-transform:none;letter-spacing:.01em;color:var(--muted);opacity:.7;background:var(--surf3);padding:1px 7px;border-radius:99px;border:1px solid var(--bdr)}
-
-.tip{background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);padding:10px 13px;font-size:.78rem;color:var(--muted);line-height:1.65;margin-bottom:12px}
-.tip b{color:var(--txt)}
-
-label.lbl{display:block;font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:5px;margin-top:12px}
-label.lbl:first-child{margin-top:0}
-input[type=text],input[type=password]{width:100%;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);color:var(--txt);padding:9px 12px;font-size:.875rem;font-family:'Satoshi',system-ui,sans-serif;transition:border-color var(--tr),box-shadow var(--tr);outline:none}
-input:focus{border-color:var(--pri);box-shadow:0 0 0 3px var(--glow)}
-input::placeholder{color:var(--faint)}
-.hint{font-size:.72rem;color:var(--faint);line-height:1.6;margin-top:5px}
-.hint a{color:var(--pri);text-decoration:none}.hint a:hover{text-decoration:underline}
-.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-@media(max-width:460px){.row2{grid-template-columns:1fr}}
-
-/* Content type toggles */
-.ct-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:4px}
-.ct-btn{display:flex;align-items:center;gap:8px;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--r);padding:10px 14px;cursor:pointer;transition:all var(--tr);user-select:none;min-width:130px}
-.ct-btn:hover{border-color:var(--bdrh);background:var(--surf3)}
-.ct-btn.on{background:rgba(124,106,245,.12);border-color:rgba(124,106,245,.45)}
-.ct-btn.on .ct-dot{background:var(--pri);box-shadow:0 0 6px rgba(124,106,245,.5)}
-.ct-dot{width:8px;height:8px;border-radius:50%;background:var(--faint);transition:all var(--tr);flex-shrink:0}
-.ct-label{font-size:.8rem;font-weight:600;color:var(--muted);transition:color var(--tr)}
-.ct-btn.on .ct-label{color:#c0b8ff}
-.ct-sub{font-size:.67rem;color:var(--faint);margin-top:1px}
-.ct-btn.on .ct-sub{color:rgba(192,184,255,.5)}
-.ct-info{display:flex;flex-direction:column}
-
-/* Source pickers */
-.stitle{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:7px;margin-top:16px}
-.srow{display:flex;flex-wrap:wrap;gap:7px}
-.sbtn{display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--r);padding:9px 13px;cursor:pointer;color:var(--muted);transition:all var(--tr);min-width:86px;position:relative;user-select:none}
-.sbtn:hover{background:var(--surf3);color:var(--txt);border-color:var(--bdrh)}
-.sbtn.on{background:rgba(124,106,245,.12);border-color:rgba(124,106,245,.5);color:#c0b8ff}
-.sbtn .sn{font-size:.78rem;font-weight:700;line-height:1.3}
-.sbtn .st{font-size:.67rem;opacity:.5;margin-top:2px}
-.sbadge{position:absolute;top:-8px;left:50%;transform:translateX(-50%);background:var(--pri);color:#fff;font-size:.58rem;font-weight:800;padding:1px 6px;border-radius:99px;white-space:nowrap}
-.shint{font-size:.72rem;color:var(--faint);margin-top:6px;line-height:1.6}
-
-/* Buttons */
-.brow{display:flex;gap:10px;flex-wrap:wrap}
-.btn{padding:11px 24px;border-radius:var(--rsm);font-size:.875rem;font-weight:700;font-family:'Satoshi',system-ui,sans-serif;cursor:pointer;transition:all var(--tr);border:none;outline:none}
-.bprimary{background:var(--pri);color:#fff;box-shadow:0 2px 12px rgba(124,106,245,.3)}
-.bprimary:hover{background:var(--prih);box-shadow:0 4px 20px rgba(124,106,245,.4);transform:translateY(-1px)}
-.bprimary:active{transform:none;box-shadow:none}
-.bprimary:disabled{background:var(--surf3);color:var(--muted);box-shadow:none;cursor:not-allowed;transform:none}
-.bsec{background:var(--surf2);border:1px solid var(--bdr);color:var(--muted)}
-.bsec:hover{border-color:var(--bdrh);color:var(--txt)}
-
-.status{padding:10px 14px;border-radius:var(--rsm);font-size:.8rem;margin-top:10px;display:none;line-height:1.5}
-.s-ok{background:rgba(61,186,122,.1);border:1px solid rgba(61,186,122,.25);color:var(--ok)}
-.s-err{background:rgba(224,85,85,.1);border:1px solid rgba(224,85,85,.25);color:var(--err)}
-
-.outbox{display:none;margin-top:16px}
-.out-item{margin-bottom:14px}
-.out-item:last-child{margin-bottom:0}
-.olbl{font-size:.67rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:5px}
-.orow{display:flex;gap:8px;align-items:stretch}
-.ourl{flex:1;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);padding:9px 12px;font-size:.72rem;font-family:'SF Mono',ui-monospace,monospace;color:#a09aff;word-break:break-all;line-height:1.5;min-height:38px;display:flex;align-items:center}
-.cbtn{background:var(--surf2);border:1px solid var(--bdr);color:var(--muted);padding:8px 14px;border-radius:var(--rsm);cursor:pointer;font-size:.78rem;font-family:'Satoshi',system-ui,sans-serif;white-space:nowrap;transition:all var(--tr);flex-shrink:0}
-.cbtn:hover{border-color:rgba(124,106,245,.4);color:var(--pri)}
-.cbtn.cp{border-color:rgba(61,186,122,.4);color:var(--ok);background:rgba(61,186,122,.08)}
-
-.divider{border:none;border-top:1px solid var(--bdr);margin:4px 0 16px}
-
-.steps{display:flex;flex-direction:column;gap:10px}
-.step{display:flex;gap:12px;align-items:flex-start}
-.stepn{width:24px;height:24px;border-radius:50%;background:var(--glow);border:1px solid rgba(124,106,245,.3);color:var(--pri);font-size:.75rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
-.stept{font-size:.8rem;color:var(--muted);line-height:1.55}
-.stept b{color:var(--txt)}
-
-footer{margin-top:32px;text-align:center;font-size:.7rem;color:var(--faint);line-height:1.8}
-</style>
-</head>
-<body>
-<div class="page">
-
-<div class="hdr">
-  <div class="hdr-logo">
-    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(124,106,245,.9)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="3" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="21"/><line x1="3" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="21" y2="12"/></svg>
-  </div>
-  <div class="hdr-text">
-    <h1>Eclipse Universal Addon</h1>
-    <p>HiFi &middot; Qobuz &middot; SoundCloud &middot; Deezer &middot; Podcasts &middot; Audiobooks &middot; Radio</p>
-  </div>
-</div>
-
-<!-- Deployment URL -->
-<div class="card">
-  <div class="ctitle">Deployment URL <span class="otag">pre-filled</span></div>
-  <input type="text" id="vercelUrl" value="${baseUrl}" placeholder="https://your-addon.vercel.app">
-  <p class="hint">Only change this if you host on a different URL.</p>
-</div>
-
-<!-- HiFi -->
-<div class="card">
-  <div class="ctitle">HiFi / Tidal Instance URLs <span class="otag">optional</span></div>
-  <input type="text" id="hifiInst" placeholder="https://hifi.yourdomain.com (comma-separated)">
-  <p class="hint">Leave blank to use the built-in public instance pool.</p>
-</div>
-
-<!-- SoundCloud -->
-<div class="card">
-  <div class="ctitle">SoundCloud Client ID <span class="otag">optional</span></div>
-  <input type="text" id="scId" placeholder="Leave blank for auto-discovery">
-</div>
-
-<!-- Podcast Index -->
-<div class="card">
-  <div class="ctitle">Podcast Index <span class="otag">optional &mdash; <a href="https://podcastindex.org/login" target="_blank" rel="noopener">podcastindex.org/login</a></span></div>
-  <div class="row2">
-    <div><label class="lbl">API Key</label><input type="text" id="piKey" placeholder="API Key"></div>
-    <div><label class="lbl">API Secret</label><input type="password" id="piSecret" placeholder="API Secret"></div>
-  </div>
-  <p class="hint">Without these, podcast search uses Taddy + Apple Podcasts only.</p>
-</div>
-
-<!-- Taddy -->
-<div class="card">
-  <div class="ctitle">Taddy <span class="otag">optional &mdash; <a href="https://taddy.org/developers" target="_blank" rel="noopener">taddy.org/developers</a></span></div>
-  <div class="row2">
-    <div><label class="lbl">API Key</label><input type="text" id="taddyKey" placeholder="API Key"></div>
-    <div><label class="lbl">User ID</label><input type="text" id="taddyUid" placeholder="User ID"></div>
-  </div>
-</div>
-
-<!-- Content Types -->
-<div class="card">
-  <div class="ctitle">Content Types</div>
-  <div class="tip"><b>Tip:</b> Each enabled type gets its own install URL below. Disabled types are excluded from search results and no URL is shown.</div>
-  <div class="ct-row">
-    <div class="ct-btn on" id="ct-podcast" onclick="toggleCT('podcast')">
-      <div class="ct-dot"></div>
-      <div class="ct-info"><div class="ct-label">Podcasts</div><div class="ct-sub">PI · Taddy · Apple</div></div>
-    </div>
-    <div class="ct-btn on" id="ct-audiobook" onclick="toggleCT('audiobook')">
-      <div class="ct-dot"></div>
-      <div class="ct-info"><div class="ct-label">Audiobooks</div><div class="ct-sub">LibriVox · Archive</div></div>
-    </div>
-    <div class="ct-btn on" id="ct-radio" onclick="toggleCT('radio')">
-      <div class="ct-dot"></div>
-      <div class="ct-info"><div class="ct-label">Radio</div><div class="ct-sub">Radio Browser · SomaFM</div></div>
-    </div>
-  </div>
-  <p class="hint" style="margin-top:10px">Music is always included and cannot be disabled.</p>
-</div>
-
-<!-- Music Sources -->
-<div class="card">
-  <div class="ctitle">Music Source Priority <span class="otag">optional</span></div>
-  <div class="tip"><b>Click to add in priority order.</b> First clicked = highest priority. Leave blank for default order. Click again to remove.</div>
-
-  <div class="stitle">Search Sources</div>
-  <div class="srow" id="searchRow">
-    <div class="sbtn" id="ss-hifi"   onclick="toggleSearch('hifi')">  <span class="sn">Tidal HiFi</span><span class="st">Hi-Res FLAC</span></div>
-    <div class="sbtn" id="ss-qobuz"  onclick="toggleSearch('qobuz')"> <span class="sn">Qobuz</span>     <span class="st">Hi-Res FLAC</span></div>
-    <div class="sbtn" id="ss-sc"     onclick="toggleSearch('sc')">    <span class="sn">SoundCloud</span><span class="st">MP3 Free</span></div>
-    <div class="sbtn" id="ss-ia"     onclick="toggleSearch('ia')">    <span class="sn">Archive</span>   <span class="st">Various</span></div>
-    <div class="sbtn" id="ss-deezer" onclick="toggleSearch('deezer')"><span class="sn">Deezer</span>    <span class="st">MP3 Free</span></div>
-  </div>
-  <div class="shint" id="searchHint">Nothing selected — all sources used with default priority.</div>
-
-  <div class="stitle">Stream Sources</div>
-  <div class="srow" id="streamRow">
-    <div class="sbtn" id="st-hifi"   onclick="toggleStream('hifi')">  <span class="sn">Tidal HiFi</span><span class="st">Hi-Res FLAC</span></div>
-    <div class="sbtn" id="st-qobuz"  onclick="toggleStream('qobuz')"> <span class="sn">Qobuz</span>     <span class="st">Hi-Res FLAC</span></div>
-    <div class="sbtn" id="st-sc"     onclick="toggleStream('sc')">    <span class="sn">SoundCloud</span><span class="st">MP3 Free</span></div>
-    <div class="sbtn" id="st-ia"     onclick="toggleStream('ia')">    <span class="sn">Archive</span>   <span class="st">Various</span></div>
-    <div class="sbtn" id="st-deezer" onclick="toggleStream('deezer')"><span class="sn">Deezer</span>    <span class="st">MP3 Free</span></div>
-  </div>
-  <div class="shint" id="streamHint">Nothing selected — all sources used with default priority.</div>
-</div>
-
-<!-- Generate -->
-<div class="card">
-  <div class="ctitle">Generate URLs</div>
-  <div class="brow">
-    <button class="btn bprimary" id="genBtn" onclick="doGenerate()">Generate My Addon URLs</button>
-  </div>
-  <div class="status" id="genStatus"></div>
-  <div class="outbox" id="genBox">
-    <div class="out-item" id="out-music">
-      <div class="olbl">&#9834; Music</div>
-      <div class="orow"><div class="ourl" id="urlMusic"></div><button class="cbtn" id="cpMusic" onclick="copyIt('urlMusic','cpMusic')">Copy</button></div>
-    </div>
-    <div class="out-item" id="out-podcast">
-      <div class="olbl">&#127897; Podcasts</div>
-      <div class="orow"><div class="ourl" id="urlPodcast"></div><button class="cbtn" id="cpPodcast" onclick="copyIt('urlPodcast','cpPodcast')">Copy</button></div>
-    </div>
-    <div class="out-item" id="out-audiobook">
-      <div class="olbl">&#128214; Audiobooks</div>
-      <div class="orow"><div class="ourl" id="urlAudiobook"></div><button class="cbtn" id="cpAudiobook" onclick="copyIt('urlAudiobook','cpAudiobook')">Copy</button></div>
-    </div>
-    <div class="out-item" id="out-radio">
-      <div class="olbl">&#128251; Radio</div>
-      <div class="orow"><div class="ourl" id="urlRadio"></div><button class="cbtn" id="cpRadio" onclick="copyIt('urlRadio','cpRadio')">Copy</button></div>
-    </div>
-  </div>
-</div>
-
-<!-- Refresh -->
-<div class="card">
-  <div class="ctitle">Refresh Existing URL <span class="otag">optional</span></div>
-  <input type="text" id="existingUrl" placeholder="Paste your existing addon URL here">
-  <div class="brow" style="margin-top:10px">
-    <button class="btn bsec" onclick="doRefresh()">Refresh URL</button>
-  </div>
-  <div class="status" id="refStatus"></div>
-  <div class="outbox" id="refBox">
-    <div class="olbl">Refreshed URL</div>
-    <div class="orow"><div class="ourl" id="urlRef"></div><button class="cbtn" id="cpRef" onclick="copyIt('urlRef','cpRef')">Copy</button></div>
-  </div>
-</div>
-
-<!-- How to install -->
-<div class="card">
-  <div class="ctitle">How to Install</div>
-  <div class="steps">
-    <div class="step"><div class="stepn">1</div><div class="stept">Fill in any optional API keys above, then click <b>Generate My Addon URLs</b></div></div>
-    <div class="step"><div class="stepn">2</div><div class="stept">Open <b>Eclipse</b> &rarr; Settings &rarr; Connections &rarr; Add Connection &rarr; Addon</div></div>
-    <div class="step"><div class="stepn">3</div><div class="stept">Paste a Manifest URL and tap <b>Install</b>. Install each content type separately for its dedicated player UI.</div></div>
-  </div>
-</div>
-
-<footer>Eclipse Universal Addon &bull; Keys encoded in URL &bull; Never stored server-side</footer>
-</div>
-
-<script>
-var searchOrder = ['hifi','qobuz','deezer','sc','ia'];
-var streamOrder = ['qobuz','hifi','deezer','sc','ia'];
-var ctEnabled = { podcast: true, audiobook: true, radio: true };
-var SRCLABELS = { hifi:'Tidal HiFi', qobuz:'Qobuz', sc:'SoundCloud', ia:'Internet Archive', deezer:'Deezer' };
-
-function toggleCT(type) {
-  ctEnabled[type] = !ctEnabled[type];
-  var btn = document.getElementById('ct-' + type);
-  if (ctEnabled[type]) btn.classList.add('on'); else btn.classList.remove('on');
-}
-
-function toggleSearch(src) {
-  var idx = searchOrder.indexOf(src);
-  if (idx === -1) searchOrder.push(src); else searchOrder.splice(idx, 1);
-  renderSRow('ss-', searchOrder);
-  updateHint('searchHint', searchOrder, 'search');
-}
-function toggleStream(src) {
-  var idx = streamOrder.indexOf(src);
-  if (idx === -1) streamOrder.push(src); else streamOrder.splice(idx, 1);
-  renderSRow('st-', streamOrder);
-  updateHint('streamHint', streamOrder, 'stream');
-}
-function renderSRow(pfx, order) {
-  ['hifi','qobuz','sc','ia','deezer'].forEach(function(src) {
-    var el = document.getElementById(pfx + src);
-    if (!el) return;
-    var pos = order.indexOf(src);
-    var badge = el.querySelector('.sbadge');
-    if (pos === -1) {
-      el.classList.remove('on');
-      if (badge) badge.remove();
-    } else {
-      el.classList.add('on');
-      if (!badge) { badge = document.createElement('span'); badge.className = 'sbadge'; el.appendChild(badge); }
-      badge.textContent = pos + 1;
-    }
-  });
-}
-function updateHint(hintId, order, type) {
-  var el = document.getElementById(hintId);
-  if (!el) return;
-  if (!order.length) { el.textContent = 'Nothing selected \u2014 all sources used with default priority.'; return; }
-  var names = order.map(function(s) { return SRCLABELS[s]; });
-  var unsel = ['hifi','qobuz','sc','ia','deezer'].filter(function(s) { return order.indexOf(s) === -1; });
-  var msg = 'Priority: ' + names.join(' \u2192 ');
-  if (unsel.length) msg += '  \u2014  disabled: ' + unsel.map(function(s) { return SRCLABELS[s]; }).join(', ');
-  el.textContent = msg;
-}
-
-function showStatus(id, msg, type) {
-  var el = document.getElementById(id);
-  el.textContent = msg; el.className = 'status ' + (type === 'ok' ? 's-ok' : 's-err'); el.style.display = 'block';
-}
-function copyIt(urlId, btnId) {
-  var text = document.getElementById(urlId).textContent.trim();
-  if (!text) return;
-  navigator.clipboard.writeText(text).then(function() {
-    var btn = document.getElementById(btnId);
-    btn.textContent = 'Copied!'; btn.classList.add('cp');
-    setTimeout(function() { btn.textContent = 'Copy'; btn.classList.remove('cp'); }, 2000);
-  });
-}
-
-function doGenerate() {
-  var btn = document.getElementById('genBtn');
-  var vercel = (document.getElementById('vercelUrl').value || '').trim().replace(/\/+$/, '');
-  if (!vercel) vercel = window.location.origin;
-  if (vercel.indexOf('http') !== 0) vercel = 'https://' + vercel;
-
-  btn.disabled = true; btn.textContent = 'Generating\u2026';
-  document.getElementById('genStatus').style.display = 'none';
-
-  var body = { vercelUrl: vercel };
-  var v = function(id) { return (document.getElementById(id).value || '').trim(); };
-  if (v('hifiInst'))  body.hifi       = v('hifiInst');
-  if (v('scId'))      body.sc         = v('scId');
-  if (v('piKey'))     body.pi_key     = v('piKey');
-  if (v('piSecret'))  body.pi_secret  = v('piSecret');
-  if (v('taddyKey'))  body.taddy_key  = v('taddyKey');
-  if (v('taddyUid'))  body.taddy_uid  = v('taddyUid');
-
-  // Content type disable flags
-  if (!ctEnabled.podcast)   body.no_podcast   = true;
-  if (!ctEnabled.audiobook) body.no_audiobook = true;
-  if (!ctEnabled.radio)     body.no_radio     = true;
-
-  // Music source priority
-  var allSrc = ['hifi','qobuz','sc','ia','deezer'];
-  if (searchOrder.length) {
-    body.search_order = searchOrder;
-    allSrc.forEach(function(s) { if (searchOrder.indexOf(s) === -1) body['no_' + s] = true; });
-  }
-  if (streamOrder.length) {
-    body.stream_order = streamOrder;
-  }
-
-  fetch('/generate', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body)
-  })
-  .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-  .then(function(data) {
-    if (data.error) throw new Error(data.error);
-
-    document.getElementById('urlMusic').textContent = data.manifestUrl || '';
-
-    // Only show podcast/audiobook/radio if enabled
-    var showPodcast   = ctEnabled.podcast   && data.podcastManifestUrl;
-    var showAudiobook = ctEnabled.audiobook && data.audiobookManifestUrl;
-    var showRadio     = ctEnabled.radio     && data.radioManifestUrl;
-
-    document.getElementById('out-podcast').style.display   = showPodcast   ? '' : 'none';
-    document.getElementById('out-audiobook').style.display = showAudiobook ? '' : 'none';
-    document.getElementById('out-radio').style.display     = showRadio     ? '' : 'none';
-
-    if (showPodcast)   document.getElementById('urlPodcast').textContent   = data.podcastManifestUrl;
-    if (showAudiobook) document.getElementById('urlAudiobook').textContent = data.audiobookManifestUrl;
-    if (showRadio)     document.getElementById('urlRadio').textContent     = data.radioManifestUrl;
-
-    document.getElementById('genBox').style.display = 'block';
-    showStatus('genStatus', '\u2713 Done! Copy your install URLs above.', 'ok');
-  })
-  .catch(function(e) { showStatus('genStatus', 'Error: ' + e.message, 'err'); })
-  .finally(function() { btn.disabled = false; btn.textContent = 'Generate My Addon URLs'; });
-}
-
-function doRefresh() {
-  var raw = (document.getElementById('existingUrl').value || '').trim();
-  if (!raw) { showStatus('refStatus', 'Paste your existing URL first.', 'err'); return; }
-  fetch('/refresh', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ existingUrl: raw })
-  })
-  .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-  .then(function(data) {
-    if (data.error) throw new Error(data.error);
-    document.getElementById('urlRef').textContent = data.manifestUrl || '';
-    document.getElementById('refBox').style.display = 'block';
-    showStatus('refStatus', '\u2713 Refreshed!', 'ok');
-  })
-  .catch(function(e) { showStatus('refStatus', 'Error: ' + e.message, 'err'); });
-}
-// Render default source selections on page load
-renderSRow('ss-', searchOrder);
-updateHint('searchHint', searchOrder, 'search');
-renderSRow('st-', streamOrder);
-updateHint('streamHint', streamOrder, 'stream');
-</script>
-</body>
-</html>`;
-  return html;
-}
-
 
 function getBaseUrl(c) {
   return (c.req.header('x-forwarded-proto') || 'https') + '://' + c.req.header('host');
 }
 
+// ─── POST /generate — server-side token builder ───────────────────────────────
 app.post('/generate', async function(c) {
   var b = await c.req.json().catch(() => ({}));
   var vercel = (b.vercelUrl || '').trim().replace(/\/+$/, '');
@@ -4924,10 +4887,6 @@ app.post('/generate', async function(c) {
   //   /{token}/podcast/manifest.json
   //   /{token}/audiobook/manifest.json
   // and avoids the bare /podcast/manifest.json path the user reported as unreliable.
-  // Add a nonce so every generated URL is unique and unguessable (~28-char hex)
-  var nonceBytes = new Uint8Array(14);
-  crypto.getRandomValues(nonceBytes);
-  cfg._n = Array.from(nonceBytes, function(b){ return b.toString(16).padStart(2,'0'); }).join('');
   var token = encodeBase64Url(JSON.stringify(cfg));
   if (!token) token = 'e30';
 
