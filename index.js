@@ -17,9 +17,9 @@ import { Hono } from 'hono';
 
 // ─── safeYear: always returns Int for Android JSON parser ─────────────────────
 function safeYear(val) {
-  if (val === null || val === undefined || val === '' || val === 0) return 0;
+  if (val === null || val === undefined || val === '' || val === 0) return undefined;
   const n = parseInt(String(val).replace(/[^0-9]/g, '').slice(0, 4), 10);
-  return (isNaN(n) || n < 1000 || n > 2100) ? 0 : n;
+  return (isNaN(n) || n < 1000 || n > 2100) ? undefined : n;
 }
 
 
@@ -1469,7 +1469,7 @@ async function piSearchEpisodes(query, key, secret) {
       artist: f.author || '',
       artworkURL: f.artwork || f.image || '',
       trackCount: f.episodeCount || 0,
-      year: 0,
+      year: undefined,
       _source: 'pi',
       _isPodcast: true,
     }));
@@ -1559,7 +1559,7 @@ async function taddySearch(query, apiKey, userId) {
       artist: p.creator || '',
       artworkURL: p.artworkURL || '',
       trackCount: p.trackCount || 0,
-      year: 0,
+      year: undefined,
       _source: 'taddy',
       _isPodcast: true,
     }));
@@ -1715,7 +1715,7 @@ async function appleSearch(query) {
     const albums = playlists.map(p => ({
       id: p.id, title: p.title, artist: p.creator,
       artworkURL: p.artworkURL, trackCount: p.trackCount,
-      year: 0, source: 'apple', _isPodcast: true,
+      year: undefined, source: 'apple', _isPodcast: true,
     }));
     const result = { playlists, albums, episodes };
     await cacheSet(cacheKey, result, 600);
@@ -2213,13 +2213,22 @@ async function deezerSearch(query) {
     const rawAlbums    = albumRes.status    === 'fulfilled' ? (albumRes.value.data?.data    || []) : [];
     const rawArtists   = artistRes.status   === 'fulfilled' ? (artistRes.value.data?.data   || []) : [];
     const rawPlaylists = playlistRes.status === 'fulfilled' ? (playlistRes.value.data?.data || []) : [];
-    const tracks = rawTracks.slice(0, 20).map(t => ({
-      id: `deezer:${t.id}`, title: t.title || 'Unknown', artist: t.artist?.name || 'Unknown',
-      album: t.album?.title || '', duration: t.duration || undefined,
-      artworkURL: t.album?.cover_xl || t.album?.cover_big || t.album?.cover || null,
-      format: 'mp3', source: 'deezer',
-      isrc: t.isrc ? t.isrc.toUpperCase().replace(/[^A-Z0-9]/g,'') : undefined,
-    }));
+    const tracks = rawTracks.slice(0, 20).map(t => {
+      const dzTrackId = String(t.id);
+      const dzIsrcVal = t.isrc ? t.isrc.toUpperCase().replace(/[^A-Z0-9]/g,'') : undefined;
+      // Cache track meta so stream handler can cross-source to qobuz/tidal without query params
+      cacheSet(`dztrackmeta:${dzTrackId}`, {
+        title: t.title || 'Unknown', artist: t.artist?.name || 'Unknown',
+        isrc: dzIsrcVal || null, duration: t.duration || undefined,
+      }, 3600);
+      return {
+        id: `deezer:${dzTrackId}`, title: t.title || 'Unknown', artist: t.artist?.name || 'Unknown',
+        album: t.album?.title || '', duration: t.duration || undefined,
+        artworkURL: t.album?.cover_xl || t.album?.cover_big || t.album?.cover || null,
+        format: 'mp3', source: 'deezer',
+        isrc: dzIsrcVal,
+      };
+    });
     const albums = rawAlbums.slice(0, 8).map(a => ({
       id: `deezer:album:${a.id}`, title: a.title || 'Unknown Album', artist: a.artist?.name || 'Unknown',
       artworkURL: a.cover_xl || a.cover_big || a.cover || null, year: safeYear(a.release_date), source: 'deezer',
@@ -3020,13 +3029,11 @@ async function handleSearch(c) {
     if (item.isrc) return 'isrc:' + item.isrc.toUpperCase().replace(/[^A-Z0-9]/g, '');
     const t  = _normStr(item.title  || '');
     const a  = _normStr((item.artist || '').split(/[,&]/)[0]);
-    const y  = item.year ? String(item.year).slice(0, 4) : '';
-    // No duration bucket in key — same title+artist always produces the same key so the
-    // 15-second cross-check inside interleave() can correctly decide if it's a different version.
-    // Including duration caused tracks with duration just across a 10s boundary to get
-    // different keys and both pass dedup as false positives.
+    // Year excluded from key: sources report it inconsistently (undefined/0/actual year from safeYear),
+    // same track from two sources got different keys → both survived dedup → duplicate entries.
+    // ISRC is the primary exact key; title+artist is sufficient fallback for cross-source dedup.
     if (!t && !a) return null; // don't dedup unknown tracks against each other
-    return 'ta:' + t + '|' + a + '|' + y;
+    return 'ta:' + t + '|' + a;
   };
 
   const _canonAlbKey = item => {
@@ -3659,7 +3666,8 @@ async function handleStream(c) {
     // FIX: ISRC-gate — only upgrade SC tracks that have a confirmed ISRC.
     // Without ISRC, qobuzFindBestTrack does fuzzy title/artist search which matches wrong tracks
     // on SC-exclusive / indie content. If no ISRC, always play natively on SC.
-    if (!_scSkipSelf && scMeta0?.title && scMeta0?.isrc && _qIdx !== -1 && (_scIdx === -1 || _qIdx < _scIdx) && !cfg.noQobuz) {
+    // Try Qobuz upgrade if it ranks higher than SC — ISRC used when available, else title+artist+duration
+    if (!_scSkipSelf && scMeta0?.title && _qIdx !== -1 && (_scIdx === -1 || _qIdx < _scIdx) && !cfg.noQobuz) {
       try {
         const qTrack = await qobuzFindBestTrack(scMeta0.title, scMeta0.artist, scMeta0.isrc, c.env, scMeta0.duration);
         if (qTrack?.id) {
@@ -3681,7 +3689,8 @@ async function handleStream(c) {
     }
 
     // Try HiFi/Tidal before SC if hifi is ranked higher than sc — also ISRC-gated
-    if (!_scSkipSelf && scMeta0?.title && scMeta0?.isrc && _hIdx !== -1 && (_scIdx === -1 || _hIdx < _scIdx) && !cfg.noHifi) {
+    // Try HiFi/Tidal upgrade if it ranks higher than SC — ISRC used when available, else title+artist+duration
+    if (!_scSkipSelf && scMeta0?.title && _hIdx !== -1 && (_scIdx === -1 || _hIdx < _scIdx) && !cfg.noHifi) {
       try {
         const hifiRes = await hifiSearch(`${scMeta0.artist} ${scMeta0.title}`, cfg.hifiInstances);
         const hifiTracks = Array.isArray(hifiRes) ? hifiRes : (hifiRes?.tracks || []);
@@ -3783,6 +3792,14 @@ async function handleStream(c) {
             const hifiRes = await hifiSearch(`${scMeta.artist} ${scMeta.title}`, cfg.hifiInstances);
             const hifiTracks = Array.isArray(hifiRes) ? hifiRes : (hifiRes?.tracks || []);
             for (const ht of hifiTracks.slice(0, 3)) {
+              const _htDurDiff = (scMeta.duration && ht.duration)
+                ? Math.abs(scMeta.duration - ht.duration) : 0;
+              if (_htDurDiff > 20) { console.log(`[SC→HiFi] dur mismatch ${_htDurDiff}s skip`); continue; }
+              const _htArtNorm = _normStr(ht.artist || '');
+              const _htMetaArtWords = _normStr(scMeta.artist || '').split(/\s+/).filter(w => w.length > 1);
+              const _htArtMatch = !scMeta.artist || _htMetaArtWords.length === 0 ||
+                _htMetaArtWords.some(w => _htArtNorm.includes(w));
+              if (!_htArtMatch) { console.log(`[SC→HiFi] artist mismatch skip`); continue; }
               const hifiStreamResult = await hifiStream(ht.id, cfg.hifiInstances, cfg.preferredQuality);
               if (hifiStreamResult) { console.log(`[SC→HiFi] ${scMeta.title} → ${ht.id}`); return c.json({ ...hifiStreamResult, fallback: 'hifi' }); }
             }
@@ -3960,15 +3977,17 @@ async function handleStream(c) {
     const _dzIdx  = _dzStreamOrder.indexOf('deezer');
     const _dzQIdx = _dzStreamOrder.indexOf('qobuz');
     const _dzHIdx = _dzStreamOrder.indexOf('hifi');
-    const dzIsrc0 = c.req.query('isrc') ? String(c.req.query('isrc')).trim().toUpperCase() : null;
-    const dzTitle = c.req.query('title')  ? decodeURIComponent(c.req.query('title')).trim()  : '';
-    const dzArtist= c.req.query('artist') ? decodeURIComponent(c.req.query('artist')).trim() : '';
+    const dzTitle    = c.req.query('title')    ? decodeURIComponent(c.req.query('title')).trim()    : '';
+    const dzArtist   = c.req.query('artist')   ? decodeURIComponent(c.req.query('artist')).trim()   : '';
+    const dzDuration = c.req.query('duration') ? Number(c.req.query('duration'))                    : undefined;
+    const dzIsrc0    = c.req.query('isrc')     ? c.req.query('isrc').toUpperCase().replace(/[^A-Z0-9]/g,'') : null;
 
-    // Load cached track metadata so we can cross-source even without query params
-    const _dzCachedMeta = await cacheGet(`dz:track:meta:${dzId}`);
-    const dzTitle2  = dzTitle  || _dzCachedMeta?.title  || '';
-    const dzArtist2 = dzArtist || _dzCachedMeta?.artist || '';
-    const dzIsrc    = dzIsrc0  || _dzCachedMeta?.isrc   || null;
+    // Load cached track metadata (written by deezerSearch) so we can cross-source without query params
+    const _dzCachedMeta = await cacheGet(`dztrackmeta:${dzId}`);
+    const dzTitle2    = dzTitle    || _dzCachedMeta?.title    || '';
+    const dzArtist2   = dzArtist   || _dzCachedMeta?.artist   || '';
+    const dzDuration2 = dzDuration || _dzCachedMeta?.duration || undefined;
+    const dzIsrc      = dzIsrc0    || _dzCachedMeta?.isrc     || null;
 
     // FIX: when streamOrder is set and non-empty, treat any source NOT in it as disabled.
     // e.g. streamOrder=['deezer'] → qobuz/hifi/sc are all implicitly excluded,
@@ -4047,10 +4066,16 @@ async function handleStream(c) {
           try {
             const qTrack = dzIsrc
               ? await qobuzFindByIsrc(dzIsrc)
-              : (dzTitle2 ? await qobuzFindBestTrack(dzTitle2, dzArtist2, null, c.env) : null);
+              : (dzTitle2 ? await qobuzFindBestTrack(dzTitle2, dzArtist2, null, c.env, dzDuration2) : null);
             if (qTrack?.id) {
-              const qStream = await qobuzStream(qTrack.id, c.env);
-              if (qStream) { console.log(`[Deezer→Qobuz fallback] ${dzIsrc || dzTitle2}`); return c.json({ ...qStream, fallback: 'qobuz' }); }
+              const _dzQDurDiff = (dzDuration2 && qTrack.duration)
+                ? Math.abs(dzDuration2 - qTrack.duration) : 0;
+              if (_dzQDurDiff > 20) {
+                console.log(`[Deezer→Qobuz fallback] dur mismatch ${_dzQDurDiff}s skip`);
+              } else {
+                const qStream = await qobuzStream(qTrack.id, c.env);
+                if (qStream) { console.log(`[Deezer→Qobuz fallback] ${dzIsrc || dzTitle2}`); return c.json({ ...qStream, fallback: 'qobuz' }); }
+              }
             }
           } catch(e) { console.warn('[Deezer→Qobuz fallback]', e.message); }
         }
@@ -4059,6 +4084,14 @@ async function handleStream(c) {
             const hifiRes = await hifiSearch(`${dzArtist2} ${dzTitle2}`, cfg.hifiInstances);
             const hifiTracks = Array.isArray(hifiRes) ? hifiRes : (hifiRes?.tracks || []);
             for (const ht of hifiTracks.slice(0, 3)) {
+              const _dzHtDurDiff = (dzDuration2 && ht.duration)
+                ? Math.abs(dzDuration2 - ht.duration) : 0;
+              if (_dzHtDurDiff > 20) { console.log(`[Deezer→HiFi] dur mismatch ${_dzHtDurDiff}s skip`); continue; }
+              const _dzHtArtNorm = _normStr(ht.artist || '');
+              const _dzMetaArtWords = _normStr(dzArtist2 || '').split(/\s+/).filter(w => w.length > 1);
+              const _dzHtArtMatch = !dzArtist2 || _dzMetaArtWords.length === 0 ||
+                _dzMetaArtWords.some(w => _dzHtArtNorm.includes(w));
+              if (!_dzHtArtMatch) { console.log(`[Deezer→HiFi] artist mismatch skip`); continue; }
               const hs = await hifiStream(ht.id, cfg.hifiInstances, cfg.preferredQuality);
               if (hs) { console.log(`[Deezer→HiFi fallback] ${dzTitle2}`); return c.json({ ...hs, fallback: 'hifi' }); }
             }
@@ -4541,7 +4574,7 @@ async function handleAlbumWithHifi(c) {
         id, title: show?.collectionName || 'Apple Podcast',
         artist: show?.artistName || '',
         artworkURL: (show?.artworkUrl600 || '').replace('100x100', '600x600'),
-        year: 0, description: show?.description || '',
+        year: undefined, description: show?.description || '',
         trackCount: tracks.length, tracks,
       };
       await cacheSet(cacheKey, albumData, 600);
