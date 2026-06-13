@@ -244,6 +244,7 @@ async function getSCClientId(providedId) {
 
 // ─── HiFi Instance Helpers ───────────────────────────────────────────────────
 const DEFAULT_HIFI_INSTANCES = [
+  'https://hifi-api-workers.anothermoumen4.workers.dev',
   'https://hifi-api-bffw.onrender.com',
   'https://hifi-api-pj08.onrender.com',
   'https://hifi-api.kennyy.com.br',
@@ -807,7 +808,8 @@ async function hifiSearch(query, instances) {
           title: t.album.title || 'Unknown Album',
           artist: artistNames,
           artworkURL,
-          year: safeYear(t.album.releaseDate),
+          // FIX: releaseDate is often null on track.album objects; fall back to streamStartDate
+          year: safeYear(t.album.releaseDate || t.album.streamStartDate || t.releaseDate),
           _source: 'hifi',
         };
       }
@@ -880,7 +882,15 @@ async function hifiSearch(query, instances) {
 
     const result = {
       tracks,
-      albums: Object.values(albumMap).slice(0, 8),
+      // FIX: sort albums newest-first before slicing (was unsorted)
+      albums: Object.values(albumMap)
+        .sort((a, b) => {
+          if (!a.year && !b.year) return 0;
+          if (!a.year) return 1;
+          if (!b.year) return -1;
+          return b.year - a.year;
+        })
+        .slice(0, 8),
       artists: artistList,
     };
     await cacheSet(cacheKey, result, 300);
@@ -929,13 +939,12 @@ async function hifiStream(id, extraInstances, preferredQuality) {
   // Each tier is tried fully before falling to the next, so LOSSLESS is always
   // attempted before HIGH or LOW (fixes the bug where LOW won the race).
   async function tryInstance(inst, ql) {
-    // FIX: no retries — we race ALL instances in parallel via Promise.any so a single
-    // instance failing immediately lets the race move on; retries only added ~1.2s of dead time
+    // FIX: 2s per-instance timeout — slow instances drop out fast in Promise.any race
     try {
       const r = await axios.get(`${inst}/track/`, {
         params: { id: origId, quality: ql },
         headers: { 'User-Agent': UA, 'Accept': 'application/json' },
-        timeout: 3000, // FIX: reduced from 4000ms — slow instances drop out faster
+        timeout: 2000,
       });
       const parsed = parseTrackResponse(r.data);
       if (parsed) return { ...parsed, quality: ql };
@@ -953,23 +962,41 @@ async function hifiStream(id, extraInstances, preferredQuality) {
   const pref = preferredQuality && ALL_QUALITIES.includes(preferredQuality) ? preferredQuality : 'LOSSLESS';
   const qualityOrder = [pref, ...ALL_QUALITIES.filter(q => q !== pref)];
 
-  // For each quality tier, race ALL instances in parallel — move to next tier only if ALL fail
-  for (const ql of qualityOrder) {
-    try {
-      const winner = await Promise.any(
-        instanceOrder.map(inst =>
-          tryInstance(inst, ql).then(r => {
-            if (!r) throw new Error('no result');
-            return r;
-          })
-        )
+  // FIX: Two-phase race strategy to minimize latency:
+  // Phase 1 — race preferred quality across ALL instances simultaneously (2s window).
+  // Phase 2 — if phase 1 yields nothing, race ALL remaining qualities × ALL instances at once.
+  // This caps worst-case at ~4s (was up to 9s with sequential per-tier loops).
+  try {
+    const winner = await Promise.any(
+      instanceOrder.map(inst =>
+        tryInstance(inst, qualityOrder[0]).then(r => {
+          if (!r) throw new Error('no result');
+          return r;
+        })
+      )
+    );
+    console.log(`[HiFi stream] phase1 winner quality=${qualityOrder[0]} trackId=${origId}`);
+    return winner;
+  } catch { /* phase 1 failed — all instances timed out or errored on preferred quality */ }
+
+  // Phase 2: race ALL remaining quality tiers × ALL instances simultaneously
+  const phase2Promises = [];
+  for (const ql of qualityOrder.slice(1)) {
+    for (const inst of instanceOrder) {
+      phase2Promises.push(
+        tryInstance(inst, ql).then(r => {
+          if (!r) throw new Error('no result');
+          return r;
+        })
       );
-      console.log(`[HiFi stream] winner quality=${ql} trackId=${origId}`);
-      return winner;
-    } catch {
-      // All instances failed this tier — try next tier
-      console.log(`[HiFi stream] tier ${ql} failed for trackId=${origId}, trying next tier`);
     }
+  }
+  if (phase2Promises.length) {
+    try {
+      const winner2 = await Promise.any(phase2Promises);
+      console.log(`[HiFi stream] phase2 winner trackId=${origId}`);
+      return winner2;
+    } catch { /* all tiers/instances failed */ }
   }
 
   // Legacy /stream/ path fallback — parallel across all instances
@@ -3978,13 +4005,15 @@ async function handleArtist(c) {
 
       // Fire ALL endpoints in parallel across multiple param variations
       // Covers all known HiFi API v2.x instance response shapes
+      // FIX: 3s timeouts (was 8s) — Promise.allSettled waits for ALL; slow instances
+      // were blocking the entire artist page for up to 8 seconds.
       const [infoRes, discRes, albumsRes, topTracksRes, albumsRes2, discRes2] = await Promise.allSettled([
-        axios.get(`${inst}/artist/`, { params: { id: artistId }, headers: { 'User-Agent': UA }, timeout: 8000 }),
-        axios.get(`${inst}/artist/`, { params: { f: artistId, skip_tracks: false }, headers: { 'User-Agent': UA }, timeout: 8000 }),
-        axios.get(`${inst}/artist/albums/`, { params: { id: artistId, limit: 50, offset: 0 }, headers: { 'User-Agent': UA }, timeout: 8000 }),
-        axios.get(`${inst}/artist/toptracks/`, { params: { id: artistId, limit: 20 }, headers: { 'User-Agent': UA }, timeout: 8000 }),
-        axios.get(`${inst}/artist/albums/`, { params: { artistId, limit: 50 }, headers: { 'User-Agent': UA }, timeout: 8000 }),
-        axios.get(`${inst}/artist/discography/`, { params: { id: artistId, limit: 50 }, headers: { 'User-Agent': UA }, timeout: 8000 }),
+        axios.get(`${inst}/artist/`, { params: { id: artistId }, headers: { 'User-Agent': UA }, timeout: 3000 }),
+        axios.get(`${inst}/artist/`, { params: { f: artistId, skip_tracks: false }, headers: { 'User-Agent': UA }, timeout: 3000 }),
+        axios.get(`${inst}/artist/albums/`, { params: { id: artistId, limit: 50, offset: 0 }, headers: { 'User-Agent': UA }, timeout: 3000 }),
+        axios.get(`${inst}/artist/toptracks/`, { params: { id: artistId, limit: 20 }, headers: { 'User-Agent': UA }, timeout: 3000 }),
+        axios.get(`${inst}/artist/albums/`, { params: { artistId, limit: 50 }, headers: { 'User-Agent': UA }, timeout: 3000 }),
+        axios.get(`${inst}/artist/discography/`, { params: { id: artistId, limit: 50 }, headers: { 'User-Agent': UA }, timeout: 3000 }),
       ]);
 
       // ── Artist info ──────────────────────────────────────────────────────────
