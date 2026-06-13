@@ -192,14 +192,14 @@ function getConfig(c) {
     taddyUid: cfg.taddy_uid || c.env.TADDY_UID || null,
     preferredQuality: VALID_QUALITIES.includes(cfg.q) ? cfg.q : null,
     // Source flags — undefined/missing means "enabled" (backward-compatible)
-    noHifi:      cfg.no_hifi      === true,
-    noSc:        cfg.no_sc        === true,
-    noIa:        cfg.no_ia        === true,
-    noQobuz:     cfg.no_qobuz     === true,
-    noPodcast:   cfg.no_podcast   === true,
-    noAudiobook: cfg.no_audiobook === true,
-    noRadio:     cfg.no_radio     === true,
-    noDeezer:    cfg.no_deezer    === true,
+    noHifi:      !!(cfg.no_hifi      === true || cfg.no_hifi      === 1 || cfg.no_hifi      === "true"),
+    noSc:        !!(cfg.no_sc        === true || cfg.no_sc        === 1 || cfg.no_sc        === "true"),
+    noIa:        !!(cfg.no_ia        === true || cfg.no_ia        === 1 || cfg.no_ia        === "true"),
+    noQobuz:     !!(cfg.no_qobuz     === true || cfg.no_qobuz     === 1 || cfg.no_qobuz     === "true"),
+    noPodcast:   !!(cfg.no_podcast   === true || cfg.no_podcast   === 1 || cfg.no_podcast   === "true"),
+    noAudiobook: !!(cfg.no_audiobook === true || cfg.no_audiobook === 1 || cfg.no_audiobook === "true"),
+    noRadio:     !!(cfg.no_radio     === true || cfg.no_radio     === 1 || cfg.no_radio     === "true"),
+    noDeezer:    !!(cfg.no_deezer    === true || cfg.no_deezer    === 1 || cfg.no_deezer    === "true"),
     // Ordered priority arrays for search/stream (empty = all enabled, default order)
     searchOrder: Array.isArray(cfg.search_order) ? cfg.search_order : [],
     streamOrder: Array.isArray(cfg.stream_order) ? cfg.stream_order : [],
@@ -312,7 +312,7 @@ function isrcFormatQuery(q) {
   if (/ - /.test(q)) { return q.split(' - ').map(p=>removeFeat(p.trim())).join(' - '); }
   return removeFeat(q);
 }
-function isrcFindBestMatch(items, query) {
+function isrcFindBestMatch(items, query, expectedDuration) {
   let bestItem=null, bestScore=-1;
   const qNorm=normalizeStr(query);
   const hasHyphen=/ - /.test(qNorm);
@@ -346,6 +346,16 @@ function isrcFindBestMatch(items, query) {
     if(!hasHyphen&&thits===0&&qWords.length>=2)score-=40;
     if(!/\b(cover|karaoke|tribute|instrumental|8-bit)\b/i.test(qNorm)&&
        /\b(cover|karaoke|tribute|instrumental|8-bit)\b/i.test(t.title||''))score-=500;
+    if(!/\b(live|remix|version|edit|mix)\b/i.test(qNorm)&&
+       /\b(live|remix|version|edit|mix)\b/i.test(t.title||''))score-=50;
+    if (expectedDuration && expectedDuration > 10) {
+      const tDur = t.duration || 0;
+      if (tDur > 10) {
+        const diff = Math.abs(tDur - expectedDuration);
+        if (diff > 45) score -= 300;
+        else if (diff > 20) score -= 80;
+      }
+    }
     if(score>bestScore){bestScore=score;bestItem=t;}
   }
   return {item:bestItem,score:bestScore};
@@ -511,7 +521,7 @@ async function qobuzFindByIsrc(isrc) {
   return null;
 }
 
-async function qobuzFindBestTrack(title, artist, isrc, _env) {
+async function qobuzFindBestTrack(title, artist, isrc, _env, expectedDuration) {
   // 1. ISRC fast path
   if (isrc) {
     const byIsrc = await qobuzFindByIsrc(isrc);
@@ -540,7 +550,7 @@ async function qobuzFindBestTrack(title, artist, isrc, _env) {
       if (!data) continue;
       const items = (data.tracks && data.tracks.items) ? data.tracks.items : [];
       if (!items.length) continue;
-      const match = isrcFindBestMatch(items, query);
+      const match = isrcFindBestMatch(items, query, expectedDuration);
       if (match.item && match.score >= 50) {
         await cacheSet(cacheKey, match.item, 3600);
         if (_env) upstashCmd(_env, 'SET', cacheKey, JSON.stringify(match.item), 'EX', 3600).catch(()=>{});
@@ -641,6 +651,8 @@ async function qobuzSearch(query) {
           if (!hasHyphen && thits===0 && qWords.length>=2) s-=40;
           if (!/\b(cover|karaoke|tribute|instrumental|8-bit)\b/i.test(qNorm) &&
               /\b(cover|karaoke|tribute|instrumental|8-bit)\b/i.test(t.title||'')) s-=500;
+          if (!/\b(live|remix|version|edit|mix)\b/i.test(qNorm) &&
+              /\b(live|remix|version|edit|mix)\b/i.test(t.title||'')) s-=50;
           return { t, s };
         });
         scored.sort((a,b) => b.s - a.s);
@@ -824,6 +836,8 @@ async function hifiSearch(query, instances) {
         if (!hasHyphen && thits===0 && qWords.length>=2) s-=40;
         if (!/\b(cover|karaoke|tribute|instrumental|8-bit)\b/i.test(qNorm) &&
             /\b(cover|karaoke|tribute|instrumental|8-bit)\b/i.test(t.title||'')) s-=500;
+        if (!/\b(live|remix|version|edit|mix)\b/i.test(qNorm) &&
+            /\b(live|remix|version|edit|mix)\b/i.test(t.title||'')) s-=50;
         return { t, s };
       });
       scored.sort((a,b) => b.s - a.s);
@@ -1256,11 +1270,11 @@ async function librivoxSearch(query) {
     // LibriVox API: title search with caret prefix for broader matches
     const res = await axios.get('https://librivox.org/api/feed/audiobooks', {
       params: { title: `%5E${query}`, format: 'json', extended: 1, limit: 6 },
-      timeout: 6000,
+      timeout: 5000,
     }).catch(async () =>
       axios.get('https://librivox.org/api/feed/audiobooks', {
         params: { title: query, format: 'json', extended: 1, limit: 6 },
-        timeout: 6000,
+        timeout: 5000,
       })
     );
     const books = Array.isArray(res.data?.books) ? res.data.books : [];
@@ -1336,12 +1350,12 @@ async function piSearchEpisodes(query, key, secret) {
       axios.get('https://api.podcastindex.org/api/1.0/search/byterm', {
         params: { q: query, max: 10, fulltext: true },
         headers: podcastIndexHeaders(key, secret),
-        timeout: 6000,
+        timeout: 5000,
       }),
       axios.get('https://api.podcastindex.org/api/1.0/search/byterm', {
         params: { q: query, max: 10, fulltext: true, type: 'episode' },
         headers: podcastIndexHeaders(key, secret),
-        timeout: 6000,
+        timeout: 5000,
       }),
     ]);
     const feeds = feedsRes.status === 'fulfilled' ? (feedsRes.value.data?.feeds || []) : [];
@@ -1434,7 +1448,7 @@ async function taddySearch(query, apiKey, userId) {
         'X-USER-ID': userId,
         'X-API-KEY': apiKey,
       },
-      timeout: 6000,
+      timeout: 5000,
     });
     const data = res.data?.data?.search;
     const playlists = (data?.podcastSeries || []).map(s => ({
@@ -1903,7 +1917,7 @@ async function radioSearch(query) {
     const res = await axios.get(`${host}/json/stations/search`, {
       params: { name: query, limit: 10, hidebroken: true, order: 'votes', reverse: true },
       headers: { 'User-Agent': 'EclipseUniversalAddon/1.0' },
-      timeout: 6000,
+      timeout: 5000,
     });
     const stations = (res.data || []).map(s => ({
       id: `radio_${s.stationuuid}`,
@@ -1960,7 +1974,7 @@ async function somaFmSearch(query) {
   try {
     const res = await axios.get('https://api.somafm.com/channels.json', {
       headers: { 'User-Agent': 'EclipseUniversalAddon/1.0' },
-      timeout: 6000,
+      timeout: 5000,
     });
     const channels = res.data?.channels || [];
     const q = query.toLowerCase().replace(/[^a-z0-9 ]/g, '');
@@ -2244,26 +2258,37 @@ async function handleSearch(c) {
   // Merge podcast episodes: PI first, then Taddy (dedupe by title)
   const episodeTitles = new Set();
   const allEpisodes = [];
-  for (const ep of [...(piResult.episodes || []), ...(taddyResult.episodes || []), ...(appleResult.episodes || [])]) {
-    const key = ep.title?.toLowerCase().slice(0, 40);
-    if (!episodeTitles.has(key)) { episodeTitles.add(key); allEpisodes.push(ep); }
+  if (!cfg.noPodcast) {
+    for (const ep of [...(piResult.episodes || []), ...(taddyResult.episodes || []), ...(appleResult.episodes || [])]) {
+      const key = ep.title?.toLowerCase().slice(0, 40);
+      if (!episodeTitles.has(key)) { episodeTitles.add(key); allEpisodes.push(ep); }
+    }
   }
 
   // Merge podcast series: PI first, then Taddy
   const seriesTitles = new Set();
   const deezerPlaylists = cfg.noDeezer ? [] : (deezerRes?.playlists || []);
   const allSeries = [];
-  for (const s of [...scPlaylists, ...deezerPlaylists, ...(piResult.playlists || []), ...(taddyResult.playlists || []), ...(appleResult.playlists || [])]) {
-    const key = s.title?.toLowerCase().slice(0, 40);
-    if (!seriesTitles.has(key)) { seriesTitles.add(key); allSeries.push(s); }
+  {
+    const _podLists = cfg.noPodcast ? [] : [
+      ...(piResult.playlists   || []),
+      ...(taddyResult.playlists || []),
+      ...(appleResult.playlists || []),
+    ];
+    for (const s of [...scPlaylists, ...deezerPlaylists, ..._podLists]) {
+      const key = s.title?.toLowerCase().slice(0, 40);
+      if (!seriesTitles.has(key)) { seriesTitles.add(key); allSeries.push(s); }
+    }
   }
 
   // Merge audiobook albums: LibriVox first, then IA
   const bookTitles = new Set();
   const allBooks = [];
-  for (const b of [...lvox, ...iaBooks]) {
-    const key = b.title?.toLowerCase().slice(0, 40);
-    if (!bookTitles.has(key)) { bookTitles.add(key); allBooks.push(b); }
+  if (!cfg.noAudiobook) {
+    for (const b of [...lvox, ...iaBooks]) {
+      const key = b.title?.toLowerCase().slice(0, 40);
+      if (!bookTitles.has(key)) { bookTitles.add(key); allBooks.push(b); }
+    }
   }
 
   // Normalize HiFi result (now returns object)
@@ -2297,7 +2322,7 @@ async function handleSearch(c) {
   // searchOrder contains ONLY the sources the user wants — treat it as the allow-list.
   // The no_ flags are for completely disabling a source; if a source appears in searchOrder
   // it means the user explicitly wants it, so honour that over the no_ flag.
-  const defaultMusicOrder = ['hifi', 'qobuz', 'deezer', 'sc', 'ytm', 'ia'];
+  const defaultMusicOrder = ['hifi', 'qobuz', 'deezer', 'sc', 'ia'];
   const effectiveMusicOrder = cfg.searchOrder.length > 0
     ? cfg.searchOrder.filter(k => defaultMusicOrder.includes(k))
     : defaultMusicOrder.filter(k => {
@@ -2320,7 +2345,6 @@ async function handleSearch(c) {
     const rawId = String(dt.id).replace(/^deezer:/, '');
     cacheSet(`dz:track:meta:${rawId}`, { title: dt.title, artist: dt.artist, isrc: dt.isrc ? dt.isrc.toUpperCase().replace(/[^A-Z0-9]/g,'') : null }, 3600);
   }
-  // Cache ytm track meta for stream fallback
   const musicSourceMap = {
     hifi:   effectiveMusicOrder.includes('hifi')   ? hifiTracksNorm : [],
     qobuz:  effectiveMusicOrder.includes('qobuz')  ? qobuzTracks    : [],
@@ -2345,8 +2369,9 @@ async function handleSearch(c) {
     const t  = _normStr(item.title  || '');
     const a  = _normStr((item.artist || '').split(/[,&]/)[0]);
     const y  = item.year ? String(item.year).slice(0, 4) : '';
-    // Duration bucket: ±5 s tolerance — same song from different sources dedupes, short edits don't false-positive
-    const db = (item.duration && item.duration > 5) ? '|d' + (Math.round(item.duration / 5) * 5) : '';
+    // 10-second buckets; interleave() adds a hard 15-second cross-check on top
+    const dur = (item.duration && item.duration > 5) ? item.duration : 0;
+    const db  = dur ? '|d' + (Math.round(dur / 10) * 10) : '';
     if (!t && !a) return null; // don't dedup unknown tracks against each other
     return 'ta:' + t + '|' + a + '|' + y + db;
   };
@@ -2360,6 +2385,9 @@ async function handleSearch(c) {
 
   const interleave = (sourceLists) => {
     const result = [], seenIds = new Set(), seenKeys = new Set();
+    // seenKeyDur: first-seen duration per canon key.
+    // Same title+artist but duration >15s apart = genuinely different track.
+    const seenKeyDur = new Map();
     const maxLen = Math.max(0, ...sourceLists.map(l => l.length));
     for (let i = 0; i < maxLen; i++) {
       for (const list of sourceLists) {
@@ -2367,10 +2395,21 @@ async function handleSearch(c) {
         const item = list[i];
         if (!item) continue;
         const ik = item.id, ck = _canonKey(item);
-        if (ik && seenIds.has(ik))   continue;
-        if (ck && seenKeys.has(ck))  continue;
+        if (ik && seenIds.has(ik)) continue;
+        if (ck && seenKeys.has(ck)) {
+          const prevDur = seenKeyDur.get(ck) || 0;
+          const curDur  = (item.duration && item.duration > 5) ? item.duration : 0;
+          if (prevDur > 10 && curDur > 10 && Math.abs(prevDur - curDur) > 15) {
+            if (ik) seenIds.add(ik);
+            result.push(item);
+          }
+          continue;
+        }
         if (ik) seenIds.add(ik);
-        if (ck) seenKeys.add(ck);
+        if (ck) {
+          seenKeys.add(ck);
+          if (item.duration && item.duration > 5) seenKeyDur.set(ck, item.duration);
+        }
         result.push(item);
       }
     }
@@ -2786,7 +2825,7 @@ async function handleStream(c) {
     const qMeta = await cacheGet(`hifi:track:meta:${trackKey}`);
     if (!_skipQobuz && (qMeta?.title || qMeta?.isrc)) {
       try {
-        const qTrack = await qobuzFindBestTrack(qMeta.title, qMeta.artist, qMeta.isrc || null, c.env);
+        const qTrack = await qobuzFindBestTrack(qMeta.title, qMeta.artist, qMeta.isrc || null, c.env, qMeta.duration);
         if (qTrack && qTrack.id) {
           const qStream = await qobuzStream(qTrack.id, c.env);
           if (qStream) {
@@ -2810,39 +2849,71 @@ async function handleStream(c) {
       return c.json(data);
     }
 
-    // HiFi failed — fallback to SC (trackKey already declared above)
+    // HiFi failed — walk full streamOrder fallback chain
     const meta = await cacheGet(`hifi:track:meta:${trackKey}`);
-
     if (meta?.title && meta?.artist) {
-      // ── Fallback: SoundCloud — search then stream ALL candidates in parallel ──
-      console.log(`[stream fallback] HiFi failed, trying SC for "${meta.title}" by "${meta.artist}"`);
-      try {
-        const cid = await getSCClientId(cfg.scClientId);
-        if (cid) {
-          const scRes = await axios.get('https://api-v2.soundcloud.com/search/tracks', {
-            params: { q: `${meta.artist} ${meta.title}`, client_id: cid, limit: 8 },
-            timeout: 6000,
-          });
-          const scTracks = scRes.data?.collection || [];
-          // Attempt all SC candidates simultaneously — first non-snipped stream wins
-          const scStreamResults = await Promise.all(
-            scTracks.map(st => scStream(String(st.id), cid).then(r => ({ r, st })).catch(() => ({ r: null, st })))
-          );
-          for (const { r: scStreamResult, st } of scStreamResults) {
-            if (scStreamResult && !scStreamResult._scSnipped) {
-              console.log(`[stream fallback] SC found: "${st.title}" by "${st.user?.username}"`);
-              const { _scSnipped, ...cleanResult } = scStreamResult;
-              const fallbackResult = { ...cleanResult, fallback: 'sc' };
-              await cacheSet(`stream:url:${id}`, fallbackResult, 280);
-              return c.json(fallbackResult);
+      const _fbOrder = (_hifiStreamOrder.length
+        ? _hifiStreamOrder.filter(s => s !== 'hifi')
+        : ['qobuz', 'deezer', 'sc']
+      );
+      console.log(`[stream fallback] HiFi failed for "${meta.title}", trying: ${_fbOrder.join(',')}`);
+      for (const _fb of _fbOrder) {
+        // ── Qobuz ────────────────────────────────────────────────────────
+        if (_fb === 'qobuz' && !cfg.noQobuz && !_skipQobuz) continue; // already tried above
+        if (_fb === 'qobuz' && !cfg.noQobuz && _skipQobuz) {
+          try {
+            const qTrack = await qobuzFindBestTrack(meta.title, meta.artist, meta.isrc || null, c.env, meta.duration);
+            if (qTrack?.id) {
+              const _qd = (meta.duration && qTrack.duration) ? Math.abs(meta.duration - qTrack.duration) : 0;
+              if (_qd <= 20) {
+                const qs = await qobuzStream(qTrack.id, c.env);
+                if (qs) { await cacheSet(streamCacheKey, { ...qs, fallback: 'qobuz' }, 280); return c.json({ ...qs, fallback: 'qobuz' }); }
+              }
             }
-          }
+          } catch(e) { console.warn('[fb-qobuz]', e.message); }
         }
-      } catch (e) {
-        console.warn('[stream fallback] SC fallback error:', e.message);
+        // ── Deezer ───────────────────────────────────────────────────────
+        if (_fb === 'deezer' && !cfg.noDeezer) {
+          try {
+            const dRes = await deezerSearch(`${meta.artist} ${meta.title}`, 5);
+            for (const dt of (dRes?.tracks || [])) {
+              const _dd = (meta.duration && dt.duration) ? Math.abs(meta.duration - dt.duration) : 0;
+              if (_dd > 20) continue;
+              const ds = await deezerStream(String(dt.id), c.env);
+              if (ds) { await cacheSet(streamCacheKey, { ...ds, fallback: 'deezer' }, 280); return c.json({ ...ds, fallback: 'deezer' }); }
+            }
+          } catch(e) { console.warn('[fb-deezer]', e.message); }
+        }
+        // ── SoundCloud ───────────────────────────────────────────────────
+        if (_fb === 'sc' && !cfg.noSc) {
+          try {
+            const cid = await getSCClientId(cfg.scClientId);
+            if (cid) {
+              const scRes = await axios.get('https://api-v2.soundcloud.com/search/tracks', {
+                params: { q: `${meta.artist} ${meta.title}`, client_id: cid, limit: 8 },
+                timeout: 5000,
+              });
+              const scTracks = scRes.data?.collection || [];
+              const scResults = await Promise.all(
+                scTracks.map(st => scStream(String(st.id), cid).then(r => ({ r, st })).catch(() => ({ r: null, st })))
+              );
+              for (const { r: scr, st } of scResults) {
+                if (!scr || scr._scSnipped) continue;
+                const _sd = (meta.duration && st.full_duration)
+                  ? Math.abs(meta.duration - st.full_duration / 1000) : 0;
+                if (_sd > 20) { console.log(`[fb-sc] dur mismatch ${_sd}s — skip`); continue; }
+                console.log(`[fb-sc] found: "${st.title}" by "${st.user?.username}"`);
+                const { _scSnipped, ...clean } = scr;
+                const fbr = { ...clean, fallback: 'sc' };
+                await cacheSet(streamCacheKey, fbr, 280);
+                return c.json(fbr);
+              }
+            }
+          } catch(e) { console.warn('[fb-sc]', e.message); }
+        }
       }
     }
-    return c.json({ error: 'HiFi stream not found — SC fallback also failed' });
+    return c.json({ error: 'Stream not found — all fallbacks exhausted' });
   }
 
   if (id.startsWith('sc_')) {
@@ -2867,13 +2938,19 @@ async function handleStream(c) {
     // Try Qobuz before SC if qobuz is ranked higher (lower index) than sc
     if (scMeta0?.title && _qIdx !== -1 && (_scIdx === -1 || _qIdx < _scIdx) && !cfg.noQobuz) {
       try {
-        const qTrack = await qobuzFindBestTrack(scMeta0.title, scMeta0.artist, scMeta0.isrc || null, c.env);
+        const qTrack = await qobuzFindBestTrack(scMeta0.title, scMeta0.artist, scMeta0.isrc || null, c.env, scMeta0.duration);
         if (qTrack?.id) {
-          const qStream = await qobuzStream(qTrack.id, c.env);
-          if (qStream) {
-            console.log(`[SC→Qobuz priority] ${scMeta0.isrc || scMeta0.title} → ${qTrack.id}`);
-            await cacheSet(scStreamCacheKey, qStream, 280);
-            return c.json(qStream);
+          const _qDurDiff = (scMeta0.duration && qTrack.duration)
+            ? Math.abs(scMeta0.duration - qTrack.duration) : 0;
+          if (_qDurDiff > 15) {
+            console.log(`[SC→Qobuz] dur mismatch ${_qDurDiff}s — skipping upgrade`);
+          } else {
+            const qStream = await qobuzStream(qTrack.id, c.env);
+            if (qStream) {
+              console.log(`[SC→Qobuz priority] ${scMeta0.isrc || scMeta0.title} → ${qTrack.id}`);
+              await cacheSet(scStreamCacheKey, qStream, 280);
+              return c.json(qStream);
+            }
           }
         }
       } catch(e) { console.warn('[SC→Qobuz priority]', e.message); }
@@ -2885,6 +2962,9 @@ async function handleStream(c) {
         const hifiRes = await hifiSearch(`${scMeta0.artist} ${scMeta0.title}`, cfg.hifiInstances);
         const hifiTracks = Array.isArray(hifiRes) ? hifiRes : (hifiRes?.tracks || []);
         for (const ht of hifiTracks.slice(0, 3)) {
+          const _hDurDiff = (scMeta0.duration && ht.duration)
+            ? Math.abs(scMeta0.duration - ht.duration) : 0;
+          if (_hDurDiff > 15) { console.log(`[SC→HiFi] dur mismatch ${_hDurDiff}s — skip`); continue; }
           const hs = await hifiStream(ht.id, cfg.hifiInstances, cfg.preferredQuality);
           if (hs) {
             console.log(`[SC→HiFi priority] ${scMeta0.title} → ${ht.id}`);
@@ -2955,10 +3035,16 @@ async function handleStream(c) {
       for (const _fbSrc of _fbSources) {
         if (_fbSrc === 'qobuz') {
           try {
-            const qTrack = await qobuzFindBestTrack(scMeta.title, scMeta.artist, scMeta.isrc || null, c.env);
+            const qTrack = await qobuzFindBestTrack(scMeta.title, scMeta.artist, scMeta.isrc || null, c.env, scMeta.duration);
             if (qTrack?.id) {
-              const qStream = await qobuzStream(qTrack.id, c.env);
-              if (qStream) { console.log(`[SC→Qobuz] ${scMeta.isrc || scMeta.title} → ${qTrack.id}`); statHit('qobuz'); return c.json({ ...qStream, fallback: 'qobuz' }); }
+              const _sqd = (scMeta.duration && qTrack.duration)
+                ? Math.abs(scMeta.duration - qTrack.duration) : 0;
+              if (_sqd > 15) {
+                console.log(`[SC snipped→Qobuz] dur mismatch ${_sqd}s — skip`);
+              } else {
+                const qStream = await qobuzStream(qTrack.id, c.env);
+                if (qStream) { console.log(`[SC→Qobuz] ${scMeta.isrc || scMeta.title} → ${qTrack.id}`); statHit('qobuz'); return c.json({ ...qStream, fallback: 'qobuz' }); }
+              }
             }
           } catch(e) { console.warn('[SC→Qobuz]', e.message); }
         }
@@ -3014,7 +3100,62 @@ async function handleStream(c) {
         return c.json(result);
       }
     } catch(e) { console.warn('[qobuz direct stream]', e.message); }
-    return c.json({ error: 'Qobuz stream not found' });
+    // Qobuz failed — try HiFi then SC as ordered fallback
+    const _qMeta = await cacheGet(`qobuz:track:meta:${qobuzId}`);
+    if (_qMeta?.title) {
+      const _qFbOrder = (cfg.streamOrder?.length
+        ? cfg.streamOrder.filter(s => s !== 'qobuz')
+        : ['hifi', 'deezer', 'sc']
+      );
+      for (const _qfb of _qFbOrder) {
+        if (_qfb === 'hifi' && !cfg.noHifi && cfg.hifiInstances?.length) {
+          try {
+            const _hRes = await hifiSearch(`${_qMeta.artist} ${_qMeta.title}`, cfg.hifiInstances);
+            const _hTracks = Array.isArray(_hRes) ? _hRes : (_hRes?.tracks || []);
+            for (const _ht of _hTracks.slice(0, 3)) {
+              const _hd = (_qMeta.duration && _ht.duration) ? Math.abs(_qMeta.duration - _ht.duration) : 0;
+              if (_hd > 20) continue;
+              const _hs = await hifiStream(_ht.id, cfg.hifiInstances, cfg.preferredQuality);
+              if (_hs) { await cacheSet(sCacheKey, { ..._hs, fallback: 'hifi' }, 280); return c.json({ ..._hs, fallback: 'hifi' }); }
+            }
+          } catch(e) { console.warn('[qobuz fb-hifi]', e.message); }
+        }
+        if (_qfb === 'deezer' && !cfg.noDeezer) {
+          try {
+            const _dRes = await deezerSearch(`${_qMeta.artist} ${_qMeta.title}`, 5);
+            for (const _dt of (_dRes?.tracks || [])) {
+              const _dd = (_qMeta.duration && _dt.duration) ? Math.abs(_qMeta.duration - _dt.duration) : 0;
+              if (_dd > 20) continue;
+              const _ds = await deezerStream(String(_dt.id), c.env);
+              if (_ds) { await cacheSet(sCacheKey, { ..._ds, fallback: 'deezer' }, 280); return c.json({ ..._ds, fallback: 'deezer' }); }
+            }
+          } catch(e) { console.warn('[qobuz fb-deezer]', e.message); }
+        }
+        if (_qfb === 'sc' && !cfg.noSc) {
+          try {
+            const _cid = await getSCClientId(cfg.scClientId);
+            if (_cid) {
+              const _scR = await axios.get('https://api-v2.soundcloud.com/search/tracks', {
+                params: { q: `${_qMeta.artist} ${_qMeta.title}`, client_id: _cid, limit: 6 },
+                timeout: 5000,
+              });
+              for (const _st of (_scR.data?.collection || [])) {
+                const _sd = (_qMeta.duration && _st.full_duration)
+                  ? Math.abs(_qMeta.duration - _st.full_duration / 1000) : 0;
+                if (_sd > 20) continue;
+                const _ss = await scStream(String(_st.id), _cid);
+                if (_ss && !_ss._scSnipped) {
+                  const { _scSnipped, ...clean } = _ss;
+                  await cacheSet(sCacheKey, { ...clean, fallback: 'sc' }, 280);
+                  return c.json({ ...clean, fallback: 'sc' });
+                }
+              }
+            }
+          } catch(e) { console.warn('[qobuz fb-sc]', e.message); }
+        }
+      }
+    }
+    return c.json({ error: 'Stream not found — all fallbacks exhausted' });
   }
 
   if (id.startsWith('radio_')) {
@@ -3039,7 +3180,7 @@ async function handleStream(c) {
       try {
         const lu = await axios.get('https://itunes.apple.com/lookup', {
           params: { id: trackId, media: 'podcast', entity: 'podcastEpisode', limit: 1 },
-          timeout: 6000,
+          timeout: 5000,
         });
         const ep = (lu.data?.results || []).find(r => r.kind === 'podcast-episode' || r.wrapperType === 'track');
         const url = ep?.episodeUrl;
@@ -3118,7 +3259,7 @@ async function handleStream(c) {
         const cid = await getSCClientId(cfg.scClientId);
         if (cid) {
           const scRes = await axios.get('https://api-v2.soundcloud.com/search/tracks', {
-            params: { q: `${dzArtist2} ${dzTitle2}`, client_id: cid, limit: 5 }, timeout: 6000,
+            params: { q: `${dzArtist2} ${dzTitle2}`, client_id: cid, limit: 5 }, timeout: 5000,
           });
           const scTrack = (scRes.data?.collection || []).find(t => t.streamable);
           if (scTrack) {
@@ -3164,7 +3305,7 @@ async function handleStream(c) {
             const cid = await getSCClientId(cfg.scClientId);
             if (cid) {
               const scRes = await axios.get('https://api-v2.soundcloud.com/search/tracks', {
-                params: { q: `${dzArtist2} ${dzTitle2}`, client_id: cid, limit: 5 }, timeout: 6000,
+                params: { q: `${dzArtist2} ${dzTitle2}`, client_id: cid, limit: 5 }, timeout: 5000,
               });
               const scTrack = (scRes.data?.collection || []).find(t => t.streamable);
               if (scTrack) {
@@ -3316,7 +3457,7 @@ async function handleAlbum(c) {
     try {
       const infoRes = await axios.get('https://librivox.org/api/feed/audiobooks', {
         params: { id: bookId, format: 'json', extended: 1 },
-        timeout: 6000,
+        timeout: 5000,
       });
       const book = infoRes.data?.books?.[0] || {};
       const rssUrl = book.url_rss || `https://librivox.org/rss/${bookId}`;
@@ -3602,7 +3743,7 @@ async function handleAlbumWithHifi(c) {
       try {
         const lu = await axios.get('https://itunes.apple.com/lookup', {
           params: { id: collectionId, media: 'podcast', entity: 'podcast' },
-          timeout: 6000,
+          timeout: 5000,
         });
         feedUrl = lu.data?.results?.[0]?.feedUrl || null;
         if (feedUrl) await cacheSet(`apple:feed_url:${collectionId}`, feedUrl, 86400);
@@ -3712,7 +3853,7 @@ async function handleAlbumWithHifi(c) {
     let allStations = [];
     try {
       const res = await axios.get('https://api.somafm.com/channels.json', {
-        headers: { 'User-Agent': 'EclipseUniversalAddon/1.0' }, timeout: 6000,
+        headers: { 'User-Agent': 'EclipseUniversalAddon/1.0' }, timeout: 5000,
       });
       allStations = (res.data?.channels || []).map(ch => {
         const stream =
@@ -3944,7 +4085,7 @@ async function handleArtist(c) {
         // try to get info from PI without auth
         try {
           const infoRes = await axios.get('https://api.podcastindex.org/api/1.0/podcasts/byfeedid', {
-            params: { id: feedId }, headers: podcastIndexHeaders(cfg.piKey, cfg.piSecret), timeout: 6000,
+            params: { id: feedId }, headers: podcastIndexHeaders(cfg.piKey, cfg.piSecret), timeout: 5000,
           });
           const f = infoRes.data?.feed;
           if (f) info = { title: f.title, artworkURL: f.artwork || f.image, creator: f.author };
@@ -3962,7 +4103,7 @@ async function handleArtist(c) {
       if (!feedUrl) {
         try {
           const lu = await axios.get('https://itunes.apple.com/lookup', {
-            params: { id: collectionId, media: 'podcast', entity: 'podcast' }, timeout: 6000,
+            params: { id: collectionId, media: 'podcast', entity: 'podcast' }, timeout: 5000,
           });
           feedUrl = lu.data?.results?.[0]?.feedUrl || null;
           if (feedUrl) await cacheSet(`apple:feed_url:${collectionId}`, feedUrl, 86400);
@@ -4225,7 +4366,7 @@ async function handlePlaylist(c) {
         const infoRes = await axios.get('https://api.podcastindex.org/api/1.0/podcasts/byfeedid', {
           params: { id: feedId },
           headers: podcastIndexHeaders(cfg.piKey, cfg.piSecret),
-          timeout: 6000,
+          timeout: 5000,
         });
         const f = infoRes.data?.feed;
         if (f) {
@@ -4289,7 +4430,7 @@ async function handlePlaylist(c) {
       try {
         const lu = await axios.get('https://itunes.apple.com/lookup', {
           params: { id: collectionId, media: 'podcast', entity: 'podcast' },
-          timeout: 6000,
+          timeout: 5000,
         });
         feedUrl = lu.data?.results?.[0]?.feedUrl || null;
         if (feedUrl) await cacheSet(`apple:feed_url:${collectionId}`, feedUrl, 86400);
