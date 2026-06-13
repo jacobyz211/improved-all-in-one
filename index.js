@@ -2657,16 +2657,13 @@ async function somaFmSearch(query) {
   }
 }
 
-// PATCH: Replace the existing buildManifest function + manifest routes block.
 //
-// FIND this in your index.js (search for "// Manifest (with and without token)"):
 //
 //   // Manifest (with and without token)
 //   function buildManifest(token) { ... }
 //   app.get('/manifest.json', ...);
 //   app.get('/:token/manifest.json', ...);
 //
-// REPLACE the entire block above with everything below this line:
 // ═══════════════════════════════════════════════════════════════════════════
 
 // ── Manifest routes ─────────────────────────────────────────────────────────
