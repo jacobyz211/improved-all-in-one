@@ -1800,7 +1800,7 @@ async function deezerStream(trackId) {
     });
     const data = r.data || {};
     if (data.url) {
-      const result = { url: data.url, format: data.format || 'mp3', quality: data.quality || '320kbps', source: 'deezer' };
+      const result = { url: data.url + (data.url.includes('?') ? '&' : '?') + '_t=' + Date.now(), format: data.format || 'mp3', quality: data.quality || '320kbps', source: 'deezer' };
       // FIX: use expiresAt from addon response for cache TTL (was hardcoded 1800s)
       const ttlSec = data.expiresAt ? Math.max(60, Math.floor((data.expiresAt - Date.now()) / 1000) - 30) : 1200;
       await cacheSet(cacheKey, result, ttlSec);
@@ -3319,7 +3319,7 @@ async function handleStream(c) {
   }
 
   // ── Deezer stream (early return — BEFORE social fallback) ──────────────────
-  if (id.startsWith('deezer:')) {
+  if (id.startsWith('deezer:') || id.toLowerCase().startsWith('deezer%3a')) {
     const dzId = decodeURIComponent(id).replace(/^deezer(?::|%3A)/i, '');
 
     // Respect streamOrder — try qobuz/hifi before deezer if ranked higher
