@@ -2295,7 +2295,6 @@ async function handleSearch(c) {
     cacheSet(`dz:track:meta:${rawId}`, { title: dt.title, artist: dt.artist, isrc: dt.isrc || null }, 3600);
   }
   // Cache ytm track meta for stream fallback
-  }
   const musicSourceMap = {
     hifi:   effectiveMusicOrder.includes('hifi')   ? hifiTracksNorm : [],
     qobuz:  effectiveMusicOrder.includes('qobuz')  ? qobuzTracks    : [],
