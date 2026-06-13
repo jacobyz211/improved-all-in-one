@@ -4464,438 +4464,395 @@ app.get('/health', async (c) => {
 });
 
 // ─── Config / Generator Page ─────────────────────────────────────────────────
-function buildConfigPage(existingToken = '') {
+function buildConfigPage(baseUrl) {
   const ev = (s) => s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
-  const sources = [
-    { id:'qobuz',  label:'Qobuz',        icon:'Q', color:'#6c4eb8' },
-    { id:'hifi',   label:'Tidal / HiFi', icon:'T', color:'#1290d9' },
-    { id:'deezer', label:'Deezer',       icon:'D', color:'#a238ff' },
-    { id:'sc',     label:'SoundCloud',   icon:'S', color:'#ff5500' },
-    { id:'ia',     label:'Internet Archive', icon:'I', color:'#4a9eff' },
-  ];
-  const qualities = [
-    { v:'hires',    l:'Hi-Res (24-bit+)' },
-    { v:'lossless', l:'Lossless (16-bit FLAC)' },
-    { v:'high',     l:'High (AAC 320)' },
-    { v:'normal',   l:'Normal (AAC 128)' },
-  ];
-  const srcCards = sources.map(s => `
-    <div class="src-card" data-src="${s.id}" draggable="true">
-      <div class="src-badge" style="background:${s.color}20;color:${s.color};border-color:${s.color}40">${s.icon}</div>
-      <div class="src-info">
-        <div class="src-name">${s.label}</div>
-        <div class="src-toggles">
-          <label class="toggle-pill"><input type="checkbox" class="src-search" data-src="${s.id}" checked><span>Search</span></label>
-          <label class="toggle-pill"><input type="checkbox" class="src-stream" data-src="${s.id}" checked><span>Stream</span></label>
-        </div>
-      </div>
-      <div class="drag-handle" title="Drag to reorder">⠿</div>
-    </div>`).join('');
 
   const html = `<!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>All-In-One Eclipse Addon</title>
-<link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,600,700&display=swap" rel="stylesheet">
+<title>Eclipse Universal Addon — Link Generator</title>
+<link href="https://api.fontshare.com/v2/css?f[]=satoshi@300,400,500,600,700&display=swap" rel="stylesheet">
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#0d0d0f;--surface:#141417;--surface-2:#1a1a1f;--surface-3:#202027;
-  --border:#2a2a35;--border-2:#333344;
-  --text:#e8e8f0;--muted:#8888a0;--faint:#44445a;
-  --primary:#7c6ee0;--primary-glow:#7c6ee040;
-  --success:#3dba7a;--warning:#f0a030;--error:#e05555;
-  --radius:10px;--radius-sm:6px;--radius-lg:14px;
-  --transition:180ms cubic-bezier(0.16,1,0.3,1);
-  font-size:15px;
+  --bg:#0a0a0d;--surface:#111115;--surface-2:#17171d;--surface-3:#1e1e26;
+  --border:#242430;--border-h:#343448;
+  --text:#dddde8;--muted:#6e6e88;--faint:#2e2e3e;
+  --primary:#7c6af5;--primary-h:#9083f8;--glow:rgba(124,106,245,.15);
+  --ok:#3dba7a;--err:#e05555;
+  --r:10px;--rsm:6px;--rlg:16px;
+  --tr:160ms cubic-bezier(0.16,1,0.3,1);
 }
-[data-theme="light"]{
-  --bg:#f4f4f8;--surface:#ffffff;--surface-2:#f0f0f6;--surface-3:#e8e8f0;
-  --border:#d8d8e8;--border-2:#c8c8da;
-  --text:#1a1a2e;--muted:#60607a;--faint:#b0b0c8;
-  --primary:#5a4dc8;--primary-glow:#5a4dc820;
-}
-html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility}
-body{font-family:'Satoshi',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100dvh;line-height:1.5}
+html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;scroll-behavior:smooth}
+body{font-family:'Satoshi',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100dvh;line-height:1.55}
+.page{max-width:580px;margin:0 auto;padding:48px 20px 80px}
 
-/* ── Layout ── */
-.page{max-width:860px;margin:0 auto;padding:32px 20px 80px}
-.header{display:flex;align-items:center;gap:16px;margin-bottom:40px;padding-bottom:24px;border-bottom:1px solid var(--border)}
-.logo{display:flex;align-items:center;gap:10px;flex:1}
-.logo-icon{width:38px;height:38px;flex-shrink:0}
-.logo-text h1{font-size:1.25rem;font-weight:700;letter-spacing:-.02em}
-.logo-text p{font-size:.8rem;color:var(--muted);margin-top:1px}
-.theme-btn{background:var(--surface-2);border:1px solid var(--border);color:var(--muted);width:36px;height:36px;border-radius:var(--radius-sm);cursor:pointer;display:grid;place-items:center;transition:all var(--transition);flex-shrink:0}
-.theme-btn:hover{color:var(--text);border-color:var(--border-2)}
+/* Header */
+.hdr{display:flex;align-items:center;gap:14px;margin-bottom:40px}
+.hdr-logo{width:44px;height:44px;border-radius:12px;background:var(--glow);border:1px solid rgba(124,106,245,.3);display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.hdr-text h1{font-size:1.2rem;font-weight:700;letter-spacing:-.025em;color:#fff}
+.hdr-text p{font-size:.78rem;color:var(--muted);margin-top:2px}
 
-/* ── Sections ── */
-.section{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:24px;margin-bottom:16px}
-.section-head{display:flex;align-items:center;gap:10px;margin-bottom:20px}
-.section-icon{width:28px;height:28px;border-radius:var(--radius-sm);background:var(--primary-glow);border:1px solid var(--primary)30;display:grid;place-items:center;color:var(--primary);font-size:.8rem;flex-shrink:0}
-.section-head h2{font-size:.95rem;font-weight:600;letter-spacing:-.01em}
-.section-head p{font-size:.8rem;color:var(--muted);margin-top:1px}
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--rlg);padding:24px;margin-bottom:14px}
+.ctitle{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:14px}
+.otag{font-size:.65rem;font-weight:500;text-transform:none;letter-spacing:.01em;color:var(--muted);opacity:.7;background:var(--surface-3);padding:2px 7px;border-radius:99px;border:1px solid var(--border);margin-left:4px}
 
-/* ── Form elements ── */
-.field{margin-bottom:14px}
-.field label{display:block;font-size:.78rem;font-weight:500;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
-.field input,.field select{width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:9px 12px;font-size:.875rem;font-family:inherit;transition:border-color var(--transition),box-shadow var(--transition);outline:none}
-.field input:focus,.field select:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-glow)}
-.field input::placeholder{color:var(--faint)}
-.field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-@media(max-width:540px){.field-row{grid-template-columns:1fr}}
+/* Tip */
+.tip{background:var(--surface-2);border:1px solid var(--border);border-radius:var(--rsm);padding:11px 14px;font-size:.78rem;color:var(--muted);line-height:1.65;margin-bottom:14px}
+.tip b{color:var(--text)}
 
-/* ── Sources ── */
-.sources-list{display:flex;flex-direction:column;gap:8px}
-.src-card{display:flex;align-items:center;gap:12px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);padding:12px 14px;cursor:default;transition:border-color var(--transition),box-shadow var(--transition);user-select:none}
-.src-card.drag-over{border-color:var(--primary);box-shadow:0 0 0 2px var(--primary-glow)}
-.src-card.dragging{opacity:.4}
-.src-badge{width:32px;height:32px;border-radius:var(--radius-sm);border:1px solid;display:grid;place-items:center;font-weight:700;font-size:.85rem;flex-shrink:0}
-.src-info{flex:1;min-width:0}
-.src-name{font-size:.875rem;font-weight:600;margin-bottom:4px}
-.src-toggles{display:flex;gap:8px;flex-wrap:wrap}
-.toggle-pill{display:flex;align-items:center;gap:5px;font-size:.75rem;color:var(--muted);cursor:pointer;padding:3px 8px;background:var(--surface-3);border:1px solid var(--border);border-radius:var(--radius-sm);transition:all var(--transition)}
-.toggle-pill:has(input:checked){color:var(--primary);border-color:var(--primary)40;background:var(--primary-glow)}
-.toggle-pill input{display:none}
-.drag-handle{color:var(--faint);font-size:1.1rem;cursor:grab;padding:4px;transition:color var(--transition)}
-.drag-handle:active{cursor:grabbing}
-.src-card:hover .drag-handle{color:var(--muted)}
+/* Form */
+.lbl{font-size:.72rem;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:6px;margin-top:14px;display:block}
+.lbl:first-child{margin-top:0}
+input{width:100%;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--rsm);color:var(--text);padding:9px 12px;font-size:.875rem;font-family:'Satoshi',system-ui,sans-serif;transition:border-color var(--tr),box-shadow var(--tr);outline:none;margin-bottom:2px}
+input:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--glow)}
+input::placeholder{color:var(--faint)}
+.hint{font-size:.72rem;color:var(--faint);line-height:1.6;margin-bottom:10px}
+.hint a{color:var(--primary);text-decoration:none}.hint a:hover{text-decoration:underline}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:460px){.row2{grid-template-columns:1fr}}
 
-/* ── Quality selector ── */
-.quality-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px}
-.quality-opt{display:none}
-.quality-label{display:flex;flex-direction:column;gap:2px;padding:12px 14px;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius);cursor:pointer;transition:all var(--transition)}
-.quality-opt:checked + .quality-label{background:var(--primary-glow);border-color:var(--primary)60;color:var(--primary)}
-.quality-label .ql-name{font-size:.875rem;font-weight:600}
-.quality-label .ql-hint{font-size:.75rem;color:var(--muted);margin-top:1px}
-.quality-opt:checked + .quality-label .ql-hint{color:var(--primary);opacity:.7}
-@media(max-width:400px){.quality-grid{grid-template-columns:1fr}}
+/* Source picker */
+.stitle{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px;margin-top:16px}
+.srow{display:flex;flex-wrap:wrap;gap:7px;margin-bottom:4px}
+.sbtn{display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--r);padding:10px 14px;cursor:pointer;color:var(--muted);transition:all var(--tr);font-family:'Satoshi',system-ui,sans-serif;min-width:88px;position:relative;user-select:none}
+.sbtn:hover{background:var(--surface-3);color:var(--text);border-color:var(--border-h)}
+.sbtn.on{background:rgba(124,106,245,.12);border-color:rgba(124,106,245,.5);color:#c0b8ff}
+.sbtn .sn{font-size:.78rem;font-weight:700;line-height:1.3}
+.sbtn .st{font-size:.68rem;opacity:.55;margin-top:2px}
+.sbadge{position:absolute;top:-7px;left:50%;transform:translateX(-50%);background:var(--primary);color:#fff;font-size:.6rem;font-weight:800;padding:1px 6px;border-radius:99px;white-space:nowrap}
+.shint{font-size:.72rem;color:var(--faint);margin-bottom:2px;line-height:1.6}
 
-/* ── Output URLs ── */
-.manifest-tabs{display:flex;gap:4px;margin-bottom:12px;flex-wrap:wrap}
-.tab-btn{background:var(--surface-2);border:1px solid var(--border);color:var(--muted);padding:6px 14px;border-radius:var(--radius-sm);cursor:pointer;font-size:.8rem;font-weight:500;font-family:inherit;transition:all var(--transition)}
-.tab-btn.active{background:var(--primary-glow);border-color:var(--primary)50;color:var(--primary)}
-.manifest-panel{display:none}.manifest-panel.active{display:block}
-.url-row{display:flex;gap:8px;align-items:stretch}
-.url-box{flex:1;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:9px 12px;font-size:.78rem;font-family:'SF Mono',ui-monospace,monospace;color:var(--text);word-break:break-all;min-height:38px;display:flex;align-items:center;line-height:1.4}
-.copy-btn{background:var(--surface-2);border:1px solid var(--border);color:var(--muted);padding:8px 14px;border-radius:var(--radius-sm);cursor:pointer;font-size:.8rem;font-family:inherit;white-space:nowrap;transition:all var(--transition);flex-shrink:0}
-.copy-btn:hover{border-color:var(--primary)50;color:var(--primary)}
-.copy-btn.copied{border-color:var(--success)50;color:var(--success);background:color-mix(in srgb,var(--success) 10%,transparent)}
+/* Buttons */
+.brow{display:flex;gap:10px;flex-wrap:wrap}
+.btn{padding:11px 24px;border-radius:var(--rsm);font-size:.875rem;font-weight:700;font-family:'Satoshi',system-ui,sans-serif;cursor:pointer;transition:all var(--tr);border:none;outline:none}
+.bprimary{background:var(--primary);color:#fff;box-shadow:0 2px 12px rgba(124,106,245,.3)}
+.bprimary:hover{background:var(--primary-h);box-shadow:0 4px 20px rgba(124,106,245,.4);transform:translateY(-1px)}
+.bprimary:active{transform:none;box-shadow:none}
+.bprimary:disabled{background:var(--surface-3);color:var(--muted);box-shadow:none;cursor:not-allowed;transform:none}
+.bsec{background:var(--surface-2);border:1px solid var(--border);color:var(--muted)}
+.bsec:hover{border-color:var(--border-h);color:var(--text)}
 
-/* ── Buttons ── */
-.btn-row{display:flex;gap:10px;margin-top:8px;flex-wrap:wrap}
-.btn{padding:10px 22px;border-radius:var(--radius-sm);font-size:.875rem;font-weight:600;font-family:inherit;cursor:pointer;transition:all var(--transition);border:none;outline:none}
-.btn-primary{background:var(--primary);color:#fff}
-.btn-primary:hover{filter:brightness(1.1);transform:translateY(-1px)}
-.btn-primary:active{transform:none;filter:brightness(.95)}
-.btn-ghost{background:var(--surface-2);border:1px solid var(--border);color:var(--muted)}
-.btn-ghost:hover{border-color:var(--border-2);color:var(--text)}
+/* Status */
+.status{padding:10px 14px;border-radius:var(--rsm);font-size:.8rem;margin-top:10px;display:none;line-height:1.5}
+.ok{background:rgba(61,186,122,.1);border:1px solid rgba(61,186,122,.25);color:var(--ok)}
+.err{background:rgba(224,85,85,.1);border:1px solid rgba(224,85,85,.25);color:var(--err)}
 
-/* ── Status ── */
-.status{padding:10px 14px;border-radius:var(--radius-sm);font-size:.8rem;margin-top:10px;display:none}
-.status.success{background:color-mix(in srgb,var(--success) 12%,transparent);border:1px solid var(--success)30;color:var(--success)}
-.status.error{background:color-mix(in srgb,var(--error) 12%,transparent);border:1px solid var(--error)30;color:var(--error)}
+/* Output */
+.outbox{display:none;margin-top:16px}
+.olbl{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px;margin-top:14px}
+.olbl:first-child{margin-top:0}
+.orow{display:flex;gap:8px;align-items:stretch;margin-bottom:4px}
+.ourl{flex:1;background:var(--surface-2);border:1px solid var(--border);border-radius:var(--rsm);padding:9px 12px;font-size:.72rem;font-family:'SF Mono',ui-monospace,monospace;color:#a09aff;word-break:break-all;min-height:38px;display:flex;align-items:center;line-height:1.5}
+.cbtn{background:var(--surface-2);border:1px solid var(--border);color:var(--muted);padding:8px 14px;border-radius:var(--rsm);cursor:pointer;font-size:.78rem;font-family:'Satoshi',system-ui,sans-serif;white-space:nowrap;transition:all var(--tr);flex-shrink:0}
+.cbtn:hover{border-color:rgba(124,106,245,.4);color:var(--primary)}
+.cbtn.cp{border-color:rgba(61,186,122,.4);color:var(--ok);background:rgba(61,186,122,.08)}
 
-/* ── Footer ── */
-.footer{margin-top:40px;text-align:center;font-size:.75rem;color:var(--faint)}
-.footer a{color:var(--muted);text-decoration:none}.footer a:hover{color:var(--primary)}
+hr{border:none;border-top:1px solid var(--border);margin:20px 0}
 
-/* ── Hint ── */
-.hint{font-size:.75rem;color:var(--faint);margin-top:5px;line-height:1.4}
+/* Sources table */
+.stbl{width:100%;border-collapse:collapse;font-size:.75rem;margin-bottom:4px}
+.stbl th{text-align:left;padding:5px 10px;font-size:.67rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--faint);border-bottom:1px solid var(--border)}
+.stbl td{padding:8px 10px;border-bottom:1px solid rgba(36,36,48,.5);color:var(--muted);vertical-align:top}
+.stbl tr:last-child td{border-bottom:none}
+.stbl td:first-child{color:var(--text);font-weight:600}
+.pill{display:inline-flex;font-size:.65rem;padding:2px 7px;border-radius:99px;font-weight:700}
+.pg{background:rgba(61,186,122,.1);color:#3dba7a;border:1px solid rgba(61,186,122,.2)}
+.py{background:rgba(240,160,48,.1);color:#f0a030;border:1px solid rgba(240,160,48,.2)}
 
-/* ── Scrollbar ── */
-::-webkit-scrollbar{width:6px;height:6px}::-webkit-scrollbar-track{background:var(--bg)}::-webkit-scrollbar-thumb{background:var(--border-2);border-radius:3px}
+/* Steps */
+.steps{display:flex;flex-direction:column;gap:10px;margin-top:4px}
+.step{display:flex;gap:12px;align-items:flex-start}
+.stepn{width:24px;height:24px;border-radius:50%;background:var(--glow);border:1px solid rgba(124,106,245,.3);color:var(--primary);font-size:.75rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.stept{font-size:.8rem;color:var(--muted);line-height:1.55}
+.stept b{color:var(--text)}
+
+footer{margin-top:36px;text-align:center;font-size:.7rem;color:var(--faint);line-height:1.8}
 </style>
 </head>
 <body>
 <div class="page">
 
-  <!-- Header -->
-  <header class="header">
-    <div class="logo">
-      <svg class="logo-icon" viewBox="0 0 38 38" fill="none" aria-label="All-In-One Eclipse Addon">
-        <rect width="38" height="38" rx="9" fill="#7c6ee015" stroke="#7c6ee040" stroke-width="1"/>
-        <circle cx="19" cy="19" r="8" stroke="#7c6ee0" stroke-width="1.5" fill="none"/>
-        <circle cx="19" cy="19" r="4" fill="#7c6ee0" opacity=".8"/>
-        <path d="M11 19 A8 8 0 0 1 27 19" stroke="#a090f0" stroke-width="1" fill="none" opacity=".5"/>
-        <circle cx="27" cy="19" r="2" fill="#7c6ee0"/>
-      </svg>
-      <div class="logo-text">
-        <h1>All-In-One Addon</h1>
-        <p>Eclipse Music · Multi-source streaming</p>
-      </div>
+  <div class="hdr">
+    <div class="hdr-logo">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="rgba(124,106,245,.9)" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="3" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="21"/><line x1="3" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="21" y2="12"/></svg>
     </div>
-    <button class="theme-btn" data-theme-toggle aria-label="Toggle theme">
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
-    </button>
-  </header>
-
-  <!-- Credentials -->
-  <div class="section">
-    <div class="section-head">
-      <div class="section-icon">🔑</div>
-      <div>
-        <h2>Credentials</h2>
-        <p>API keys and tokens for each service</p>
-      </div>
-    </div>
-    <div class="field-row">
-      <div class="field"><label>Qobuz App ID</label><input id="qobuz_app_id" type="text" placeholder="e.g. 950096963"></div>
-      <div class="field"><label>Qobuz App Secret</label><input id="qobuz_app_secret" type="password" placeholder="32-char secret"></div>
-    </div>
-    <div class="field"><label>Qobuz User Auth Token</label><input id="qobuz_token" type="password" placeholder="From Qobuz login"></div>
-    <div class="field"><label>Tidal / HiFi Instance URLs</label><input id="hifi_instances" type="text" placeholder="https://your-opensubsonic-instance.com (comma-separated)"></div>
-    <div class="field-row">
-      <div class="field"><label>HiFi Username</label><input id="hifi_user" type="text" placeholder="Subsonic username"></div>
-      <div class="field"><label>HiFi Password</label><input id="hifi_pass" type="password" placeholder="Subsonic password"></div>
-    </div>
-    <div class="field"><label>SoundCloud Client ID</label><input id="sc_client_id" type="text" placeholder="Leave blank for auto-discovery"></div>
-    <div class="field"><label>Deezer ARL Cookie</label><input id="deezer_arl" type="password" placeholder="Your Deezer ARL token"></div>
-    <div class="field-row">
-      <div class="field"><label>Podcast Index API Key</label><input id="pi_api_key" type="text" placeholder="Podcast Index key"></div>
-      <div class="field"><label>Podcast Index API Secret</label><input id="pi_api_secret" type="password" placeholder="Podcast Index secret"></div>
-    </div>
-    <div class="field"><label>Taddy API Key</label><input id="taddy_api_key" type="text" placeholder="Taddy.org API key (optional)"></div>
-    <div class="field-row">
-      <div class="field"><label>Upstash Redis URL</label><input id="upstash_url" type="text" placeholder="https://xxx.upstash.io"></div>
-      <div class="field"><label>Upstash Redis Token</label><input id="upstash_token" type="password" placeholder="Upstash REST token"></div>
+    <div class="hdr-text">
+      <h1>Eclipse Universal Addon</h1>
+      <p>HiFi &middot; Qobuz &middot; SoundCloud &middot; Deezer &middot; Podcasts &middot; Audiobooks &middot; Radio</p>
     </div>
   </div>
 
-  <!-- Sources -->
-  <div class="section">
-    <div class="section-head">
-      <div class="section-icon">⚡</div>
-      <div>
-        <h2>Sources &amp; Priority</h2>
-        <p>Drag to reorder · Toggle search and stream per source</p>
-      </div>
-    </div>
-    <div class="sources-list" id="sources-list">${srcCards}</div>
-    <p class="hint" style="margin-top:12px">Priority order determines which source wins when the same track is found on multiple services. Deduplication uses ISRC → title+artist+year matching.</p>
+  <!-- What's included -->
+  <div class="card">
+    <div class="ctitle">What's Included</div>
+    <div class="tip"><b>How it works:</b> Your API keys and source preferences are encoded into your personal URL and read server-side on every request. Nothing is stored.</div>
+    <table class="stbl">
+      <thead><tr><th>Source</th><th>Content</th><th>Auth</th></tr></thead>
+      <tbody>
+        <tr><td>Tidal / HiFi</td><td>Lossless &amp; Hi-Res music</td><td><span class="pill py">Your URLs</span></td></tr>
+        <tr><td>Qobuz</td><td>Hi-Res FLAC streaming &amp; search</td><td><span class="pill pg">Free proxy</span></td></tr>
+        <tr><td>SoundCloud</td><td>Tracks, artists, playlists</td><td><span class="pill pg">Auto</span></td></tr>
+        <tr><td>Deezer</td><td>Tracks, albums, artists, playlists</td><td><span class="pill pg">Free ARL</span></td></tr>
+        <tr><td>Internet Archive</td><td>Music, recordings, audiobooks</td><td><span class="pill pg">Free</span></td></tr>
+        <tr><td>Podcast Index</td><td>Podcast episodes</td><td><span class="pill py">Key + Secret</span></td></tr>
+        <tr><td>Taddy</td><td>Podcast episodes (fallback)</td><td><span class="pill py">Key + UID</span></td></tr>
+        <tr><td>Apple Podcasts</td><td>Podcasts via iTunes API</td><td><span class="pill pg">Free</span></td></tr>
+        <tr><td>LibriVox</td><td>Public domain audiobooks</td><td><span class="pill pg">Free</span></td></tr>
+        <tr><td>Radio Browser</td><td>50k+ live radio stations</td><td><span class="pill pg">Free</span></td></tr>
+      </tbody>
+    </table>
   </div>
 
-  <!-- Quality -->
-  <div class="section">
-    <div class="section-head">
-      <div class="section-icon">🎵</div>
-      <div>
-        <h2>Stream Quality</h2>
-        <p>Preferred quality when streaming (falls back to lower if unavailable)</p>
-      </div>
-    </div>
-    <div class="quality-grid">
-      <div>
-        <input class="quality-opt" type="radio" name="quality" id="q-hires" value="hires">
-        <label class="quality-label" for="q-hires"><span class="ql-name">Hi-Res (24-bit+)</span><span class="ql-hint">FLAC up to 192kHz · Qobuz / HiFi</span></label>
-      </div>
-      <div>
-        <input class="quality-opt" type="radio" name="quality" id="q-lossless" value="lossless" checked>
-        <label class="quality-label" for="q-lossless"><span class="ql-name">Lossless (16-bit)</span><span class="ql-hint">CD quality FLAC · Qobuz / HiFi</span></label>
-      </div>
-      <div>
-        <input class="quality-opt" type="radio" name="quality" id="q-high" value="high">
-        <label class="quality-label" for="q-high"><span class="ql-name">High (AAC 320)</span><span class="ql-hint">High bitrate · all sources</span></label>
-      </div>
-      <div>
-        <input class="quality-opt" type="radio" name="quality" id="q-normal" value="normal">
-        <label class="quality-label" for="q-normal"><span class="ql-name">Normal (AAC 128)</span><span class="ql-hint">Standard quality · all sources</span></label>
-      </div>
-    </div>
+  <!-- Deployment URL -->
+  <div class="card">
+    <div class="ctitle">Your Deployment URL <span class="otag">optional — pre-filled</span></div>
+    <input type="text" id="vercelUrl" value="${ev(baseUrl)}" placeholder="https://your-addon.vercel.app">
+    <div class="hint">Pre-filled with this deployment. Only change if you host on a different URL.</div>
   </div>
 
-  <!-- Existing token -->
-  <div class="section" id="existing-section" style="${existingToken ? '' : 'display:none'}">
-    <div class="section-head">
-      <div class="section-icon">🔄</div>
-      <div>
-        <h2>Update Existing Config</h2>
-        <p>Apply changes to your current install URL</p>
-      </div>
+  <!-- HiFi -->
+  <div class="card">
+    <div class="ctitle">HiFi / Tidal Instance URLs <span class="otag">optional</span></div>
+    <input type="text" id="hifiInst" placeholder="https://hifi.yourdomain.com">
+    <div class="hint">Comma-separated custom instances. Leave blank to use the built-in public instance pool.</div>
+  </div>
+
+  <!-- SoundCloud -->
+  <div class="card">
+    <div class="ctitle">SoundCloud Client ID <span class="otag">optional</span></div>
+    <input type="text" id="scId" placeholder="Leave blank for auto-discovery">
+    <div class="hint">Auto-discovered from SoundCloud on first use if left blank.</div>
+  </div>
+
+  <!-- Podcast Index -->
+  <div class="card">
+    <div class="ctitle">Podcast Index <span class="otag">optional — <a href="https://podcastindex.org/login" target="_blank" rel="noopener">podcastindex.org/login</a></span></div>
+    <div class="row2">
+      <div><input type="text" id="piKey" placeholder="API Key"></div>
+      <div><input type="password" id="piSecret" placeholder="API Secret"></div>
     </div>
-    <div class="field">
-      <label>Existing Token</label>
-      <input id="existing_token" type="text" value="${ev(existingToken)}" placeholder="Paste your existing token to update">
+    <div class="hint">Without these, podcast search falls back to Taddy + Apple Podcasts only.</div>
+  </div>
+
+  <!-- Taddy -->
+  <div class="card">
+    <div class="ctitle">Taddy <span class="otag">optional — <a href="https://taddy.org/developers" target="_blank" rel="noopener">taddy.org/developers</a></span></div>
+    <div class="row2">
+      <div><input type="text" id="taddyKey" placeholder="API Key"></div>
+      <div><input type="text" id="taddyUid" placeholder="User ID"></div>
     </div>
-    <div class="btn-row">
-      <button class="btn btn-ghost" onclick="document.getElementById('existing_token').value='';document.getElementById('existing-section').style.display='none'">Clear</button>
+    <div class="hint">Without these, podcast search uses Podcast Index + Apple only.</div>
+  </div>
+
+  <!-- Source Config -->
+  <div class="card">
+    <div class="ctitle">Source Configuration <span class="otag">optional</span></div>
+    <div class="tip"><b>How priority works:</b> Click sources to add them in order — first clicked = highest priority. Click again to remove. Leaving everything unselected uses all sources with default priority.</div>
+
+    <div class="stitle">Music Search Sources</div>
+    <div class="srow" id="searchRow">
+      <div class="sbtn" id="ss-hifi"   onclick="toggleSearch('hifi')">  <span class="sn">Tidal HiFi</span>      <span class="st">FLAC Hi-Res</span></div>
+      <div class="sbtn" id="ss-qobuz"  onclick="toggleSearch('qobuz')"> <span class="sn">Qobuz</span>           <span class="st">FLAC Hi-Res</span></div>
+      <div class="sbtn" id="ss-sc"     onclick="toggleSearch('sc')">    <span class="sn">SoundCloud</span>      <span class="st">MP3 Free</span></div>
+      <div class="sbtn" id="ss-ia"     onclick="toggleSearch('ia')">    <span class="sn">Internet Archive</span><span class="st">Various</span></div>
+      <div class="sbtn" id="ss-deezer" onclick="toggleSearch('deezer')"><span class="sn">Deezer</span>          <span class="st">MP3 Free</span></div>
     </div>
+    <div class="shint" id="searchHint">Nothing selected — all sources used with default priority.</div>
+
+    <div class="stitle">Music Stream Sources</div>
+    <div class="srow" id="streamRow">
+      <div class="sbtn" id="st-hifi"   onclick="toggleStream('hifi')">  <span class="sn">Tidal HiFi</span>      <span class="st">FLAC Hi-Res</span></div>
+      <div class="sbtn" id="st-qobuz"  onclick="toggleStream('qobuz')"> <span class="sn">Qobuz</span>           <span class="st">FLAC Hi-Res</span></div>
+      <div class="sbtn" id="st-sc"     onclick="toggleStream('sc')">    <span class="sn">SoundCloud</span>      <span class="st">MP3 Free</span></div>
+      <div class="sbtn" id="st-ia"     onclick="toggleStream('ia')">    <span class="sn">Internet Archive</span><span class="st">Various</span></div>
+      <div class="sbtn" id="st-deezer" onclick="toggleStream('deezer')"><span class="sn">Deezer</span>          <span class="st">MP3 Free</span></div>
+    </div>
+    <div class="shint" id="streamHint">Nothing selected — all sources used with default priority.</div>
   </div>
 
   <!-- Generate -->
-  <div class="section">
-    <div class="section-head">
-      <div class="section-icon">✨</div>
-      <div>
-        <h2>Generate Install URLs</h2>
-        <p>Build your Eclipse manifest links</p>
-      </div>
+  <div class="card">
+    <div class="ctitle">Generate URLs</div>
+    <div class="brow">
+      <button class="btn bprimary" id="genBtn" onclick="doGenerate()">Generate My Addon URLs</button>
     </div>
-    <div class="btn-row">
-      <button class="btn btn-primary" onclick="generateURLs()">Generate URLs</button>
-      <button class="btn btn-ghost" onclick="resetForm()">Reset</button>
+    <div class="status" id="genStatus"></div>
+    <div class="outbox" id="genBox">
+      <div class="olbl">&#9834; Music — paste into Eclipse for the standard player</div>
+      <div class="orow"><div class="ourl" id="genManifest"></div><button class="cbtn" id="copyManifest" onclick="copyIt('genManifest','copyManifest')">Copy</button></div>
+      <div class="olbl">&#127897; Podcasts — install separately for podcast player (&#xB1;15s skip, speed control)</div>
+      <div class="orow"><div class="ourl" id="genPodcast"></div><button class="cbtn" id="copyPodcast" onclick="copyIt('genPodcast','copyPodcast')">Copy</button></div>
+      <div class="olbl">&#128214; Audiobooks — install separately for audiobook player (&#xB1;30s skip, speed control)</div>
+      <div class="orow"><div class="ourl" id="genAudiobook"></div><button class="cbtn" id="copyAudiobook" onclick="copyIt('genAudiobook','copyAudiobook')">Copy</button></div>
+      <div class="olbl">&#128251; Live Radio — Radio Browser + SomaFM</div>
+      <div class="orow"><div class="ourl" id="genRadio"></div><button class="cbtn" id="copyRadio" onclick="copyIt('genRadio','copyRadio')">Copy</button></div>
     </div>
-    <div id="gen-status" class="status"></div>
   </div>
 
-  <!-- Output -->
-  <div class="section" id="output-section" style="display:none">
-    <div class="section-head">
-      <div class="section-icon">📋</div>
-      <div>
-        <h2>Install URLs</h2>
-        <p>Open in Eclipse or share with friends</p>
-      </div>
+  <!-- Refresh existing -->
+  <div class="card">
+    <div class="ctitle">Already Have a URL? Refresh It</div>
+    <input type="text" id="existingUrl" placeholder="Paste your existing addon URL">
+    <div class="brow" style="margin-top:10px">
+      <button class="btn bsec" onclick="doRefresh()">Refresh Existing URL</button>
     </div>
-    <div class="manifest-tabs">
-      <button class="tab-btn active" onclick="switchTab(this,'music')">🎵 Music</button>
-      <button class="tab-btn" onclick="switchTab(this,'podcast')">🎙 Podcasts</button>
-      <button class="tab-btn" onclick="switchTab(this,'audiobook')">📚 Audiobooks</button>
-      <button class="tab-btn" onclick="switchTab(this,'radio')">📻 Radio</button>
+    <div class="status" id="refStatus"></div>
+    <div class="outbox" id="refBox">
+      <div class="olbl">Refreshed Manifest URL</div>
+      <div class="orow"><div class="ourl" id="refManifest"></div><button class="cbtn" id="copyRef" onclick="copyIt('refManifest','copyRef')">Copy</button></div>
     </div>
-    <div class="manifest-panel active" id="panel-music">
-      <div class="url-row"><div class="url-box" id="url-music"></div><button class="copy-btn" onclick="copyURL('url-music',this)">Copy</button></div>
-    </div>
-    <div class="manifest-panel" id="panel-podcast">
-      <div class="url-row"><div class="url-box" id="url-podcast"></div><button class="copy-btn" onclick="copyURL('url-podcast',this)">Copy</button></div>
-    </div>
-    <div class="manifest-panel" id="panel-audiobook">
-      <div class="url-row"><div class="url-box" id="url-audiobook"></div><button class="copy-btn" onclick="copyURL('url-audiobook',this)">Copy</button></div>
-    </div>
-    <div class="manifest-panel" id="panel-radio">
-      <div class="url-row"><div class="url-box" id="url-radio"></div><button class="copy-btn" onclick="copyURL('url-radio',this)">Copy</button></div>
-    </div>
-    <p class="hint" style="margin-top:12px">Paste any of these URLs into Eclipse → Add Addon. Each manifest type exposes a different content library while sharing your credentials.</p>
   </div>
 
-  <footer class="footer">
-    <p>All-In-One Eclipse Addon &nbsp;·&nbsp; <a href="https://eclipsemusic.app/docs" target="_blank">Eclipse Docs</a></p>
-  </footer>
+  <!-- How to install -->
+  <div class="card">
+    <div class="ctitle">How to Install</div>
+    <div class="steps">
+      <div class="step"><div class="stepn">1</div><div class="stept">Enter your Vercel URL and any optional API keys above</div></div>
+      <div class="step"><div class="stepn">2</div><div class="stept">Optionally configure source priorities, then click <b>Generate My Addon URLs</b></div></div>
+      <div class="step"><div class="stepn">3</div><div class="stept">Open <b>Eclipse</b> &rarr; Settings &rarr; Connections &rarr; Add Connection &rarr; Addon</div></div>
+      <div class="step"><div class="stepn">4</div><div class="stept">Paste a Manifest URL and tap <b>Install</b></div></div>
+    </div>
+  </div>
+
+  <footer>Eclipse Universal Addon &bull; Keys encoded in URL &bull; Never stored server-side</footer>
 </div>
 
 <script>
-(function(){
-  // Theme toggle
-  const html = document.documentElement;
-  const tb = document.querySelector('[data-theme-toggle]');
-  const sunSVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/></svg>';
-  const moonSVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
-  let theme = 'dark';
-  html.setAttribute('data-theme', theme);
-  tb && tb.addEventListener('click', () => {
-    theme = theme === 'dark' ? 'light' : 'dark';
-    html.setAttribute('data-theme', theme);
-    tb.innerHTML = theme === 'dark' ? moonSVG : sunSVG;
-  });
+var searchOrder = [];
+var streamOrder = [];
+var SRCLABELS = {hifi:'Tidal HiFi',qobuz:'Qobuz',sc:'SoundCloud',ia:'Internet Archive',deezer:'Deezer'};
 
-  // ── Drag-to-reorder sources ─────────────────────────────────────────────────
-  const list = document.getElementById('sources-list');
-  let dragSrc = null;
-  list.querySelectorAll('.src-card').forEach(card => {
-    card.addEventListener('dragstart', e => { dragSrc = card; card.classList.add('dragging'); e.dataTransfer.effectAllowed = 'move'; });
-    card.addEventListener('dragend',   () => { card.classList.remove('dragging'); list.querySelectorAll('.src-card').forEach(c => c.classList.remove('drag-over')); });
-    card.addEventListener('dragover',  e => { e.preventDefault(); card.classList.add('drag-over'); });
-    card.addEventListener('dragleave', () => card.classList.remove('drag-over'));
-    card.addEventListener('drop', e => {
-      e.preventDefault(); card.classList.remove('drag-over');
-      if (dragSrc && dragSrc !== card) {
-        const items = [...list.querySelectorAll('.src-card')];
-        const fromIdx = items.indexOf(dragSrc), toIdx = items.indexOf(card);
-        if (fromIdx < toIdx) list.insertBefore(dragSrc, card.nextSibling);
-        else list.insertBefore(dragSrc, card);
-      }
-    });
-  });
-
-  // ── Get ordered sources ──────────────────────────────────────────────────────
-  function getSourceOrder() {
-    return [...list.querySelectorAll('.src-card')].map(c => c.dataset.src);
-  }
-  function getSearchEnabled() {
-    return [...list.querySelectorAll('.src-search:checked')].map(c => c.dataset.src);
-  }
-  function getStreamEnabled() {
-    return [...list.querySelectorAll('.src-stream:checked')].map(c => c.dataset.src);
-  }
-
-  // ── Tab switching ────────────────────────────────────────────────────────────
-  window.switchTab = (btn, tab) => {
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.manifest-panel').forEach(p => p.classList.remove('active'));
-    btn.classList.add('active');
-    document.getElementById('panel-' + tab).classList.add('active');
-  };
-
-  // ── Copy ─────────────────────────────────────────────────────────────────────
-  window.copyURL = (id, btn) => {
-    const text = document.getElementById(id).textContent.trim();
-    if (!text) return;
-    navigator.clipboard.writeText(text).then(() => {
-      btn.textContent = 'Copied!'; btn.classList.add('copied');
-      setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
-    });
-  };
-
-  // ── Generate URLs ────────────────────────────────────────────────────────────
-  window.generateURLs = async () => {
-    const g  = id => document.getElementById(id)?.value?.trim() || '';
-    const status = document.getElementById('gen-status');
-    const showStatus = (msg, type) => { status.textContent = msg; status.className = 'status ' + type; status.style.display = 'block'; };
-
-    const cfg = {
-      qobuz_app_id:     g('qobuz_app_id'),
-      qobuz_app_secret: g('qobuz_app_secret'),
-      qobuz_token:      g('qobuz_token'),
-      hifi_instances:   g('hifi_instances'),
-      hifi_user:        g('hifi_user'),
-      hifi_pass:        g('hifi_pass'),
-      sc_client_id:     g('sc_client_id'),
-      deezer_arl:       g('deezer_arl'),
-      pi_api_key:       g('pi_api_key'),
-      pi_api_secret:    g('pi_api_secret'),
-      taddy_api_key:    g('taddy_api_key'),
-      upstash_url:      g('upstash_url'),
-      upstash_token:    g('upstash_token'),
-      search_order:     getSearchEnabled().join(','),
-      stream_order:     getStreamEnabled().join(','),
-      source_order:     getSourceOrder().join(','),
-      preferred_quality: document.querySelector('.quality-opt:checked')?.value || 'lossless',
-    };
-    const existing = g('existing_token');
-    const endpoint = existing ? '/config/update/' + existing : '/config/save';
-
-    try {
-      showStatus('Saving configuration…', 'success');
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(cfg),
-      });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      const data = await res.json();
-      const token = data.token || existing;
-      if (!token) throw new Error('No token returned');
-      const base = location.origin + '/' + token;
-      document.getElementById('url-music').textContent     = base + '/manifest.json';
-      document.getElementById('url-podcast').textContent   = base + '/podcast/manifest.json';
-      document.getElementById('url-audiobook').textContent = base + '/audiobook/manifest.json';
-      document.getElementById('url-radio').textContent     = base + '/radio/manifest.json';
-      document.getElementById('output-section').style.display = '';
-      showStatus('✓ Configuration saved! Copy an install URL above.', 'success');
-    } catch (e) {
-      showStatus('Error: ' + e.message, 'error');
+function toggleSearch(src) {
+  var idx = searchOrder.indexOf(src);
+  if (idx === -1) searchOrder.push(src); else searchOrder.splice(idx, 1);
+  renderRow('ss-', searchOrder);
+  updateHint('searchHint', searchOrder);
+}
+function toggleStream(src) {
+  var idx = streamOrder.indexOf(src);
+  if (idx === -1) streamOrder.push(src); else streamOrder.splice(idx, 1);
+  renderRow('st-', streamOrder);
+  updateHint('streamHint', streamOrder);
+}
+function renderRow(pfx, order) {
+  ['hifi','qobuz','sc','ia','deezer'].forEach(function(src) {
+    var el = document.getElementById(pfx + src);
+    if (!el) return;
+    var pos = order.indexOf(src);
+    var badge = el.querySelector('.sbadge');
+    if (pos === -1) {
+      el.classList.remove('on');
+      if (badge) badge.remove();
+    } else {
+      el.classList.add('on');
+      if (!badge) { badge = document.createElement('span'); badge.className = 'sbadge'; el.appendChild(badge); }
+      badge.textContent = pos + 1;
     }
-  };
+  });
+}
+function updateHint(hintId, order) {
+  var el = document.getElementById(hintId);
+  if (!el) return;
+  if (!order.length) { el.textContent = 'Nothing selected \u2014 all sources used with default priority.'; return; }
+  var names = order.map(function(s) { return SRCLABELS[s]; });
+  var unsel = ['hifi','qobuz','sc','ia','deezer'].filter(function(s) { return order.indexOf(s) === -1; });
+  var msg = 'Priority: ' + names.join(' \u2192 ');
+  if (unsel.length) msg += ' \u2014 ' + unsel.map(function(s) { return SRCLABELS[s]; }).join(', ') + ' disabled';
+  el.textContent = msg;
+}
+function showStatus(id, msg, type) {
+  var el = document.getElementById(id);
+  el.textContent = msg; el.className = 'status ' + type; el.style.display = 'block';
+}
+function copyIt(urlId, btnId) {
+  var text = document.getElementById(urlId).textContent.trim();
+  if (!text) return;
+  navigator.clipboard.writeText(text).then(function() {
+    var btn = document.getElementById(btnId);
+    btn.textContent = 'Copied!'; btn.classList.add('cp');
+    setTimeout(function() { btn.textContent = 'Copy'; btn.classList.remove('cp'); }, 2000);
+  });
+}
 
-  window.resetForm = () => {
-    document.querySelectorAll('input[type=text], input[type=password]').forEach(i => i.value = '');
-    document.getElementById('q-lossless').checked = true;
-    document.getElementById('output-section').style.display = 'none';
-    document.getElementById('gen-status').style.display = 'none';
-    document.querySelectorAll('.src-search, .src-stream').forEach(c => c.checked = true);
-  };
-})();
+function doGenerate() {
+  var btn = document.getElementById('genBtn');
+  var vercel = (document.getElementById('vercelUrl').value || '').trim().replace(/\\/+$/, '');
+  if (!vercel) vercel = window.location.origin;
+  if (vercel.indexOf('http') !== 0) vercel = 'https://' + vercel;
+
+  btn.disabled = true; btn.textContent = 'Generating\u2026';
+
+  var body = { vercelUrl: vercel };
+  var hifi = document.getElementById('hifiInst').value.trim();
+  var sc   = document.getElementById('scId').value.trim();
+  var pik  = document.getElementById('piKey').value.trim();
+  var pis  = document.getElementById('piSecret').value.trim();
+  var tk   = document.getElementById('taddyKey').value.trim();
+  var tu   = document.getElementById('taddyUid').value.trim();
+  if (hifi) body.hifi      = hifi;
+  if (sc)   body.sc        = sc;
+  if (pik)  body.pikey     = pik;
+  if (pis)  body.pisecret  = pis;
+  if (tk)   body.taddykey  = tk;
+  if (tu)   body.taddyuid  = tu;
+
+  var allSrc = ['hifi','qobuz','sc','ia','deezer'];
+  if (searchOrder.length) {
+    body.searchorder = searchOrder;
+    allSrc.forEach(function(s) { if (searchOrder.indexOf(s) === -1) body['no' + s] = true; });
+  }
+  if (streamOrder.length) {
+    body.streamorder = streamOrder;
+    allSrc.forEach(function(s) { if (streamOrder.indexOf(s) === -1) body['no' + s] = true; });
+  }
+
+  fetch('/generate', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  })
+  .then(function(r) {
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.json();
+  })
+  .then(function(data) {
+    if (data.error) throw new Error(data.error);
+    document.getElementById('genManifest').textContent  = data.manifestUrl          || '';
+    document.getElementById('genPodcast').textContent   = data.podcastManifestUrl   || '';
+    document.getElementById('genAudiobook').textContent = data.audiobookManifestUrl || '';
+    document.getElementById('genRadio').textContent     = data.radioManifestUrl     || '';
+    document.getElementById('genBox').style.display = 'block';
+    showStatus('genStatus', '\u2713 Done! Copy an install URL above.', 'ok');
+  })
+  .catch(function(e) {
+    showStatus('genStatus', 'Error: ' + e.message, 'err');
+  })
+  .finally(function() {
+    btn.disabled = false; btn.textContent = 'Generate My Addon URLs';
+  });
+}
+
+function doRefresh() {
+  var raw = (document.getElementById('existingUrl').value || '').trim();
+  if (!raw) { showStatus('refStatus', 'Paste your existing addon URL first.', 'err'); return; }
+  fetch('/refresh', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({existingUrl: raw})
+  })
+  .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+  .then(function(data) {
+    if (data.error) throw new Error(data.error);
+    document.getElementById('refManifest').textContent = data.manifestUrl || '';
+    document.getElementById('refBox').style.display = 'block';
+    showStatus('refStatus', '\u2713 Refreshed!', 'ok');
+  })
+  .catch(function(e) { showStatus('refStatus', 'Error: ' + e.message, 'err'); });
+}
 </script>
 </body>
 </html>`;
