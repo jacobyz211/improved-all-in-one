@@ -1,18 +1,16 @@
 {
-  "name": "improved-all-in-one",
-  "version": "2.0.0",
-  "description": "Eclipse Music all-in-one addon — Qobuz, Tidal, Deezer, SoundCloud, MusicBrainz, Internet Archive, Podcasts, Audiobooks, Radio",
-  "main": "index.js",
+  "name": "eclipse-all-in-one",
+  "version": "1.4.0",
+  "private": true,
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "tail": "wrangler tail"
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "hono": "^4.7.0"
   },
   "devDependencies": {
-    "wrangler": "^3.80.0"
-  },
-  "engines": {
-    "node": ">=18"
-  },
-  "license": "MIT"
+    "wrangler": "^3.100.0"
+  }
 }
