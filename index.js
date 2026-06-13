@@ -631,6 +631,7 @@ async function qobuzSearch(query) {
           artworkURL: cover,
           format: 'flac',
           source: 'qobuz',
+          isrc: t.isrc ? t.isrc.toUpperCase().replace(/[^A-Z0-9]/g,'') : undefined,
         };
       });
 
@@ -799,6 +800,7 @@ async function hifiSearch(query, instances) {
         duration: t.duration ? Math.floor(t.duration) : undefined,
         artworkURL,
         format: 'flac',
+        isrc: t.isrc ? t.isrc.toUpperCase().replace(/[^A-Z0-9]/g,'') : undefined,
         _source: 'hifi',
         _inst: inst,
         _instB64: instB64,
@@ -2216,6 +2218,7 @@ async function deezerSearch(query) {
       album: t.album?.title || '', duration: t.duration || undefined,
       artworkURL: t.album?.cover_xl || t.album?.cover_big || t.album?.cover || null,
       format: 'mp3', source: 'deezer',
+      isrc: t.isrc ? t.isrc.toUpperCase().replace(/[^A-Z0-9]/g,'') : undefined,
     }));
     const albums = rawAlbums.slice(0, 8).map(a => ({
       id: `deezer:album:${a.id}`, title: a.title || 'Unknown Album', artist: a.artist?.name || 'Unknown',
@@ -3018,11 +3021,12 @@ async function handleSearch(c) {
     const t  = _normStr(item.title  || '');
     const a  = _normStr((item.artist || '').split(/[,&]/)[0]);
     const y  = item.year ? String(item.year).slice(0, 4) : '';
-    // 10-second buckets; interleave() adds a hard 15-second cross-check on top
-    const dur = (item.duration && item.duration > 5) ? item.duration : 0;
-    const db  = dur ? '|d' + (Math.round(dur / 10) * 10) : '';
+    // No duration bucket in key — same title+artist always produces the same key so the
+    // 15-second cross-check inside interleave() can correctly decide if it's a different version.
+    // Including duration caused tracks with duration just across a 10s boundary to get
+    // different keys and both pass dedup as false positives.
     if (!t && !a) return null; // don't dedup unknown tracks against each other
-    return 'ta:' + t + '|' + a + '|' + y + db;
+    return 'ta:' + t + '|' + a + '|' + y;
   };
 
   const _canonAlbKey = item => {
