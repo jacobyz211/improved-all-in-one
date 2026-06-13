@@ -1788,8 +1788,7 @@ async function deezerSearch(query) {
 
 async function deezerStream(trackId) {
   // trackId is the numeric Deezer ID (strip "deezer:" prefix if present)
-  const _decodedId = decodeURIComponent(String(trackId || ''));
-  const numericId = _decodedId.replace(/^deezer(?::|%3A)/i, '');
+  const numericId = String(trackId).replace(/^deezer:/, '');
   const cacheKey = `dz:stream:${numericId}`;
   const cached = await cacheGet(cacheKey);
   if (cached) return cached;
@@ -1800,10 +1799,8 @@ async function deezerStream(trackId) {
     });
     const data = r.data || {};
     if (data.url) {
-      const result = { url: data.url + (data.url.includes('?') ? '&' : '?') + '_t=' + Date.now(), format: data.format || 'mp3', quality: data.quality || '320kbps', source: 'deezer' };
-      // FIX: use expiresAt from addon response for cache TTL (was hardcoded 1800s)
-      const ttlSec = data.expiresAt ? Math.max(60, Math.floor((data.expiresAt - Date.now()) / 1000) - 30) : 1200;
-      await cacheSet(cacheKey, result, ttlSec);
+      const result = { url: data.url + (data.url.includes('?') ? '&' : '?') + '_t=' + Date.now(), format: data.format || 'mp3', quality: data.quality || '128kbps', source: 'deezer' };
+      await cacheSet(cacheKey, result, 1800);
       return result;
     }
     return null;
