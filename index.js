@@ -1723,7 +1723,7 @@ async function appleSearch(query) {
 
 // ─── Deezer (via your Cloudflare Worker proxy) ───────────────────────────────
 // ─── Deezer (via dawn-art-79bc.cyrusna29.workers.dev addon) ─────────────────
-const DEEZER_ADDON  = 'https://dawn-art-79bc.cyrusna29.workers.dev/u/e91b254bb5e8a17a97420339188c';
+const DEEZER_ADDON  = 'https://dawn-art-79bc.cyrusna29.workers.dev/u/e8c776b7fd30d9055c15eaaf4e3f';
 const DEEZER_API    = 'https://api.deezer.com'; // for albums/artists/playlists metadata
 
 async function deezerSearch(query) {
