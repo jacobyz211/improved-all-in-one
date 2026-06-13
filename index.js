@@ -244,7 +244,6 @@ async function getSCClientId(providedId) {
 
 // ─── HiFi Instance Helpers ───────────────────────────────────────────────────
 const DEFAULT_HIFI_INSTANCES = [
-  'https://hifi-api-workers.anothermoumen4.workers.dev',
   'https://hifi-api-bffw.onrender.com',
   'https://hifi-api-pj08.onrender.com',
   'https://hifi-api.kennyy.com.br',
