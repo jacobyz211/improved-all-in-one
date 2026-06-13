@@ -1723,7 +1723,7 @@ async function appleSearch(query) {
 
 // ─── Deezer (via your Cloudflare Worker proxy) ───────────────────────────────
 // ─── Deezer (via dawn-art-79bc.cyrusna29.workers.dev addon) ─────────────────
-const DEEZER_ADDON  = 'https://dawn-art-79bc.cyrusna29.workers.dev/u/e8c776b7fd30d9055c15eaaf4e3f';
+const DEEZER_ADDON  = 'https://dawn-art-79bc.cyrusna29.workers.dev/u/47de8a3c8fc2dc25191faf9ee71f';
 const DEEZER_API    = 'https://api.deezer.com'; // for albums/artists/playlists metadata
 
 async function deezerSearch(query) {
@@ -3401,9 +3401,14 @@ async function handleStream(c) {
       const s = await deezerStream(dzId);
       if (s) return c.json(s);
       // Deezer failed — walk full streamOrder for best available source
+      // FIX: if user set an explicit streamOrder containing only 'deezer' and it failed,
+      // do NOT fall back to qobuz/hifi/sc. Respect the explicit source restriction.
       const _dzFbOrder = cfg.streamOrder && cfg.streamOrder.length
         ? cfg.streamOrder.filter(x => x !== 'deezer')
         : ['qobuz', 'hifi', 'sc'];
+      if (_dzFbOrder.length === 0) {
+        return c.json({ error: 'Deezer stream not found' }, 404);
+      }
       for (const _fbSrc of _dzFbOrder) {
         if (_fbSrc === 'qobuz' && !_dzEffNoQobuz) {
           try {
