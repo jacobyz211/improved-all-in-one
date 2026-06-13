@@ -1,641 +1,562 @@
-/* ============================================================
-   m All-in-One Addon v2.1  –  Cloudflare Worker
-   Sources: Qobuz · Tidal · Deezer · SoundCloud · MusicBrainz
-            Internet Archive · Podcast Index · Radio Browser
-   ============================================================ */
+// Eclipse All-in-One Addon — v3.0.0
+// Cloudflare Workers · Hono · Priority-first multi-source search with strict dedup
+// Sources: Qobuz, Tidal (HiFi proxies), Deezer, SoundCloud, MusicBrainz, Internet Archive
 
-// ─── Constants ───────────────────────────────────────────────────────────────
-const VERSION = "2.1.0";
-const DEFAULT_TIMEOUT_MS = 8000;
+import { Hono } from 'hono';
+import { cors } from 'hono/cors';
 
-const SOURCE_IDS = {
-  TIDAL:           "tidal",
-  QOBUZ:           "qobuz",
-  DEEZER:          "deezer",
-  SOUNDCLOUD:      "soundcloud",
-  MUSICBRAINZ:     "musicbrainz",
-  INTERNET_ARCHIVE:"internetarchive",
-  PODCAST:         "podcast",
-  AUDIOBOOK:       "audiobook",
-  RADIO:           "radio",
+const app = new Hono();
+app.use('*', cors());
+
+// ─── Constants ────────────────────────────────────────────────────────────────
+const VERSION        = '3.0.0';
+const UA             = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36';
+const TIMEOUT_MS     = 10000;
+const STREAM_TTL     = 200;       // seconds to cache stream URLs
+const INSTANCE_TTL   = 300;
+const MB_RATE_MS     = 1100;
+const MB_BASE        = 'https://musicbrainz.org/ws/2';
+const DEEZER_BASE    = 'https://api.deezer.com';
+const IA_BASE        = 'https://archive.org';
+const QOBUZ_BASE     = 'https://www.qobuz.com/api.json/0.2';
+
+// Qobuz direct credentials (same as your working addon)
+const QOBUZ_APP_ID   = '312369995';
+const QOBUZ_TOKEN    = 'xDkvXFh-sRSrmN-s5rSdL4Dooppx4Q7G6VgnviHcxpBBv_RHxKmCKx1_XANKmz6IDVBtgBcwQHFWJgJObLpiJw';
+const QOBUZ_SECRET   = 'e79f8b9be485692b0e5f9dd895826368';
+
+// Qobuz proxy fallbacks
+const QOBUZ_PROXIES = [
+  'https://qobuz-api1.onrender.com',
+  'https://trypt-hifi-dl-456461932686.us-west1.run.app',
+  'https://qobuz-api.stremio123.duckdns.org',
+  'https://qobuz.kennyy.com.br/api',
+];
+
+// Tidal HiFi proxy pool
+const DEFAULT_HIFI_INSTANCES = [
+  'https://hifi-api-bffw.onrender.com',
+  'https://hifi-api-pj08.onrender.com',
+  'https://mono.kennyy.com.br/hifi-api',
+  'https://tidal-api.binimum.org',
+  'https://triton.squid.wtf',
+  'https://ohio-1.monochrome.tf',
+  'https://frankfurt-1.monochrome.tf',
+  'https://vogel.qqdl.site',
+  'https://eu-central.monochrome.tf',
+  'https://us-west.monochrome.tf',
+  'https://monochrome-api.samidy.com',
+  'https://hifi-two.spotisaver.net',
+  'https://wolf.qqdl.site',
+  'https://katze.qqdl.site',
+  'https://hund.qqdl.site',
+  'https://api.monochrome.tf',
+];
+
+// Source IDs — also the valid values for searchSources / streamSources
+const S = {
+  QOBUZ:    'qobuz',
+  TIDAL:    'tidal',
+  DEEZER:   'deezer',
+  SOUNDCLOUD: 'soundcloud',
+  MUSICBRAINZ: 'musicbrainz',
+  INTERNETARCHIVE: 'internetarchive',
 };
 
-// Default search source order (user can override via manifest URL)
-const DEFAULT_SEARCH_ORDER = [
-  SOURCE_IDS.TIDAL,
-  SOURCE_IDS.QOBUZ,
-  SOURCE_IDS.DEEZER,
-  SOURCE_IDS.SOUNDCLOUD,
-  SOURCE_IDS.MUSICBRAINZ,
-  SOURCE_IDS.INTERNET_ARCHIVE,
-];
+// Default search priority (user can override via token settings or manifest URL param)
+const DEFAULT_SEARCH_ORDER  = [S.QOBUZ, S.TIDAL, S.DEEZER, S.SOUNDCLOUD, S.MUSICBRAINZ, S.INTERNETARCHIVE];
+const DEFAULT_STREAM_ORDER  = [S.QOBUZ, S.TIDAL, S.DEEZER, S.SOUNDCLOUD, S.INTERNETARCHIVE];
 
-// Default stream source order
-const DEFAULT_STREAM_ORDER = [
-  SOURCE_IDS.QOBUZ,
-  SOURCE_IDS.TIDAL,
-  SOURCE_IDS.DEEZER,
-  SOURCE_IDS.SOUNDCLOUD,
-  SOURCE_IDS.INTERNET_ARCHIVE,
-];
+// ─── In-memory token store ────────────────────────────────────────────────────
+const TOKEN_STORE = new Map();
+const memCache    = new Map();
 
-// ─── CORS helper ─────────────────────────────────────────────────────────────
-function corsHeaders(origin, allowed) {
-  const ao = allowed === "*" ? "*" : (origin || "*");
-  return {
-    "Access-Control-Allow-Origin": ao,
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-    "Access-Control-Allow-Headers": "Content-Type,Authorization",
-  };
+// ─── In-memory working-instance cache ────────────────────────────────────────
+let _hifiWorkingInst  = null;
+let _hifiInstExpiry   = 0;
+
+// ─── Rate limiting state ──────────────────────────────────────────────────────
+const GLOBAL_DAILY_LIMIT = 85000;
+let _globalDailyCount = 0;
+let _globalDayStart   = Date.now();
+const TOKEN_RATE_STATE = new Map();
+const IP_GEN_RATE      = new Map();
+const IP_CREATES       = new Map();
+
+// ─── MD5 (pure JS — needed for Qobuz signature) ──────────────────────────────
+function md5(str) {
+  function RL(v,n){return(v<<n)|(v>>>(32-n))}
+  function AU(x,y){const x8=(x&0x80000000),y8=(y&0x80000000),x4=(x&0x40000000),y4=(y&0x40000000),r=(x&0x3FFFFFFF)+(y&0x3FFFFFFF);if(x4&y4)return(r^0x80000000^x8^y8);if(x4|y4){if(r&0x40000000)return(r^0xC0000000^x8^y8);return(r^0x40000000^x8^y8)}return(r^x8^y8)}
+  function F(x,y,z){return(x&y)|((~x)&z)}function G(x,y,z){return(x&z)|(y&(~z))}function H(x,y,z){return x^y^z}function I(x,y,z){return y^(x|(~z))}
+  function FF(a,b,c,d,x,s,ac){a=AU(a,AU(AU(F(b,c,d),x),ac));return AU(RL(a,s),b)}
+  function GG(a,b,c,d,x,s,ac){a=AU(a,AU(AU(G(b,c,d),x),ac));return AU(RL(a,s),b)}
+  function HH(a,b,c,d,x,s,ac){a=AU(a,AU(AU(H(b,c,d),x),ac));return AU(RL(a,s),b)}
+  function II(a,b,c,d,x,s,ac){a=AU(a,AU(AU(I(b,c,d),x),ac));return AU(RL(a,s),b)}
+  function CW(s){const ml=s.length,nw_t1=ml+8,nw_t2=(nw_t1-(nw_t1%64))/64,nw=(nw_t2+1)*16,wa=Array(nw-1);let bp=0,bc=0;while(bc<ml){const wc=(bc-(bc%4))/4,pos=(bc%4)*8;wa[wc]=(wa[wc]|(s.charCodeAt(bc)<<pos));bc++}const wc2=(bc-(bc%4))/4;wa[wc2]=(wa[wc2]|(0x80<<((bc%4)*8)));wa[nw-2]=ml<<3;wa[nw-1]=ml>>>29;return wa}
+  function WH(v){let r='',t='',byte,c;for(c=0;c<=3;c++){byte=(v>>>(c*8))&255;t='0'+byte.toString(16);r+=t.substr(t.length-2,2)}return r}
+  const x=CW(str);let k,a=0x67452301,b=0xEFCDAB89,c2=0x98BADCFE,d=0x10325476,AA,BB,CC,DD;
+  const S11=7,S12=12,S13=17,S14=22,S21=5,S22=9,S23=14,S24=20,S31=4,S32=11,S33=16,S34=23,S41=6,S42=10,S43=15,S44=21;
+  for(k=0;k<x.length;k+=16){AA=a;BB=b;CC=c2;DD=d;a=FF(a,b,c2,d,x[k],S11,0xD76AA478);d=FF(d,a,b,c2,x[k+1],S12,0xE8C7B756);c2=FF(c2,d,a,b,x[k+2],S13,0x242070DB);b=FF(b,c2,d,a,x[k+3],S14,0xC1BDCEEE);a=FF(a,b,c2,d,x[k+4],S11,0xF57C0FAF);d=FF(d,a,b,c2,x[k+5],S12,0x4787C62A);c2=FF(c2,d,a,b,x[k+6],S13,0xA8304613);b=FF(b,c2,d,a,x[k+7],S14,0xFD469501);a=FF(a,b,c2,d,x[k+8],S11,0x698098D8);d=FF(d,a,b,c2,x[k+9],S12,0x8B44F7AF);c2=FF(c2,d,a,b,x[k+10],S13,0xFFFF5BB1);b=FF(b,c2,d,a,x[k+11],S14,0x895CD7BE);a=FF(a,b,c2,d,x[k+12],S11,0x6B901122);d=FF(d,a,b,c2,x[k+13],S12,0xFD987193);c2=FF(c2,d,a,b,x[k+14],S13,0xA679438E);b=FF(b,c2,d,a,x[k+15],S14,0x49B40821);a=GG(a,b,c2,d,x[k+1],S21,0xF61E2562);d=GG(d,a,b,c2,x[k+6],S22,0xC040B340);c2=GG(c2,d,a,b,x[k+11],S23,0x265E5A51);b=GG(b,c2,d,a,x[k],S24,0xE9B6C7AA);a=GG(a,b,c2,d,x[k+5],S21,0xD62F105D);d=GG(d,a,b,c2,x[k+10],S22,0x02441453);c2=GG(c2,d,a,b,x[k+15],S23,0xD8A1E681);b=GG(b,c2,d,a,x[k+4],S24,0xE7D3FBC8);a=GG(a,b,c2,d,x[k+9],S21,0x21E1CDE6);d=GG(d,a,b,c2,x[k+14],S22,0xC33707D6);c2=GG(c2,d,a,b,x[k+3],S23,0xF4D50D87);b=GG(b,c2,d,a,x[k+8],S24,0x455A14ED);a=GG(a,b,c2,d,x[k+13],S21,0xA9E3E905);d=GG(d,a,b,c2,x[k+2],S22,0xFCEFA3F8);c2=GG(c2,d,a,b,x[k+7],S23,0x676F02D9);b=GG(b,c2,d,a,x[k+12],S24,0x8D2A4C8A);a=HH(a,b,c2,d,x[k+5],S31,0xFFFA3942);d=HH(d,a,b,c2,x[k+8],S32,0x8771F681);c2=HH(c2,d,a,b,x[k+11],S33,0x6D9D6122);b=HH(b,c2,d,a,x[k+14],S34,0xFDE5380C);a=HH(a,b,c2,d,x[k+1],S31,0xA4BEEA44);d=HH(d,a,b,c2,x[k+4],S32,0x4BDECFA9);c2=HH(c2,d,a,b,x[k+7],S33,0xF6BB4B60);b=HH(b,c2,d,a,x[k+10],S34,0xBEBFBC70);a=HH(a,b,c2,d,x[k+13],S31,0x289B7EC6);d=HH(d,a,b,c2,x[k],S32,0xEAA127FA);c2=HH(c2,d,a,b,x[k+3],S33,0xD4EF3085);b=HH(b,c2,d,a,x[k+6],S34,0x04881D05);a=HH(a,b,c2,d,x[k+9],S31,0xD9D4D039);d=HH(d,a,b,c2,x[k+12],S32,0xE6DB99E5);c2=HH(c2,d,a,b,x[k+15],S33,0x1FA27CF8);b=HH(b,c2,d,a,x[k+2],S34,0xC4AC5665);a=II(a,b,c2,d,x[k],S41,0xF4292244);d=II(d,a,b,c2,x[k+7],S42,0x432AFF97);c2=II(c2,d,a,b,x[k+14],S43,0xAB9423A7);b=II(b,c2,d,a,x[k+5],S44,0xFC93A039);a=II(a,b,c2,d,x[k+12],S41,0x655B59C3);d=II(d,a,b,c2,x[k+3],S42,0x8F0CCC92);c2=II(c2,d,a,b,x[k+10],S43,0xFFEFF47D);b=II(b,c2,d,a,x[k+1],S44,0x85845DD1);a=II(a,b,c2,d,x[k+8],S41,0x6FA87E4F);d=II(d,a,b,c2,x[k+15],S42,0xFE2CE6E0);c2=II(c2,d,a,b,x[k+6],S43,0xA3014314);b=II(b,c2,d,a,x[k+13],S44,0x4E0811A1);a=II(a,b,c2,d,x[k+4],S41,0xF7537E82);d=II(d,a,b,c2,x[k+11],S42,0xBD3AF235);c2=II(c2,d,a,b,x[k+2],S43,0x2AD7D2BB);b=II(b,c2,d,a,x[k+9],S44,0xEB86D391);a=AU(a,AA);b=AU(b,BB);c2=AU(c2,CC);d=AU(d,DD)}
+  return (WH(a)+WH(b)+WH(c2)+WH(d)).toLowerCase();
 }
 
-function jsonResp(data, status = 200, origin = "*", allowedOrigins = "*") {
-  return new Response(JSON.stringify(data), {
-    status,
-    headers: {
-      "Content-Type": "application/json",
-      ...corsHeaders(origin, allowedOrigins),
-    },
-  });
+// ─── String helpers ───────────────────────────────────────────────────────────
+function normalizeStr(s) {
+  if (!s) return '';
+  return s.normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[''`´]/g, "'")
+    .replace(/[\u2022\u00b7\u2027\u22c5]/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .toLowerCase().trim();
 }
 
-// ─── Timeout-wrapped fetch ────────────────────────────────────────────────────
-async function fetchWithTimeout(url, options = {}, ms = DEFAULT_TIMEOUT_MS) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ms);
-  try {
-    const res = await fetch(url, { ...options, signal: controller.signal });
-    clearTimeout(timer);
-    return res;
-  } catch (e) {
-    clearTimeout(timer);
-    throw e;
-  }
+function removeFeat(s) {
+  if (!s) return '';
+  s = s.replace(/\s*\([^)]*(feat|ft|featuring)[^)]*\)/gi, '');
+  s = s.replace(/\s*\[[^\]]*(feat|ft|featuring)[^\]]*\]/gi, '');
+  const m = s.match(/\b(feat\.?|ft\.?|featuring)\b/i);
+  if (m && m.index > 0) s = s.substring(0, m.index);
+  return s.trim();
 }
 
-// ─── Normalisation helpers ────────────────────────────────────────────────────
-function normaliseStr(s) {
-  if (!s) return "";
-  return s
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "")               // strip accents
-    .replace(/[\u2018\u2019\u201C\u201D]/g, "")   // smart quotes
-    .replace(/\bfeat\.?\s+\w+.*/i, "")            // strip feat. tags
-    .replace(/[^a-z0-9 ]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+function cleanTitle(t) { return t ? removeFeat(t) : 'Unknown'; }
+
+function formatQuery(q) {
+  q = q.replace(/[''`´]/g, "'").replace(/[""«»]/g, '"');
+  return removeFeat(q);
 }
 
-function durationBucket(secs) {
-  // bucket to nearest 4 seconds to absorb minor encode-length differences
-  if (!secs) return 0;
-  return Math.round(Number(secs) / 4);
-}
+// ─── Deduplication ────────────────────────────────────────────────────────────
+// Each bucket (tracks / albums / artists) dedupes independently.
+// Key strategy:
+//   tracks  → ISRC preferred; fallback to normalized(title)|normalized(artist)|durationBucket
+//   albums  → normalized(title)|normalized(artist)
+//   artists → normalized(name)
+function durationBucket(sec) { return sec ? Math.round(Number(sec) / 4) : 0; }
 
-/** Build a fuzzy track identity key from available metadata */
-function trackKey(isrc, title, artist, durationSec, album) {
+function trackKey(isrc, title, artist, durSec) {
   if (isrc) {
-    const clean = String(isrc).toUpperCase().replace(/\s/g, "");
-    if (clean.length >= 12) return `isrc:${clean}`;
+    const c = String(isrc).toUpperCase().replace(/\W/g, '');
+    if (c.length >= 12) return 'isrc:' + c;
   }
-  const t  = normaliseStr(title);
-  const a  = normaliseStr(artist);
-  const d  = durationBucket(durationSec);
-  return `track:${a}|${t}|${d}`;
+  const t = normalizeStr(title);
+  const a = normalizeStr(artist);
+  const d = durationBucket(durSec);
+  return `t:${t}|${a}|${d}`;
 }
 
-/** Build album identity key */
-function albumKey(mbid, title, artist) {
-  if (mbid) return `mbid:${mbid}`;
-  const t = normaliseStr(title);
-  const a = normaliseStr(artist);
-  return `album:${a}|${t}`;
+function albumKey(title, artist) {
+  return `al:${normalizeStr(title)}|${normalizeStr(artist)}`;
 }
 
-/** Build artist identity key */
-function artistKey(mbid, name) {
-  if (mbid) return `artist-mbid:${mbid}`;
-  return `artist:${normaliseStr(name)}`;
-}
-
-// ─── Deduplication engine ─────────────────────────────────────────────────────
-class DedupeSet {
-  constructor() { this.seen = new Set(); }
-  /** Returns true if this item is new (not a dupe). Registers it if new. */
-  check(key) {
-    if (!key || this.seen.has(key)) return false;
-    this.seen.add(key);
-    return true;
-  }
+function artistKey(name) {
+  return `ar:${normalizeStr(name)}`;
 }
 
 /**
- * Merge results from multiple sources respecting priority order.
- * Each source result set is { tracks:[], albums:[], artists:[] }
- * Returns merged { tracks:[], albums:[], artists:[] }
+ * Priority-first merge:
+ * Source 1 fills ALL its results first.
+ * Source 2 only adds results not already seen from source 1.
+ * Source 3 fills in whatever source 1+2 didn't cover, etc.
+ *
+ * orderedResults: array of { source, tracks[], albums[], artists[] }
+ *   already sorted by user's chosen priority (index 0 = highest priority)
  */
-function mergeResults(orderedSourceResults) {
-  // orderedSourceResults is ALREADY in user-priority order.
-  // Source 1 fills ALL its results first. Source 2 only fills gaps.
-  // Tracks: dedup by ISRC first, then title+artist+duration.
-  // Albums: sort newest-first within each source before merging, dedup by mbid/title+artist.
-  // Artists: dedup by mbid/name.
-  const trackDedupe  = new DedupeSet();
-  const albumDedupe  = new DedupeSet();
-  const artistDedupe = new DedupeSet();
+function mergeResults(orderedResults) {
+  const trackSeen  = new Set();
+  const albumSeen  = new Set();
+  const artistSeen = new Set();
 
-  const sortNewest = arr => arr.slice().sort((a, b) => {
-    const da = String(a?.year || a?.releaseDate || "0000");
-    const db = String(b?.year || b?.releaseDate || "0000");
-    return db.localeCompare(da);
-  });
+  const tracks  = [];
+  const albums  = [];
+  const artists = [];
 
-  const merged = { tracks: [], albums: [], artists: [] };
-
-  for (const { source, results } of orderedSourceResults) {
+  for (const { source, results } of orderedResults) {
     if (!results) continue;
 
-    // --- tracks (priority-first: all of source 1, then gaps from source 2, etc.) ---
-    for (const t of (results.tracks || [])) {
-      const key = trackKey(t.isrc, t.title, t.artist, t.duration, t.album);
-      if (trackDedupe.check(key)) {
-        merged.tracks.push({ ...t, _source: source });
-      }
+    // ── Tracks ──────────────────────────────────────────────────────────────
+    // Sort newest-first within each source before merging
+    const srcTracks = [...(results.tracks || [])].sort((a, b) => {
+      const ya = String(a.year || a.releaseDate || '0000').slice(0, 4);
+      const yb = String(b.year || b.releaseDate || '0000').slice(0, 4);
+      return yb.localeCompare(ya);
+    });
+    for (const t of srcTracks) {
+      const key = trackKey(t.isrc, t.title, t.artist, t.duration);
+      if (!key || trackSeen.has(key)) continue;
+      trackSeen.add(key);
+      tracks.push({ ...t, _source: source });
     }
 
-    // --- albums (sort newest-first within each source, then priority-merge) ---
-    for (const a of sortNewest(results.albums || [])) {
-      const key = albumKey(a.mbid, a.title, a.artist);
-      if (albumDedupe.check(key)) {
-        merged.albums.push({ ...a, _source: source });
-      }
+    // ── Albums ───────────────────────────────────────────────────────────────
+    const srcAlbums = [...(results.albums || [])].sort((a, b) => {
+      const ya = String(a.year || a.releaseDate || '0000').slice(0, 4);
+      const yb = String(b.year || b.releaseDate || '0000').slice(0, 4);
+      return yb.localeCompare(ya);
+    });
+    for (const a of srcAlbums) {
+      const key = albumKey(a.title, a.artist);
+      if (!key || albumSeen.has(key)) continue;
+      albumSeen.add(key);
+      albums.push({ ...a, _source: source });
     }
 
-    // --- artists ---
+    // ── Artists ──────────────────────────────────────────────────────────────
     for (const a of (results.artists || [])) {
-      const key = artistKey(a.mbid, a.name);
-      if (artistDedupe.check(key)) {
-        merged.artists.push({ ...a, _source: source });
-      }
+      const key = artistKey(a.name);
+      if (!key || artistSeen.has(key)) continue;
+      artistSeen.add(key);
+      artists.push({ ...a, _source: source });
     }
   }
 
-  return merged;
+  return { tracks, albums, artists };
 }
 
-// ─── MusicBrainz enrichment (ISRC / MBID lookup) ─────────────────────────────
-const MB_BASE = "https://musicbrainz.org/ws/2";
-const MB_HEADERS = { "User-Agent": "EclipseAllInOne/2.0 (eclipse-addon)" };
-
-async function mbLookupISRC(isrc) {
-  if (!isrc) return null;
+// ─── HTTP helper ──────────────────────────────────────────────────────────────
+async function httpGet(url, params, timeoutMs) {
+  const u = new URL(url);
+  if (params) Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, String(v)));
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs || TIMEOUT_MS);
   try {
-    const url = `${MB_BASE}/recording?query=isrc:${isrc}&fmt=json&limit=1`;
-    const r = await fetchWithTimeout(url, { headers: MB_HEADERS }, 5000);
-    if (!r.ok) return null;
-    const d = await r.json();
-    const rec = d.recordings?.[0];
-    if (!rec) return null;
-    return {
-      mbid: rec.id,
-      title: rec.title,
-      artist: rec["artist-credit"]?.[0]?.name || "",
-      duration: rec.length ? Math.round(rec.length / 1000) : null,
-      album: rec.releases?.[0]?.title || "",
-    };
-  } catch { return null; }
+    const r = await fetch(u.toString(), {
+      headers: { 'User-Agent': UA, 'Accept': 'application/json' },
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+    if (!r.ok) { try { await r.arrayBuffer(); } catch {} throw new Error('HTTP ' + r.status); }
+    return r.json();
+  } catch (e) { clearTimeout(timer); throw e; }
 }
 
-async function mbSearchTracks(query, limit = 10) {
+// ─── Mem cache helpers ────────────────────────────────────────────────────────
+function mGet(key) {
+  const e = memCache.get(key);
+  if (!e) return null;
+  if (Date.now() > e.exp) { memCache.delete(key); return null; }
+  return e.val;
+}
+function mSet(key, val, ttlSec) {
+  memCache.set(key, { val, exp: Date.now() + ttlSec * 1000 });
+  if (memCache.size > 800) memCache.delete(memCache.keys().next().value);
+}
+
+// ─── Rate limiting ────────────────────────────────────────────────────────────
+function consumeGlobalBudget() {
+  const now = Date.now();
+  if (now - _globalDayStart > 86400000) { _globalDailyCount = 0; _globalDayStart = now; }
+  if (_globalDailyCount >= GLOBAL_DAILY_LIMIT) return false;
+  _globalDailyCount++;
+  return true;
+}
+function getTokenRateState(token) {
+  if (!TOKEN_RATE_STATE.has(token)) TOKEN_RATE_STATE.set(token, { general: [], stream: [], search: [] });
+  return TOKEN_RATE_STATE.get(token);
+}
+function checkTokenRate(token, type) {
+  const now = Date.now();
+  const st  = getTokenRateState(token);
+  const cfg = { stream: [60000, 20], search: [60000, 30], general: [60000, 100] };
+  const [windowMs, maxReqs] = cfg[type] || cfg.general;
+  st[type] = (st[type] || []).filter(t => now - t < windowMs);
+  if (st[type].length >= maxReqs) return false;
+  st[type].push(now);
+  return true;
+}
+function checkIpGenerateRate(ip) {
+  const now = Date.now();
+  const b = IP_GEN_RATE.get(ip) || { count: 0, resetAt: now + 3600000 };
+  if (now > b.resetAt) { b.count = 0; b.resetAt = now + 3600000; }
+  if (b.count >= 5) return false;
+  b.count++; IP_GEN_RATE.set(ip, b); return true;
+}
+function rateLimitResp(msg) {
+  return new Response(JSON.stringify({ error: msg }), {
+    status: 429, headers: { 'Content-Type': 'application/json', 'Retry-After': '60' },
+  });
+}
+
+// ─── Token helpers ────────────────────────────────────────────────────────────
+function generateToken() {
+  const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+  const arr = new Uint8Array(28);
+  crypto.getRandomValues(arr);
+  return Array.from(arr).map(b => chars[b % chars.length]).join('');
+}
+function b64uEncode(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function b64uDecode(str) {
+  str = str.replace(/-/g, '+').replace(/_/g, '/');
+  while (str.length % 4) str += '=';
+  const bin = atob(str);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new TextDecoder().decode(bytes);
+}
+function parseTokenParam(raw) {
+  const parts = raw.split('~');
+  const token = parts[0];
+  let name = null;
+  if (parts[1]) { try { name = decodeURIComponent(b64uDecode(parts[1])); } catch {} }
+  return { token, embeddedName: name };
+}
+function buildTokenSegment(token, name) {
+  return name ? token + '~' + b64uEncode(encodeURIComponent(name)) : token;
+}
+function saveToken(token, data) {
+  TOKEN_STORE.set(token, data);
+}
+function loadToken(token) {
+  return TOKEN_STORE.get(token) || null;
+}
+
+// ─── HiFi (Tidal proxy) helpers ───────────────────────────────────────────────
+async function getWorkingHiFiInstance() {
+  const now = Date.now();
+  if (_hifiWorkingInst && now < _hifiInstExpiry) return _hifiWorkingInst;
+  for (const inst of DEFAULT_HIFI_INSTANCES) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 2500);
+    try {
+      const r = await fetch(inst + '/search/?s=test&limit=1', { headers: { 'User-Agent': UA }, signal: ctrl.signal });
+      clearTimeout(timer);
+      try { await r.arrayBuffer(); } catch {}
+      if (r.ok) { _hifiWorkingInst = inst; _hifiInstExpiry = now + INSTANCE_TTL * 1000; return inst; }
+    } catch { clearTimeout(timer); }
+  }
+  // Fallback to a known stable instance
+  _hifiWorkingInst = DEFAULT_HIFI_INSTANCES[4];
+  _hifiInstExpiry  = now + 60000;
+  return _hifiWorkingInst;
+}
+
+async function hifiGet(path) {
+  const inst = await getWorkingHiFiInstance();
+  return httpGet(inst + path, null, TIMEOUT_MS);
+}
+
+async function hifiGetAny(path) {
+  for (const inst of DEFAULT_HIFI_INSTANCES) {
+    try { return await httpGet(inst + path, null, 6000); } catch {}
+  }
+  throw new Error('All HiFi instances failed: ' + path);
+}
+
+// ─── Qobuz API (direct → proxy fallback) ─────────────────────────────────────
+async function qobuzApi(endpoint, params) {
+  const appId = QOBUZ_APP_ID;
+  const token = QOBUZ_TOKEN;
+  const base  = QOBUZ_BASE + endpoint + '?app_id=' + appId + '&user_auth_token=' + token;
+  const qs    = params ? '&' + new URLSearchParams(
+    Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)]))
+  ).toString() : '';
+  const ctrl  = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
-    const q = encodeURIComponent(query);
-    const url = `${MB_BASE}/recording?query=${q}&fmt=json&limit=${limit}`;
-    const r = await fetchWithTimeout(url, { headers: MB_HEADERS }, 6000);
-    if (!r.ok) return { tracks: [], albums: [], artists: [] };
-    const d = await r.json();
-    const tracks = (d.recordings || []).map(rec => ({
-      id:       `mb-${rec.id}`,
-      mbid:     rec.id,
-      isrc:     rec.isrcs?.[0] || null,
-      title:    rec.title,
-      artist:   rec["artist-credit"]?.[0]?.name || "",
-      album:    rec.releases?.[0]?.title || "",
-      duration: rec.length ? Math.round(rec.length / 1000) : null,
-      cover:    null,
-      streamable: false,
-      source:   SOURCE_IDS.MUSICBRAINZ,
-    }));
-    return { tracks, albums: [], artists: [] };
-  } catch { return { tracks: [], albums: [], artists: [] }; }
+    const r = await fetch(base + qs, { signal: ctrl.signal, headers: { 'User-Agent': UA } });
+    clearTimeout(timer);
+    if (!r.ok) throw new Error('Qobuz direct HTTP ' + r.status);
+    return r.json();
+  } catch (e) {
+    clearTimeout(timer);
+    // Try proxies
+    for (const proxy of QOBUZ_PROXIES) {
+      const ctrl2 = new AbortController();
+      const t2    = setTimeout(() => ctrl2.abort(), 7000);
+      try {
+        const u = new URL(proxy + endpoint);
+        if (params) Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, String(v)));
+        const r2 = await fetch(u.toString(), { headers: { 'User-Agent': UA }, signal: ctrl2.signal });
+        clearTimeout(t2);
+        if (!r2.ok) { try { await r2.arrayBuffer(); } catch {} throw new Error('HTTP ' + r2.status); }
+        return r2.json();
+      } catch { clearTimeout(t2); }
+    }
+    throw new Error('All Qobuz endpoints failed for ' + endpoint);
+  }
 }
 
-async function mbSearchAlbums(query, limit = 10) {
+// ─── MusicBrainz ─────────────────────────────────────────────────────────────
+let _mbLastCall = 0;
+async function mbFetch(path, params) {
+  const now  = Date.now();
+  const wait = MB_RATE_MS - (now - _mbLastCall);
+  if (wait > 0) await new Promise(r => setTimeout(r, wait));
+  _mbLastCall = Date.now();
+  const u = new URL(MB_BASE + path);
+  u.searchParams.set('fmt', 'json');
+  if (params) Object.entries(params).forEach(([k, v]) => u.searchParams.set(k, String(v)));
+  const ctrl  = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
   try {
-    const q = encodeURIComponent(query);
-    const url = `${MB_BASE}/release?query=${q}&fmt=json&limit=${limit}`;
-    const r = await fetchWithTimeout(url, { headers: MB_HEADERS }, 6000);
-    if (!r.ok) return { tracks: [], albums: [], artists: [] };
-    const d = await r.json();
-    const albums = (d.releases || []).map(rel => ({
-      id:     `mb-${rel.id}`,
-      mbid:   rel.id,
-      title:  rel.title,
-      artist: rel["artist-credit"]?.[0]?.name || "",
-      year:   rel.date?.substring(0, 4) || null,
-      cover:  null,
-      source: SOURCE_IDS.MUSICBRAINZ,
-    }));
-    return { tracks: [], albums, artists: [] };
-  } catch { return { tracks: [], albums: [], artists: [] }; }
+    const r = await fetch(u.toString(), {
+      headers: { 'User-Agent': 'eclipse-all-in-one/3.0', 'Accept': 'application/json' },
+      signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+    if (!r.ok) throw new Error('MB HTTP ' + r.status);
+    return r.json();
+  } catch (e) { clearTimeout(timer); throw e; }
 }
 
-async function mbSearchArtists(query, limit = 10) {
+// ─── Source adapters: search ──────────────────────────────────────────────────
+
+// Returns { tracks[], albums[], artists[] }
+async function searchQobuz(query, limit) {
   try {
-    const q = encodeURIComponent(query);
-    const url = `${MB_BASE}/artist?query=${q}&fmt=json&limit=${limit}`;
-    const r = await fetchWithTimeout(url, { headers: MB_HEADERS }, 6000);
-    if (!r.ok) return { tracks: [], albums: [], artists: [] };
-    const d = await r.json();
-    const artists = (d.artists || []).map(a => ({
-      id:     `mb-${a.id}`,
-      mbid:   a.id,
-      name:   a.name,
-      genres: (a.tags || []).slice(0, 5).map(t => t.name),
-      cover:  null,
-      source: SOURCE_IDS.MUSICBRAINZ,
-    }));
-    return { tracks: [], albums, artists };
-  } catch { return { tracks: [], albums: [], artists: [] }; }
-}
-
-async function mbSearch(query, limit = 10) {
-  const [tr, al, ar] = await Promise.all([
-    mbSearchTracks(query, limit),
-    mbSearchAlbums(query, Math.ceil(limit / 2)),
-    mbSearchArtists(query, Math.ceil(limit / 2)),
-  ]);
-  return {
-    tracks:  tr.tracks,
-    albums:  al.albums,
-    artists: ar.artists,
-  };
-}
-
-// ─── Qobuz adapter ───────────────────────────────────────────────────────────
-const QOBUZ_BASE = "https://www.qobuz.com/api.json/0.2";
-
-async function qobuzGetToken(appId, email, password) {
-  const url = `${QOBUZ_BASE}/user/login?app_id=${appId}&email=${encodeURIComponent(email)}&password=${encodeURIComponent(password)}`;
-  const r = await fetchWithTimeout(url, {}, 8000);
-  if (!r.ok) throw new Error("Qobuz login failed: " + r.status);
-  const d = await r.json();
-  return d.user_auth_token;
-}
-
-async function qobuzSearch(query, token, appId, limit = 20) {
-  if (!token || !appId) return { tracks: [], albums: [], artists: [] };
-  try {
-    const q = encodeURIComponent(query);
-    const url = `${QOBUZ_BASE}/catalog/search?query=${q}&app_id=${appId}&user_auth_token=${token}&limit=${limit}&offset=0`;
-    const r = await fetchWithTimeout(url, {}, DEFAULT_TIMEOUT_MS);
-    if (!r.ok) return { tracks: [], albums: [], artists: [] };
-    const d = await r.json();
-
-    const tracks = (d.tracks?.items || []).map(t => ({
-      id:       `qobuz-${t.id}`,
+    const d = await qobuzApi('/catalog/search', { query, limit, offset: 0 });
+    const tracks = (d?.tracks?.items || []).map(t => ({
+      id:       'qobuz:' + t.id,
       sourceId: String(t.id),
       isrc:     t.isrc || null,
-      title:    t.title,
-      artist:   t.performer?.name || t.album?.artist?.name || "",
-      album:    t.album?.title || "",
+      title:    cleanTitle(t.title),
+      artist:   t.performer?.name || t.album?.artist?.name || '',
+      album:    t.album?.title || '',
       duration: t.duration || null,
       cover:    t.album?.image?.large || t.album?.image?.small || null,
-      quality:  t.maximum_sampling_rate ? `${t.maximum_sampling_rate}kHz/${t.maximum_bit_depth}bit` : "FLAC",
-      explicit: t.parental_warning || false,
       year:     t.album?.released_at ? new Date(t.album.released_at * 1000).getFullYear() : null,
-      source:   SOURCE_IDS.QOBUZ,
+      quality:  t.maximum_sampling_rate ? `${t.maximum_sampling_rate}kHz/${t.maximum_bit_depth}bit FLAC` : 'FLAC',
+      explicit: t.parental_advisory === true,
     }));
-
-    const albums = (d.albums?.items || []).map(a => ({
-      id:       `qobuz-${a.id}`,
+    const albums = (d?.albums?.items || []).map(a => ({
+      id:      'qobuz:' + a.id,
       sourceId: String(a.id),
-      title:    a.title,
-      artist:   a.artist?.name || "",
-      year:     a.released_at ? new Date(a.released_at * 1000).getFullYear() : null,
-      cover:    a.image?.large || a.image?.small || null,
-      trackCount: a.tracks_count || null,
-      source:   SOURCE_IDS.QOBUZ,
+      title:   a.title,
+      artist:  a.artist?.name || '',
+      year:    a.released_at ? new Date(a.released_at * 1000).getFullYear() : null,
+      cover:   a.image?.large || a.image?.small || null,
     }));
-
-    const artists = (d.artists?.items || []).map(a => ({
-      id:       `qobuz-${a.id}`,
+    const artists = (d?.artists?.items || []).map(a => ({
+      id:      'qobuz:' + a.id,
       sourceId: String(a.id),
-      name:     a.name,
-      cover:    a.picture || null,
-      source:   SOURCE_IDS.QOBUZ,
+      name:    a.name,
+      cover:   a.picture || null,
     }));
-
     return { tracks, albums, artists };
   } catch { return { tracks: [], albums: [], artists: [] }; }
 }
 
-async function qobuzGetStreamUrl(trackId, token, appId, appSecret, quality = 27) {
-  // quality: 5=MP3 320, 6=FLAC, 7=FLAC 24bit ≤96kHz, 27=FLAC 24bit ≤192kHz
+async function searchTidal(query, limit) {
   try {
-    const ts = Math.floor(Date.now() / 1000);
-    const rStr = `trackgetFileUrlformat_id${quality}intentstreamtrack_id${trackId}${ts}${appSecret}`;
-    const hashBuf = await crypto.subtle.digest("MD5", new TextEncoder().encode(rStr));
-    const hashArr = Array.from(new Uint8Array(hashBuf));
-    const sig = hashArr.map(b => b.toString(16).padStart(2, "0")).join("");
-    const url = `${QOBUZ_BASE}/track/getFileUrl?track_id=${trackId}&format_id=${quality}&intent=stream&request_ts=${ts}&request_sig=${sig}&app_id=${appId}&user_auth_token=${token}`;
-    const r = await fetchWithTimeout(url, {}, DEFAULT_TIMEOUT_MS);
-    if (!r.ok) return null;
-    const d = await r.json();
-    return d.url || null;
-  } catch { return null; }
-}
-
-// ─── Tidal adapter ────────────────────────────────────────────────────────────
-const TIDAL_BASE     = "https://openapi.tidal.com/v2";
-const TIDAL_AUTH_URL = "https://auth.tidal.com/v1/oauth2/token";
-const TIDAL_COUNTRY  = "US";
-
-async function tidalClientCredentials(clientId, clientSecret) {
-  const creds = btoa(`${clientId}:${clientSecret}`);
-  const r = await fetchWithTimeout(TIDAL_AUTH_URL, {
-    method: "POST",
-    headers: {
-      "Authorization": `Basic ${creds}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: "grant_type=client_credentials",
-  }, 8000);
-  if (!r.ok) throw new Error("Tidal auth failed");
-  const d = await r.json();
-  return d.access_token;
-}
-
-async function tidalRefreshToken(clientId, clientSecret, refreshToken) {
-  const creds = btoa(`${clientId}:${clientSecret}`);
-  const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken });
-  const r = await fetchWithTimeout(TIDAL_AUTH_URL, {
-    method: "POST",
-    headers: {
-      "Authorization": `Basic ${creds}`,
-      "Content-Type": "application/x-www-form-urlencoded",
-    },
-    body: body.toString(),
-  }, 8000);
-  if (!r.ok) throw new Error("Tidal refresh failed");
-  const d = await r.json();
-  return d.access_token;
-}
-
-async function tidalSearch(query, accessToken, limit = 20) {
-  if (!accessToken) return { tracks: [], albums: [], artists: [] };
-  try {
-    const q = encodeURIComponent(query);
-    const url = `${TIDAL_BASE}/searchresults/${q}?countryCode=${TIDAL_COUNTRY}&include=tracks,albums,artists&limit=${limit}`;
-    const r = await fetchWithTimeout(url, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    }, DEFAULT_TIMEOUT_MS);
-    if (!r.ok) return { tracks: [], albums: [], artists: [] };
-    const d = await r.json();
-
-    const tracks = (d.tracks?.items || d.included?.filter(i => i.type === "tracks") || []).map(t => {
-      const attrs = t.attributes || t;
+    const d = await hifiGet('/search/?s=' + encodeURIComponent(query) + '&limit=' + limit);
+    const raw = d?.data?.tracks?.items || d?.tracks?.items || d?.data?.items || (Array.isArray(d) ? d : []);
+    const tracks = raw.map(t => {
+      const arts = (t.artists || (t.artist ? [t.artist] : [])).map(a => a.name).join(', ');
+      const cvr  = t.album?.cover;
+      const imgUrl = cvr
+        ? 'https://resources.tidal.com/images/' + cvr.replace(/-/g, '/') + '/640x640.jpg'
+        : null;
       return {
-        id:       `tidal-${t.id || attrs.id}`,
-        sourceId: String(t.id || attrs.id),
-        isrc:     attrs.isrc || null,
-        title:    attrs.title || attrs.name || "",
-        artist:   attrs.artists?.[0]?.name || attrs.artistName || "",
-        album:    attrs.album?.title || attrs.albumTitle || "",
-        duration: attrs.duration || null,
-        cover:    attrs.imageLinks?.find(l => l.meta?.height >= 320)?.href || attrs.coverArt || null,
-        quality:  attrs.mediaMetadata?.tags?.includes("HIRES_LOSSLESS") ? "HiRes FLAC" :
-                  attrs.mediaMetadata?.tags?.includes("LOSSLESS") ? "FLAC" :
-                  attrs.mediaMetadata?.tags?.includes("DOLBY_ATMOS") ? "Dolby Atmos" : "AAC 320",
-        explicit: attrs.explicit || false,
-        source:   SOURCE_IDS.TIDAL,
+        id:       'tidal:' + t.id,
+        sourceId: String(t.id),
+        isrc:     t.isrc || null,
+        title:    cleanTitle(t.title),
+        artist:   arts,
+        album:    t.album?.title || '',
+        duration: t.duration || null,
+        cover:    imgUrl,
+        year:     t.album?.releaseDate ? String(t.album.releaseDate).slice(0, 4) : null,
+        quality:  'AAC 320',
+        explicit: t.explicit === true,
       };
     });
-
-    const albums = (d.albums?.items || d.included?.filter(i => i.type === "albums") || []).map(a => {
-      const attrs = a.attributes || a;
+    const rawAlb = d?.data?.albums?.items || d?.albums?.items || [];
+    const albums = rawAlb.map(a => {
+      const cvr = a.cover || a.image;
+      const img = cvr ? 'https://resources.tidal.com/images/' + cvr.replace(/-/g, '/') + '/640x640.jpg' : null;
       return {
-        id:       `tidal-${a.id || attrs.id}`,
-        sourceId: String(a.id || attrs.id),
-        title:    attrs.title || attrs.name || "",
-        artist:   attrs.artists?.[0]?.name || "",
-        year:     attrs.releaseDate ? attrs.releaseDate.substring(0, 4) : null,
-        cover:    attrs.imageLinks?.[0]?.href || null,
-        trackCount: attrs.numberOfTracks || null,
-        source:   SOURCE_IDS.TIDAL,
+        id:      'tidal:' + a.id,
+        sourceId: String(a.id),
+        title:   a.title,
+        artist:  a.artist?.name || '',
+        year:    a.releaseDate ? String(a.releaseDate).slice(0, 4) : null,
+        cover:   img,
       };
     });
-
-    const artists = (d.artists?.items || d.included?.filter(i => i.type === "artists") || []).map(a => {
-      const attrs = a.attributes || a;
-      return {
-        id:     `tidal-${a.id || attrs.id}`,
-        sourceId: String(a.id || attrs.id),
-        name:   attrs.name || "",
-        cover:  attrs.imageLinks?.[0]?.href || null,
-        source: SOURCE_IDS.TIDAL,
-      };
-    });
-
+    const rawArt = d?.data?.artists?.items || d?.artists?.items || [];
+    const artists = rawArt.map(a => ({
+      id:      'tidal:' + a.id,
+      sourceId: String(a.id),
+      name:    a.name,
+      cover:   a.picture ? 'https://resources.tidal.com/images/' + a.picture.replace(/-/g, '/') + '/480x480.jpg' : null,
+    }));
     return { tracks, albums, artists };
   } catch { return { tracks: [], albums: [], artists: [] }; }
 }
 
-async function tidalGetStreamUrl(trackId, accessToken, quality = "LOSSLESS") {
-  // quality: LOW, HIGH, LOSSLESS, HI_RES_LOSSLESS
+async function searchDeezer(query, limit) {
   try {
-    const url = `${TIDAL_BASE}/tracks/${trackId}/playbackinfo?audioquality=${quality}&playbackmode=STREAM&assetpresentation=FULL&countryCode=${TIDAL_COUNTRY}`;
-    const r = await fetchWithTimeout(url, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    }, DEFAULT_TIMEOUT_MS);
-    if (!r.ok) return null;
-    const d = await r.json();
-    // Tidal returns either a direct URL or a manifest (BTS/DASH)
-    if (d.manifest) {
-      const manifest = atob(d.manifest);
-      const urlMatch = manifest.match(/<BaseURL[^>]*>([^<]+)<\/BaseURL>/);
-      if (urlMatch) return urlMatch[1];
-    }
-    return d.url || d.urls?.[0] || null;
-  } catch { return null; }
-}
-
-// ─── Deezer adapter ──────────────────────────────────────────────────────────
-const DEEZER_BASE = "https://api.deezer.com";
-// For streaming, Deezer requires the private API + ARL cookie (blowfish decrypt)
-// Public search API does not need credentials
-const DEEZER_PRIVATE = "https://www.deezer.com/ajax/gw-light.php";
-
-async function deezerSearch(query, arl, limit = 20) {
-  try {
-    const q = encodeURIComponent(query);
-    const url = `${DEEZER_BASE}/search?q=${q}&limit=${limit}`;
-    const r = await fetchWithTimeout(url, {}, DEFAULT_TIMEOUT_MS);
-    if (!r.ok) return { tracks: [], albums: [], artists: [] };
-    const d = await r.json();
-
-    const tracks = (d.data || []).map(t => ({
-      id:       `deezer-${t.id}`,
+    const [td, ald, ard] = await Promise.all([
+      httpGet(DEEZER_BASE + '/search', { q: query, limit }, 8000).catch(() => ({ data: [] })),
+      httpGet(DEEZER_BASE + '/search/album', { q: query, limit: Math.ceil(limit / 2) }, 8000).catch(() => ({ data: [] })),
+      httpGet(DEEZER_BASE + '/search/artist', { q: query, limit: Math.ceil(limit / 2) }, 8000).catch(() => ({ data: [] })),
+    ]);
+    const tracks = (td.data || []).map(t => ({
+      id:       'deezer:' + t.id,
       sourceId: String(t.id),
-      isrc:     null, // enriched separately
-      title:    t.title,
-      artist:   t.artist?.name || "",
-      album:    t.album?.title || "",
+      isrc:     t.isrc || null,
+      title:    cleanTitle(t.title),
+      artist:   t.artist?.name || '',
+      album:    t.album?.title || '',
       duration: t.duration || null,
       cover:    t.album?.cover_xl || t.album?.cover_medium || null,
-      explicit: t.explicit_lyrics || false,
-      source:   SOURCE_IDS.DEEZER,
+      explicit: t.explicit_lyrics === true,
     }));
-
-    // Albums search
-    const urlA = `${DEEZER_BASE}/search/album?q=${q}&limit=${Math.ceil(limit/2)}`;
-    const rA = await fetchWithTimeout(urlA, {}, DEFAULT_TIMEOUT_MS);
-    const dA = rA.ok ? await rA.json() : { data: [] };
-    const albums = (dA.data || []).map(a => ({
-      id:       `deezer-${a.id}`,
+    const albums = (ald.data || []).map(a => ({
+      id:      'deezer:' + a.id,
       sourceId: String(a.id),
-      title:    a.title,
-      artist:   a.artist?.name || "",
-      cover:    a.cover_xl || a.cover_medium || null,
-      year:     null,
-      source:   SOURCE_IDS.DEEZER,
+      title:   a.title,
+      artist:  a.artist?.name || '',
+      cover:   a.cover_xl || a.cover_medium || null,
     }));
-
-    // Artists search
-    const urlAr = `${DEEZER_BASE}/search/artist?q=${q}&limit=${Math.ceil(limit/2)}`;
-    const rAr = await fetchWithTimeout(urlAr, {}, DEFAULT_TIMEOUT_MS);
-    const dAr = rAr.ok ? await rAr.json() : { data: [] };
-    const artists = (dAr.data || []).map(a => ({
-      id:     `deezer-${a.id}`,
+    const artists = (ard.data || []).map(a => ({
+      id:      'deezer:' + a.id,
       sourceId: String(a.id),
-      name:   a.name,
-      cover:  a.picture_xl || a.picture_medium || null,
-      source: SOURCE_IDS.DEEZER,
+      name:    a.name,
+      cover:   a.picture_xl || a.picture_medium || null,
     }));
-
     return { tracks, albums, artists };
   } catch { return { tracks: [], albums: [], artists: [] }; }
 }
 
-async function deezerGetISRC(trackId) {
-  try {
-    const r = await fetchWithTimeout(`${DEEZER_BASE}/track/${trackId}`, {}, 5000);
-    if (!r.ok) return null;
-    const d = await r.json();
-    return d.isrc || null;
-  } catch { return null; }
-}
-
-async function deezerGetStreamUrl(trackId, arl) {
-  if (!arl) return null;
-  try {
-    // Step 1: get user token via private API
-    const cookieHeader = `arl=${arl}`;
-    const step1 = await fetchWithTimeout(`${DEEZER_PRIVATE}?method=deezer.getUserData&api_version=1.0&api_token=null&input=3`, {
-      method: "POST",
-      headers: { Cookie: cookieHeader, "Content-Type": "application/json" },
-      body: "{}",
-    }, 8000);
-    if (!step1.ok) return null;
-    const userData = await step1.json();
-    const apiToken = userData.results?.checkForm || null;
-    if (!apiToken) return null;
-
-    // Step 2: get track token
-    const step2 = await fetchWithTimeout(`${DEEZER_PRIVATE}?method=song.getListData&api_version=1.0&api_token=${apiToken}&input=3`, {
-      method: "POST",
-      headers: { Cookie: cookieHeader, "Content-Type": "application/json" },
-      body: JSON.stringify({ song_ids: [parseInt(trackId)] }),
-    }, 8000);
-    if (!step2.ok) return null;
-    const trackData = await step2.json();
-    const trackInfo = trackData.results?.data?.[0];
-    if (!trackInfo) return null;
-
-    const trackToken = trackInfo.TRACK_TOKEN;
-    const md5Origin  = trackInfo.MD5_ORIGIN;
-    const mediaVersion = trackInfo.MEDIA_VERSION;
-    if (!md5Origin) return null;
-
-    // Step 3: build CDN URL (format 1=MP3 128, 3=MP3 320, 9=FLAC)
-    // Using Deezer's public CDN path construction
-    const format = 9; // FLAC, fall back handled by stream resolver
-    const step = `${md5Origin}\x04${format}\x04${trackId}\x04${mediaVersion}`;
-    const stepMd5 = await md5Hex(step);
-    const path = `${stepMd5}\x04${step}\x04`;
-    const paddedPath = path + "\x00".repeat(16 - (path.length % 16));
-    // AES/ECB encryption not available in Workers via subtle crypto easily —
-    // return the track token to the client or proxy through
-    // For now return a special marker that the stream resolver handles
-    return `deezer-cdn://${trackId}?token=${encodeURIComponent(trackToken)}&md5=${md5Origin}&mv=${mediaVersion}`;
-  } catch { return null; }
-}
-
-async function md5Hex(str) {
-  const buf = new TextEncoder().encode(str);
-  const hash = await crypto.subtle.digest("MD5", buf);
-  return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("");
-}
-
-
-// ─── SoundCloud adapter ──────────────────────────────────────────────────────
-const SC_BASE = "https://api-v2.soundcloud.com";
-
-async function scSearch(query, clientId, limit = 20) {
+async function searchSoundCloud(query, limit, clientId) {
   if (!clientId) return { tracks: [], albums: [], artists: [] };
   try {
-    const q = encodeURIComponent(query);
-    const url = `${SC_BASE}/search?q=${q}&client_id=${clientId}&limit=${limit}`;
-    const r = await fetchWithTimeout(url, {}, DEFAULT_TIMEOUT_MS);
-    if (!r.ok) return { tracks: [], albums: [], artists: [] };
-    const d = await r.json();
-
-    const tracks  = [];
-    const albums  = [];
-    const artists = [];
-
+    const d = await httpGet('https://api-v2.soundcloud.com/search', { q: query, client_id: clientId, limit }, 8000);
+    const tracks = [], albums = [], artists = [];
     for (const item of (d.collection || [])) {
-      if (item.kind === "track") {
+      if (item.kind === 'track') {
         tracks.push({
-          id:       `sc-${item.id}`,
+          id:       'sc:' + item.id,
           sourceId: String(item.id),
           isrc:     null,
-          title:    item.title,
-          artist:   item.user?.username || "",
-          album:    "",
+          title:    cleanTitle(item.title),
+          artist:   item.user?.username || '',
+          album:    '',
           duration: item.duration ? Math.round(item.duration / 1000) : null,
-          cover:    item.artwork_url?.replace("-large", "-t500x500") || null,
-          explicit: false,
+          cover:    item.artwork_url?.replace('-large', '-t500x500') || null,
           streamUrl: item.stream_url || null,
-          source:   SOURCE_IDS.SOUNDCLOUD,
         });
-      } else if (item.kind === "playlist" || item.kind === "album") {
+      } else if (item.kind === 'playlist' || item.kind === 'album') {
         albums.push({
-          id:       `sc-${item.id}`,
+          id:      'sc:' + item.id,
           sourceId: String(item.id),
-          title:    item.title,
-          artist:   item.user?.username || "",
-          cover:    item.artwork_url?.replace("-large", "-t500x500") || null,
-          trackCount: item.track_count || null,
-          source:   SOURCE_IDS.SOUNDCLOUD,
+          title:   item.title,
+          artist:  item.user?.username || '',
+          cover:   item.artwork_url?.replace('-large', '-t500x500') || null,
         });
-      } else if (item.kind === "user") {
+      } else if (item.kind === 'user') {
         artists.push({
-          id:     `sc-${item.id}`,
+          id:      'sc:' + item.id,
           sourceId: String(item.id),
-          name:   item.username || item.full_name || "",
-          cover:  item.avatar_url?.replace("-large", "-t500x500") || null,
-          source: SOURCE_IDS.SOUNDCLOUD,
+          name:    item.username || item.full_name || '',
+          cover:   item.avatar_url?.replace('-large', '-t500x500') || null,
         });
       }
     }
@@ -643,1268 +564,515 @@ async function scSearch(query, clientId, limit = 20) {
   } catch { return { tracks: [], albums: [], artists: [] }; }
 }
 
-async function scGetStreamUrl(trackId, clientId) {
-  if (!clientId) return null;
+async function searchMusicBrainz(query, limit) {
   try {
-    const url = `${SC_BASE}/tracks/${trackId}?client_id=${clientId}`;
-    const r = await fetchWithTimeout(url, {}, DEFAULT_TIMEOUT_MS);
-    if (!r.ok) return null;
-    const d = await r.json();
-    // Find the HLS or progressive stream
-    const progressive = d.media?.transcodings?.find(t =>
-      t.format?.protocol === "progressive" && t.format?.mime_type === "audio/mpeg"
-    );
-    const hls = d.media?.transcodings?.find(t =>
-      t.format?.protocol === "hls"
-    );
-    const chosen = progressive || hls;
-    if (!chosen) return null;
-    const streamR = await fetchWithTimeout(`${chosen.url}?client_id=${clientId}`, {}, DEFAULT_TIMEOUT_MS);
-    if (!streamR.ok) return null;
-    const sd = await streamR.json();
-    return sd.url || null;
-  } catch { return null; }
+    const [tr, al, ar] = await Promise.allSettled([
+      mbFetch('/recording', { query: query.replace(/"/g, ''), limit }).then(d =>
+        (d.recordings || []).map(r => ({
+          id:       'mb:' + r.id,
+          sourceId: r.id,
+          isrc:     r.isrcs?.[0] || null,
+          title:    r.title,
+          artist:   r['artist-credit']?.[0]?.name || '',
+          album:    r.releases?.[0]?.title || '',
+          duration: r.length ? Math.round(r.length / 1000) : null,
+          cover:    null,
+          streamable: false,
+        }))
+      ).catch(() => []),
+      mbFetch('/release', { query: query.replace(/"/g, ''), limit: Math.ceil(limit / 2) }).then(d =>
+        (d.releases || []).map(a => ({
+          id:      'mb:' + a.id,
+          sourceId: a.id,
+          title:   a.title,
+          artist:  a['artist-credit']?.[0]?.name || '',
+          year:    a.date?.slice(0, 4) || null,
+          cover:   null,
+        }))
+      ).catch(() => []),
+      mbFetch('/artist', { query: query.replace(/"/g, ''), limit: Math.ceil(limit / 2) }).then(d =>
+        (d.artists || []).map(a => ({
+          id:      'mb:' + a.id,
+          sourceId: a.id,
+          name:    a.name,
+          cover:   null,
+        }))
+      ).catch(() => []),
+    ]);
+    return {
+      tracks:  tr.status === 'fulfilled' ? tr.value : [],
+      albums:  al.status === 'fulfilled' ? al.value : [],
+      artists: ar.status === 'fulfilled' ? ar.value : [],
+    };
+  } catch { return { tracks: [], albums: [], artists: [] }; }
 }
 
-// ─── Internet Archive adapter ────────────────────────────────────────────────
-const IA_BASE = "https://archive.org";
-
-async function iaSearch(query, limit = 20) {
+async function searchInternetArchive(query, limit) {
   try {
-    const q = encodeURIComponent(`(${query}) AND mediatype:(audio)`);
-    const url = `${IA_BASE}/advancedsearch.php?q=${q}&fl[]=identifier,title,creator,year,description,mediatype&rows=${limit}&output=json`;
-    const r = await fetchWithTimeout(url, {}, DEFAULT_TIMEOUT_MS);
-    if (!r.ok) return { tracks: [], albums: [], artists: [] };
-    const d = await r.json();
-
-    const tracks  = [];
-    const albums  = [];
-
+    const q = encodeURIComponent(query + ' AND mediatype:audio');
+    const url = IA_BASE + `/advancedsearch.php?q=${q}&fl=identifier,title,creator,year,mediatype&rows=${limit}&output=json`;
+    const d = await httpGet(url, null, 8000);
+    const tracks = [], albums = [];
     for (const doc of (d.response?.docs || [])) {
-      if (doc.mediatype === "audio") {
-        const isAlbum = doc.description?.toLowerCase().includes("album") ||
-                        doc.creator !== doc.title;
-        if (isAlbum) {
-          albums.push({
-            id:     `ia-${doc.identifier}`,
-            sourceId: doc.identifier,
-            title:  Array.isArray(doc.title) ? doc.title[0] : (doc.title || ""),
-            artist: Array.isArray(doc.creator) ? doc.creator[0] : (doc.creator || ""),
-            year:   doc.year || null,
-            cover:  `${IA_BASE}/services/img/${doc.identifier}`,
-            source: SOURCE_IDS.INTERNET_ARCHIVE,
-          });
-        } else {
-          tracks.push({
-            id:     `ia-${doc.identifier}`,
-            sourceId: doc.identifier,
-            isrc:   null,
-            title:  Array.isArray(doc.title) ? doc.title[0] : (doc.title || ""),
-            artist: Array.isArray(doc.creator) ? doc.creator[0] : (doc.creator || ""),
-            album:  "",
-            duration: null,
-            cover:  `${IA_BASE}/services/img/${doc.identifier}`,
-            source: SOURCE_IDS.INTERNET_ARCHIVE,
-          });
-        }
+      const title  = Array.isArray(doc.title)   ? doc.title[0]   : doc.title;
+      const artist = Array.isArray(doc.creator) ? doc.creator[0] : doc.creator;
+      const isAlbum = doc.description?.toLowerCase().includes('album') || !artist;
+      if (isAlbum) {
+        albums.push({ id: 'ia:' + doc.identifier, sourceId: doc.identifier, title, artist: artist || '', cover: IA_BASE + '/services/img/' + doc.identifier });
+      } else {
+        tracks.push({ id: 'ia:' + doc.identifier, sourceId: doc.identifier, isrc: null, title, artist: artist || '', album: '', duration: null, cover: IA_BASE + '/services/img/' + doc.identifier });
       }
     }
     return { tracks, albums, artists: [] };
   } catch { return { tracks: [], albums: [], artists: [] }; }
 }
 
-async function iaGetStreamUrl(identifier) {
-  try {
-    const url = `${IA_BASE}/metadata/${identifier}`;
-    const r = await fetchWithTimeout(url, {}, DEFAULT_TIMEOUT_MS);
-    if (!r.ok) return null;
-    const d = await r.json();
-    const files = d.files || [];
-    const audio = files.find(f => f.name?.match(/\.(flac|mp3|ogg|m4a|wav|aiff)$/i));
-    if (!audio) return null;
-    return `${IA_BASE}/download/${identifier}/${audio.name}`;
-  } catch { return null; }
-}
+// ─── Unified search orchestrator ──────────────────────────────────────────────
+async function unifiedSearch(query, searchOrder, env, limit) {
+  const fmtQuery = formatQuery(query);
 
-// ─── Podcast Index adapter ───────────────────────────────────────────────────
-const PI_BASE = "https://api.podcastindex.org/api/1.0";
-
-async function piHeaders(apiKey, apiSecret) {
-  const ts = Math.floor(Date.now() / 1000).toString();
-  const hashBuf = await crypto.subtle.digest(
-    "SHA-1",
-    new TextEncoder().encode(apiKey + apiSecret + ts)
-  );
-  const hash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, "0")).join("");
-  return {
-    "X-Auth-Key":  apiKey,
-    "X-Auth-Date": ts,
-    "Authorization": hash,
-    "User-Agent":  "EclipseAllInOne/2.0",
-  };
-}
-
-async function piSearch(query, apiKey, apiSecret, limit = 20) {
-  if (!apiKey || !apiSecret) return [];
-  try {
-    const q = encodeURIComponent(query);
-    const url = `${PI_BASE}/search/byterm?q=${q}&max=${limit}`;
-    const r = await fetchWithTimeout(url, { headers: await piHeaders(apiKey, apiSecret) }, DEFAULT_TIMEOUT_MS);
-    if (!r.ok) return [];
-    const d = await r.json();
-    return (d.feeds || []).map(f => ({
-      id:          `podcast-${f.id}`,
-      sourceId:    String(f.id),
-      title:       f.title,
-      author:      f.author,
-      cover:       f.artwork || f.image,
-      description: f.description,
-      feedUrl:     f.url,
-      categories:  Object.values(f.categories || {}),
-      type:        "podcast",
-    }));
-  } catch { return []; }
-}
-
-async function piGetEpisodes(feedId, apiKey, apiSecret, limit = 20) {
-  if (!apiKey || !apiSecret) return [];
-  try {
-    const url = `${PI_BASE}/episodes/byfeedid?id=${feedId}&max=${limit}`;
-    const r = await fetchWithTimeout(url, { headers: await piHeaders(apiKey, apiSecret) }, DEFAULT_TIMEOUT_MS);
-    if (!r.ok) return [];
-    const d = await r.json();
-    return (d.items || []).map(e => ({
-      id:          `episode-${e.id}`,
-      sourceId:    String(e.id),
-      title:       e.title,
-      description: e.description,
-      duration:    e.duration,
-      published:   e.datePublished,
-      streamUrl:   e.enclosureUrl,
-      cover:       e.image || e.feedImage,
-      feedId:      String(feedId),
-      type:        "episode",
-    }));
-  } catch { return []; }
-}
-
-// ─── Internet Archive audiobook search ──────────────────────────────────────
-async function iaAudiobookSearch(query, limit = 20) {
-  try {
-    const q = encodeURIComponent(`(${query}) AND mediatype:(audio) AND subject:(audiobook OR spoken word OR librivox)`);
-    const url = `${IA_BASE}/advancedsearch.php?q=${q}&fl[]=identifier,title,creator,year&rows=${limit}&output=json`;
-    const r = await fetchWithTimeout(url, {}, DEFAULT_TIMEOUT_MS);
-    if (!r.ok) return [];
-    const d = await r.json();
-    return (d.response?.docs || []).map(doc => ({
-      id:       `audiobook-${doc.identifier}`,
-      sourceId: doc.identifier,
-      title:    Array.isArray(doc.title) ? doc.title[0] : (doc.title || ""),
-      author:   Array.isArray(doc.creator) ? doc.creator[0] : (doc.creator || ""),
-      year:     doc.year || null,
-      cover:    `${IA_BASE}/services/img/${doc.identifier}`,
-      type:     "audiobook",
-    }));
-  } catch { return []; }
-}
-
-// ─── Radio Browser adapter ───────────────────────────────────────────────────
-const RADIO_BASE = "https://de1.api.radio-browser.info/json";
-
-async function radioSearch(query, limit = 20) {
-  try {
-    const q = encodeURIComponent(query);
-    const url = `${RADIO_BASE}/stations/search?name=${q}&limit=${limit}&hidebroken=true&order=clickcount&reverse=true`;
-    const r = await fetchWithTimeout(url, { headers: { "User-Agent": "EclipseAllInOne/2.0" } }, DEFAULT_TIMEOUT_MS);
-    if (!r.ok) return [];
-    const d = await r.json();
-    return d.map(s => ({
-      id:       `radio-${s.stationuuid}`,
-      sourceId: s.stationuuid,
-      name:     s.name,
-      country:  s.country,
-      language: s.language,
-      genre:    s.tags,
-      bitrate:  s.bitrate,
-      codec:    s.codec,
-      streamUrl: s.url_resolved || s.url,
-      cover:    s.favicon || null,
-      type:     "radio",
-    }));
-  } catch { return []; }
-}
-
-
-// ─── Credential & token cache (in-memory, per isolate) ───────────────────────
-let _qobuzToken     = null;
-let _tidalToken     = null;
-let _tokenExpiry    = {};
-
-async function getQobuzToken(env) {
-  if (_qobuzToken && _tokenExpiry.qobuz > Date.now()) return _qobuzToken;
-  _qobuzToken = await qobuzGetToken(env.QOBUZ_APP_ID, env.QOBUZ_EMAIL, env.QOBUZ_PASSWORD);
-  _tokenExpiry.qobuz = Date.now() + 55 * 60 * 1000; // 55 min
-  return _qobuzToken;
-}
-
-async function getTidalToken(env) {
-  if (_tidalToken && _tokenExpiry.tidal > Date.now()) return _tidalToken;
-  if (env.TIDAL_REFRESH_TOKEN) {
-    try {
-      _tidalToken = await tidalRefreshToken(env.TIDAL_CLIENT_ID, env.TIDAL_CLIENT_SECRET, env.TIDAL_REFRESH_TOKEN);
-      _tokenExpiry.tidal = Date.now() + 55 * 60 * 1000;
-      return _tidalToken;
-    } catch {}
-  }
-  if (env.TIDAL_ACCESS_TOKEN) {
-    _tidalToken = env.TIDAL_ACCESS_TOKEN;
-    _tokenExpiry.tidal = Date.now() + 30 * 60 * 1000;
-    return _tidalToken;
-  }
-  if (env.TIDAL_CLIENT_ID && env.TIDAL_CLIENT_SECRET) {
-    _tidalToken = await tidalClientCredentials(env.TIDAL_CLIENT_ID, env.TIDAL_CLIENT_SECRET);
-    _tokenExpiry.tidal = Date.now() + 55 * 60 * 1000;
-    return _tidalToken;
-  }
-  return null;
-}
-
-// ─── ISRC enrichment pass ─────────────────────────────────────────────────────
-/**
- * For tracks missing an ISRC, try to resolve one via MusicBrainz.
- * Only runs on the first N tracks that need it to avoid blowing the timeout.
- */
-async function enrichISRC(tracks, maxEnrich = 10) {
-  let count = 0;
-  const promises = tracks.map(async t => {
-    if (t.isrc || count >= maxEnrich) return t;
-    count++;
-    const mb = await mbLookupISRC(null).catch(() => null);
-    // reversed: lookup by title+artist on MB
-    try {
-      const q = encodeURIComponent(`recording:"${t.title}" AND artist:"${t.artist}"`);
-      const url = `${MB_BASE}/recording?query=${q}&fmt=json&limit=1`;
-      const r = await fetchWithTimeout(url, { headers: MB_HEADERS }, 3000);
-      if (!r.ok) return t;
-      const d = await r.json();
-      const rec = d.recordings?.[0];
-      if (rec?.isrcs?.length) {
-        return { ...t, isrc: rec.isrcs[0], mbid: rec.id };
-      }
-    } catch {}
-    return t;
-  });
-  return Promise.all(promises);
-}
-
-// ─── Unified search orchestrator ─────────────────────────────────────────────
-async function unifiedSearch(query, searchSources, env, limit = 20) {
-  if (!searchSources?.length) searchSources = DEFAULT_SEARCH_ORDER;
-
-  // Fire all source searches CONCURRENTLY for speed
-  const sourcePromises = searchSources.map(async sourceId => {
+  // Fire ALL source searches concurrently for speed
+  const sourcePromises = searchOrder.map(async src => {
     let results = { tracks: [], albums: [], artists: [] };
     try {
-      switch (sourceId) {
-        case SOURCE_IDS.TIDAL: {
-          const tok = await getTidalToken(env).catch(() => null);
-          results = await tidalSearch(query, tok, limit);
-          break;
-        }
-        case SOURCE_IDS.QOBUZ: {
-          const tok = await getQobuzToken(env).catch(() => null);
-          results = await qobuzSearch(query, tok, env.QOBUZ_APP_ID, limit);
-          break;
-        }
-        case SOURCE_IDS.DEEZER:
-          results = await deezerSearch(query, env.DEEZER_ARL, limit);
-          break;
-        case SOURCE_IDS.SOUNDCLOUD:
-          results = await scSearch(query, env.SOUNDCLOUD_CLIENT_ID, limit);
-          break;
-        case SOURCE_IDS.MUSICBRAINZ:
-          results = await mbSearch(query, limit);
-          break;
-        case SOURCE_IDS.INTERNET_ARCHIVE:
-          results = await iaSearch(query, limit);
-          break;
-        default:
-          break;
+      switch (src) {
+        case S.QOBUZ:    results = await searchQobuz(fmtQuery, limit); break;
+        case S.TIDAL:    results = await searchTidal(fmtQuery, limit); break;
+        case S.DEEZER:   results = await searchDeezer(fmtQuery, limit); break;
+        case S.SOUNDCLOUD: results = await searchSoundCloud(fmtQuery, limit, env?.SOUNDCLOUD_CLIENT_ID); break;
+        case S.MUSICBRAINZ: results = await searchMusicBrainz(fmtQuery, Math.min(limit, 10)); break;
+        case S.INTERNETARCHIVE: results = await searchInternetArchive(fmtQuery, limit); break;
       }
     } catch {}
-    return { source: sourceId, results };
+    return { source: src, results };
   });
 
-  // Wait for all concurrently — results still get merged in priority order
-  const allResults = await Promise.all(sourcePromises);
+  // Wait for all, then re-order by user's priority before merging
+  const settled = await Promise.all(sourcePromises);
 
-  // Re-order by user priority — source 1 fills all, source 2 fills gaps only, etc.
-  const ordered = searchSources.map(sid => allResults.find(r => r.source === sid)).filter(Boolean);
+  // Build ordered list: source 0 first, then 1, then 2, etc.
+  const ordered = searchOrder.map(sid => settled.find(r => r.source === sid)).filter(Boolean);
 
-  // Priority-first merge with ISRC + title|artist dedup
-  const merged = mergeResults(ordered);
-
-  // ISRC enrichment on merged track list (best-effort, background)
-  merged.tracks = await enrichISRC(merged.tracks, 8);
-
-  return merged;
+  return mergeResults(ordered);
 }
 
-// ─── Stream resolver ─────────────────────────────────────────────────────────
-async function resolveStream(sourceId, trackId, env, quality) {
-  switch (sourceId) {
-    case SOURCE_IDS.QOBUZ: {
-      const tok = await getQobuzToken(env);
-      const qFormat = quality === "hires" ? 27 : quality === "lossless" ? 6 : 5;
-      return await qobuzGetStreamUrl(trackId, tok, env.QOBUZ_APP_ID, env.QOBUZ_APP_SECRET, qFormat);
-    }
-    case SOURCE_IDS.TIDAL: {
-      const tok = await getTidalToken(env);
-      const tidalQ = quality === "hires" ? "HI_RES_LOSSLESS" : quality === "lossless" ? "LOSSLESS" : "HIGH";
-      return await tidalGetStreamUrl(trackId, tok, tidalQ);
-    }
-    case SOURCE_IDS.DEEZER:
-      return await deezerGetStreamUrl(trackId, env.DEEZER_ARL);
-    case SOURCE_IDS.SOUNDCLOUD:
-      return await scGetStreamUrl(trackId, env.SOUNDCLOUD_CLIENT_ID);
-    case SOURCE_IDS.INTERNET_ARCHIVE:
-      return await iaGetStreamUrl(trackId);
-    default:
-      return null;
+// ─── Stream resolvers ─────────────────────────────────────────────────────────
+async function streamQobuz(trackId, quality) {
+  const formatId = ({ hires: 27, lossless: 6, high: 5, mp3: 5 })[quality] || 27;
+  const cacheKey = 'stream:qobuz:' + trackId + ':' + formatId;
+  const cached   = mGet(cacheKey);
+  if (cached) return cached;
+  const ts  = Math.floor(Date.now() / 1000);
+  const sig = md5('trackgetFileUrlformat_id' + formatId + 'intentstreamtrack_id' + trackId + ts + QOBUZ_SECRET);
+  const url = `${QOBUZ_BASE}/track/getFileUrl?app_id=${QOBUZ_APP_ID}&user_auth_token=${QOBUZ_TOKEN}&track_id=${trackId}&format_id=${formatId}&intent=stream&request_ts=${ts}&request_sig=${sig}`;
+  const r   = await fetch(url);
+  if (!r.ok) throw new Error('Qobuz stream HTTP ' + r.status);
+  const d = await r.json();
+  if (!d?.url) throw new Error('No stream URL from Qobuz for ' + trackId);
+  const result = { url: d.url, source: S.QOBUZ, quality: formatId === 27 ? 'Hi-Res FLAC' : formatId === 6 ? 'FLAC' : 'MP3 320' };
+  mSet(cacheKey, result, STREAM_TTL);
+  return result;
+}
+
+async function streamTidal(trackId, quality) {
+  const tidalQ = quality === 'hires' ? 'HIRESLOSSLESS' : quality === 'lossless' ? 'LOSSLESS' : 'HIGH';
+  const inst   = await getWorkingHiFiInstance();
+  const ctrl   = new AbortController();
+  const timer  = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+  try {
+    const r = await fetch(`${inst}/track/?id=${encodeURIComponent(trackId)}&quality=${tidalQ}`, {
+      headers: { 'User-Agent': UA }, signal: ctrl.signal,
+    });
+    clearTimeout(timer);
+    const d = await r.json();
+    const b64 = d?.data?.manifest || d?.manifest;
+    if (!b64) throw new Error('No manifest');
+    const manifest = JSON.parse(atob(b64));
+    const streamUrl = manifest?.urls?.[0];
+    if (!streamUrl) throw new Error('No URL in manifest');
+    return { url: streamUrl, source: S.TIDAL, quality: tidalQ };
+  } catch (e) { clearTimeout(timer); throw e; }
+}
+
+async function streamDeezer(trackId, arl) {
+  if (!arl) throw new Error('Deezer ARL required');
+  // Get user data
+  const cookieHdr = 'arl=' + arl;
+  const step1 = await fetch('https://www.deezer.com/ajax/gw-light.php?method=deezer.getUserData&api_version=1.0&api_token=null&input=3', {
+    method: 'POST', headers: { Cookie: cookieHdr, 'Content-Type': 'application/json' }, body: '{}',
+  });
+  if (!step1.ok) throw new Error('Deezer getUserData failed');
+  const userData  = await step1.json();
+  const apiToken  = userData.results?.checkForm;
+  if (!apiToken) throw new Error('Deezer no token');
+  // Get track token
+  const step2 = await fetch('https://www.deezer.com/ajax/gw-light.php?method=song.getListData&api_version=1.0&api_token=' + apiToken + '&input=3', {
+    method: 'POST', headers: { Cookie: cookieHdr, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ song_ids: [parseInt(trackId)] }),
+  });
+  if (!step2.ok) throw new Error('Deezer getListData failed');
+  const td = await step2.json();
+  const ti = td.results?.data?.[0];
+  if (!ti?.TRACK_TOKEN) throw new Error('Deezer no track token');
+  return { url: 'deezer-token://' + ti.TRACK_TOKEN, source: S.DEEZER, quality: 'FLAC', _trackToken: ti.TRACK_TOKEN };
+}
+
+async function streamSoundCloud(trackId, clientId) {
+  if (!clientId) throw new Error('SoundCloud client ID required');
+  const d = await httpGet('https://api-v2.soundcloud.com/tracks/' + trackId, { client_id: clientId }, TIMEOUT_MS);
+  const progressive = d.media?.transcodings?.find(t => t.format?.protocol === 'progressive');
+  const hls         = d.media?.transcodings?.find(t => t.format?.protocol === 'hls');
+  const chosen      = progressive || hls;
+  if (!chosen) throw new Error('No transcodings for ' + trackId);
+  const sd = await httpGet(chosen.url + '?client_id=' + clientId, null, TIMEOUT_MS);
+  return { url: sd.url, source: S.SOUNDCLOUD, quality: 'MP3' };
+}
+
+async function streamIA(identifier) {
+  const d = await httpGet(IA_BASE + '/metadata/' + identifier, null, TIMEOUT_MS);
+  const audio = (d.files || []).find(f => f.name?.match(/\.(flac|mp3|ogg|m4a|wav|aif)$/i));
+  if (!audio) throw new Error('No audio file in IA item ' + identifier);
+  return { url: IA_BASE + '/download/' + identifier + '/' + audio.name, source: S.INTERNETARCHIVE, quality: 'MP3' };
+}
+
+// Try stream from a specific source; returns { url, source, quality } or throws
+async function resolveStream(source, trackId, env, quality) {
+  const q = quality || 'lossless';
+  switch (source) {
+    case S.QOBUZ:    return streamQobuz(trackId, q);
+    case S.TIDAL:    return streamTidal(trackId, q);
+    case S.DEEZER:   return streamDeezer(trackId, env?.DEEZER_ARL);
+    case S.SOUNDCLOUD: return streamSoundCloud(trackId, env?.SOUNDCLOUD_CLIENT_ID);
+    case S.INTERNETARCHIVE: return streamIA(trackId);
+    default: throw new Error('Unknown source: ' + source);
   }
 }
 
-/**
- * Try stream sources in priority order, return first working URL
- */
-async function resolveStreamWithFallback(sourceId, trackId, streamSources, env, quality) {
+// Resolve stream with fallback down the stream priority order
+async function resolveStreamWithFallback(source, trackId, streamOrder, env, quality) {
   // Always try the requested source first
-  const ordered = [sourceId, ...streamSources.filter(s => s !== sourceId)];
-  for (const src of ordered) {
+  const order = [source, ...streamOrder.filter(s => s !== source)];
+  for (const src of order) {
     try {
-      const url = await resolveStream(src, trackId, env, quality);
-      if (url) return { url, source: src };
+      const result = await resolveStream(src, trackId, env, quality);
+      if (result?.url) return result;
     } catch {}
   }
   return null;
 }
 
-// ─── Config parser (from URL params) ─────────────────────────────────────────
-function parseConfig(url) {
-  const p = url.searchParams;
-  const searchSources = p.get("searchSources")?.split(",").filter(Boolean) || DEFAULT_SEARCH_ORDER;
-  const streamSources = p.get("streamSources")?.split(",").filter(Boolean) || DEFAULT_STREAM_ORDER;
-  const quality = p.get("quality") || "lossless";
-  const limit = Math.min(parseInt(p.get("limit") || "20", 10), 50);
-  const podcastApiKey    = p.get("podcastApiKey") || "";
-  const podcastApiSecret = p.get("podcastApiSecret") || "";
-  const enablePodcasts   = p.get("podcasts") !== "false";
-  const enableAudiobooks = p.get("audiobooks") !== "false";
-  const enableRadio      = p.get("radio") !== "false";
-  const timeout          = Math.min(parseInt(p.get("timeout") || "8000", 10), 20000);
-  return { searchSources, streamSources, quality, limit,
-           podcastApiKey, podcastApiSecret,
-           enablePodcasts, enableAudiobooks, enableRadio, timeout };
-}
-
-// ─── Manifest builder ─────────────────────────────────────────────────────────
-function buildManifest(baseUrl, config) {
-  const q = new URLSearchParams({
-    searchSources:    config.searchSources.join(","),
-    streamSources:    config.streamSources.join(","),
-    quality:          config.quality,
-    limit:            String(config.limit),
-    podcasts:         String(config.enablePodcasts),
-    audiobooks:       String(config.enableAudiobooks),
-    radio:            String(config.enableRadio),
-    timeout:          String(config.timeout),
-  });
-  if (config.podcastApiKey)    q.set("podcastApiKey",    config.podcastApiKey);
-  if (config.podcastApiSecret) q.set("podcastApiSecret", config.podcastApiSecret);
-
-  const manifestBase = `${baseUrl}/manifest.json?${q.toString()}`;
-
-  return {
-    id:          "eclipse-all-in-one",
-    version:     VERSION,
-    name:        "Eclipse All-in-One",
-    description: "Qobuz · Tidal · Deezer · SoundCloud · MusicBrainz · Internet Archive · Podcasts · Audiobooks · Radio",
-    logo:        `${baseUrl}/logo.png`,
-    background:  `${baseUrl}/bg.jpg`,
-    contactEmail:"",
-    behaviorHints: { configurable: true, configurationRequired: false },
-    resources: ["catalog", "meta", "stream", "search"],
-    types:     ["music", "album", "artist", "podcast", "audiobook", "radio"],
-    catalogs: [
-      {
-        id: "eclipse-music-search",
-        type: "music",
-        name: "All Sources",
-        extra: [{ name: "search", isRequired: true }],
-      },
-      ...(config.enablePodcasts ? [{
-        id: "eclipse-podcasts",
-        type: "podcast",
-        name: "Podcasts",
-        extra: [{ name: "search" }, { name: "genre" }],
-      }] : []),
-      ...(config.enableAudiobooks ? [{
-        id: "eclipse-audiobooks",
-        type: "audiobook",
-        name: "Audiobooks",
-        extra: [{ name: "search" }],
-      }] : []),
-      ...(config.enableRadio ? [{
-        id: "eclipse-radio",
-        type: "radio",
-        name: "Radio",
-        extra: [{ name: "search" }],
-      }] : []),
-    ],
-    manifestUrl: manifestBase,
-  };
-}
-
-// ─── Eclipse catalog response builder ────────────────────────────────────────
-function buildCatalogResponse(merged, query) {
+// ─── Catalog response builder ─────────────────────────────────────────────────
+function buildCatalogMetas(merged) {
   const metas = [];
 
   // Artists first
   for (const a of merged.artists) {
     metas.push({
       id:          a.id,
-      type:        "artist",
+      type:        'artist',
       name:        a.name,
       poster:      a.cover || null,
       background:  a.cover || null,
-      description: `From ${a.source}`,
-      _source:     a._source || a.source,
+      description: 'Artist · ' + a._source,
     });
   }
+
   // Albums
   for (const a of merged.albums) {
     metas.push({
       id:          a.id,
-      type:        "album",
+      type:        'album',
       name:        a.title,
       poster:      a.cover || null,
-      description: `${a.artist}${a.year ? ` · ${a.year}` : ""}`,
-      _source:     a._source || a.source,
+      description: [a.artist, a.year].filter(Boolean).join(' · ') + ' · ' + a._source,
     });
   }
+
   // Tracks
   for (const t of merged.tracks) {
     metas.push({
       id:          t.id,
-      type:        "music",
+      type:        'music',
       name:        t.title,
       poster:      t.cover || null,
-      description: `${t.artist}${t.album ? ` · ${t.album}` : ""}${t.quality ? ` · ${t.quality}` : ""}`,
+      description: [t.artist, t.album, t.quality].filter(Boolean).join(' · ') + ' · ' + t._source,
       runtime:     t.duration,
-      released:    t.year ? String(t.year) : undefined,
-      _source:     t._source || t.source,
-      _isrc:       t.isrc || undefined,
+      isrc:        t.isrc || undefined,
     });
   }
 
-  return { metas };
+  return metas;
 }
 
-
-// ─── Config UI (HTML) ─────────────────────────────────────────────────────────
-function configHTML(baseUrl) {
+// ─── Config page ──────────────────────────────────────────────────────────────
+function buildConfigPage(baseUrl) {
   return `<!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Eclipse All-in-One · Addon Generator</title>
-<link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,600,700&display=swap" rel="stylesheet"/>
-<style>
-  :root {
-    --bg:           #0e0e10;
-    --surface:      #18181b;
-    --surface-2:    #1f1f23;
-    --surface-3:    #27272c;
-    --border:       rgba(255,255,255,0.08);
-    --text:         #e4e4e7;
-    --text-muted:   #71717a;
-    --text-faint:   #3f3f46;
-    --accent:       #7c3aed;
-    --accent-hover: #6d28d9;
-    --accent-glow:  rgba(124,58,237,0.18);
-    --tidal:        #00ffff;
-    --qobuz:        #007cba;
-    --deezer:       #ef5466;
-    --soundcloud:   #ff5500;
-    --musicbrainz:  #ba478f;
-    --ia:           #428bca;
-    --success:      #22c55e;
-    --radius:       12px;
-    --transition:   180ms cubic-bezier(0.16,1,0.3,1);
-  }
-  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  html { scroll-behavior: smooth; }
-  body {
-    font-family: 'Satoshi', system-ui, sans-serif;
-    background: var(--bg);
-    color: var(--text);
-    min-height: 100dvh;
-    line-height: 1.6;
-  }
-
-  /* ── Layout ── */
-  .container {
-    max-width: 860px;
-    margin: 0 auto;
-    padding: 2rem 1.25rem 4rem;
-  }
-
-  /* ── Header ── */
-  .header {
-    display: flex;
-    align-items: center;
-    gap: 1rem;
-    margin-bottom: 2.5rem;
-    padding-bottom: 1.5rem;
-    border-bottom: 1px solid var(--border);
-  }
-  .logo-mark {
-    width: 44px; height: 44px; flex-shrink: 0;
-    background: linear-gradient(135deg, var(--accent), #a855f7);
-    border-radius: 10px;
-    display: flex; align-items: center; justify-content: center;
-  }
-  .logo-mark svg { width: 24px; height: 24px; color: #fff; }
-  .header-text h1 { font-size: 1.35rem; font-weight: 700; letter-spacing: -0.02em; }
-  .header-text p  { font-size: 0.82rem; color: var(--text-muted); margin-top: 2px; }
-  .version-badge {
-    margin-left: auto;
-    font-size: 0.7rem;
-    font-weight: 600;
-    padding: 3px 9px;
-    background: var(--surface-3);
-    border: 1px solid var(--border);
-    border-radius: 999px;
-    color: var(--text-muted);
-    letter-spacing: 0.05em;
-    text-transform: uppercase;
-  }
-
-  /* ── Cards ── */
-  .card {
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    padding: 1.5rem;
-    margin-bottom: 1rem;
-  }
-  .card-title {
-    font-size: 0.78rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--text-muted);
-    margin-bottom: 1.1rem;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-  }
-  .card-title-dot {
-    width: 6px; height: 6px;
-    border-radius: 50%;
-    background: var(--accent);
-  }
-
-  /* ── Source order drag list ── */
-  .source-list {
-    display: flex;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  .source-item {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.6rem 0.9rem;
-    cursor: grab;
-    transition: background var(--transition), border-color var(--transition), box-shadow var(--transition);
-    user-select: none;
-  }
-  .source-item:hover { background: var(--surface-3); border-color: rgba(255,255,255,0.12); }
-  .source-item.dragging { opacity: 0.45; cursor: grabbing; }
-  .source-item.drag-over { box-shadow: 0 0 0 2px var(--accent); border-color: var(--accent); }
-  .source-dot {
-    width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
-  }
-  .source-name { font-size: 0.9rem; font-weight: 500; flex: 1; }
-  .source-badge {
-    font-size: 0.68rem; font-weight: 600; letter-spacing: 0.04em;
-    text-transform: uppercase; padding: 2px 7px; border-radius: 999px;
-    background: var(--surface-3); color: var(--text-muted);
-  }
-  .source-toggle {
-    width: 36px; height: 20px; position: relative; flex-shrink: 0;
-  }
-  .source-toggle input { opacity: 0; width: 0; height: 0; }
-  .source-toggle-track {
-    position: absolute; inset: 0;
-    background: var(--surface-3); border-radius: 999px; cursor: pointer;
-    transition: background var(--transition);
-  }
-  .source-toggle input:checked + .source-toggle-track { background: var(--accent); }
-  .source-toggle-thumb {
-    position: absolute;
-    top: 3px; left: 3px;
-    width: 14px; height: 14px;
-    background: #fff; border-radius: 50%;
-    transition: transform var(--transition);
-    pointer-events: none;
-  }
-  .source-toggle input:checked ~ .source-toggle-thumb { transform: translateX(16px); }
-  .drag-handle { color: var(--text-faint); flex-shrink: 0; cursor: grab; }
-  .drag-handle svg { display: block; }
-
-  /* ── Dropdowns / selects ── */
-  .field { margin-bottom: 1rem; }
-  .field:last-child { margin-bottom: 0; }
-  .field label {
-    display: block;
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: var(--text-muted);
-    margin-bottom: 0.4rem;
-    letter-spacing: 0.03em;
-  }
-  .field input, .field select {
-    width: 100%;
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.6rem 0.85rem;
-    font-family: inherit;
-    font-size: 0.88rem;
-    color: var(--text);
-    outline: none;
-    transition: border-color var(--transition), box-shadow var(--transition);
-    appearance: none;
-    -webkit-appearance: none;
-  }
-  .field input:focus, .field select:focus {
-    border-color: var(--accent);
-    box-shadow: 0 0 0 3px var(--accent-glow);
-  }
-  .field input::placeholder { color: var(--text-faint); }
-  .select-wrap { position: relative; }
-  .select-wrap::after {
-    content: "";
-    position: absolute;
-    right: 12px; top: 50%;
-    transform: translateY(-50%);
-    width: 0; height: 0;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-top: 5px solid var(--text-muted);
-    pointer-events: none;
-  }
-
-  /* ── Fieldset grid ── */
-  .field-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.85rem; }
-  @media (max-width: 540px) { .field-grid { grid-template-columns: 1fr; } }
-
-  /* ── Checkbox group ── */
-  .checkbox-group { display: flex; gap: 0.75rem; flex-wrap: wrap; }
-  .checkbox-pill {
-    display: flex; align-items: center; gap: 0.5rem;
-    background: var(--surface-2); border: 1px solid var(--border);
-    border-radius: 999px; padding: 0.35rem 0.85rem;
-    font-size: 0.82rem; font-weight: 500; cursor: pointer;
-    transition: background var(--transition), border-color var(--transition);
-  }
-  .checkbox-pill input { display: none; }
-  .checkbox-pill:has(input:checked) {
-    background: var(--accent-glow); border-color: var(--accent); color: #c4b5fd;
-  }
-  .checkbox-pill .pill-dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
-
-  /* ── Divider ── */
-  .divider { height: 1px; background: var(--border); margin: 1.5rem 0; }
-
-  /* ── Generate button ── */
-  .btn-generate {
-    width: 100%;
-    background: linear-gradient(135deg, var(--accent), #a855f7);
-    color: #fff;
-    border: none;
-    border-radius: var(--radius);
-    padding: 0.85rem 1.5rem;
-    font-family: inherit;
-    font-size: 1rem;
-    font-weight: 600;
-    cursor: pointer;
-    letter-spacing: -0.01em;
-    transition: opacity var(--transition), box-shadow var(--transition);
-    margin-top: 1.25rem;
-    display: flex; align-items: center; justify-content: center; gap: 0.5rem;
-  }
-  .btn-generate:hover { opacity: 0.9; box-shadow: 0 4px 24px rgba(124,58,237,0.35); }
-  .btn-generate:active { opacity: 0.8; }
-
-  /* ── Result box ── */
-  .result-box {
-    margin-top: 1.25rem;
-    display: none;
-    flex-direction: column;
-    gap: 0.5rem;
-  }
-  .result-box.visible { display: flex; }
-  .result-url-wrap {
-    background: var(--surface-2);
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 0.75rem 1rem;
-    display: flex; align-items: center; gap: 0.75rem;
-  }
-  .result-url {
-    flex: 1;
-    font-size: 0.78rem;
-    color: var(--text-muted);
-    font-family: 'SF Mono', 'Fira Code', monospace;
-    word-break: break-all;
-    overflow: hidden;
-  }
-  .btn-copy {
-    flex-shrink: 0;
-    background: var(--surface-3);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 0.4rem 0.75rem;
-    font-family: inherit;
-    font-size: 0.78rem;
-    font-weight: 600;
-    color: var(--text);
-    cursor: pointer;
-    transition: background var(--transition), color var(--transition);
-  }
-  .btn-copy:hover { background: var(--accent); color: #fff; border-color: var(--accent); }
-  .btn-copy.copied { background: var(--success); color: #fff; border-color: var(--success); }
-  .result-note { font-size: 0.75rem; color: var(--text-muted); text-align: center; }
-
-  /* ── Collapsible sections ── */
-  details summary {
-    list-style: none;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    font-size: 0.78rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-    color: var(--text-muted);
-    margin-bottom: 0;
-  }
-  details[open] summary { margin-bottom: 1.1rem; }
-  details summary::after {
-    content: "▸";
-    margin-left: auto;
-    font-size: 0.7rem;
-    transition: transform var(--transition);
-  }
-  details[open] summary::after { transform: rotate(90deg); }
-
-  /* ── Source color dots ── */
-  .dot-tidal        { background: var(--tidal); }
-  .dot-qobuz        { background: var(--qobuz); }
-  .dot-deezer       { background: var(--deezer); }
-  .dot-soundcloud   { background: var(--soundcloud); }
-  .dot-musicbrainz  { background: var(--musicbrainz); }
-  .dot-ia           { background: var(--ia); }
-</style>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Eclipse All-in-One</title>
+  <style>
+    *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0a0a0b;color:#e2e2e4;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:48px 20px 72px;-webkit-font-smoothing:antialiased}
+    .wrap{max-width:580px;width:100%}
+    .logo{width:48px;height:48px;background:#1a1a1f;border:1px solid #2a2a32;border-radius:14px;display:flex;align-items:center;justify-content:center;margin-bottom:20px}
+    h1{font-size:20px;font-weight:700;color:#fff;letter-spacing:-.02em;margin-bottom:6px}
+    .sub{font-size:13px;color:#52525e;line-height:1.65;margin-bottom:28px}
+    .card{background:#111115;border:1px solid #1e1e26;border-radius:16px;padding:28px;margin-bottom:16px}
+    .card-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#3f3f50;margin-bottom:16px;display:flex;align-items:center;gap:6px}
+    .card-title::before{content:'';width:6px;height:6px;border-radius:50%;background:#5b5bf6;flex-shrink:0}
+    .lbl{font-size:11px;font-weight:600;color:#3f3f50;margin-bottom:6px;margin-top:14px;text-transform:uppercase;letter-spacing:.06em}
+    .lbl:first-child{margin-top:0}
+    .hint{font-size:12px;color:#2e2e3a;line-height:1.65;margin-top:4px}
+    input,select{width:100%;background:#0d0d11;border:1px solid #1e1e26;border-radius:10px;color:#e2e2e4;font-size:14px;padding:11px 13px;outline:none;appearance:none;transition:border-color .15s;font-family:inherit}
+    input:focus,select:focus{border-color:#5b5bf6}
+    input::placeholder{color:#2a2a35}
+    .source-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px}
+    .src-pill{display:flex;align-items:center;gap:8px;background:#0d0d11;border:1px solid #1e1e26;border-radius:10px;padding:9px 12px;cursor:pointer;transition:border-color .15s,background .15s;user-select:none}
+    .src-pill.on{background:#0e0e1c;border-color:#5b5bf6}
+    .src-pill input[type=checkbox]{display:none}
+    .src-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+    .src-name{font-size:13px;font-weight:500;flex:1}
+    .src-badge{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:2px 6px;background:#1a1a22;border-radius:999px;color:#3f3f55}
+    .ql-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .ql-btn{background:#0d0d11;border:1px solid #1e1e26;border-radius:10px;padding:10px 8px;text-align:center;cursor:pointer;font-size:12px;font-weight:700;color:#42425a;letter-spacing:.04em;transition:all .15s}
+    .ql-btn:hover{border-color:#3a3a55;color:#aaa}
+    .ql-btn.sel{background:#0e0e1c;border-color:#5b5bf6;color:#a5a5f5}
+    .ql-sub{font-size:10px;font-weight:400;opacity:.7;display:block;margin-top:2px}
+    button.gen{width:100%;background:#5b5bf6;border:none;border-radius:12px;color:#fff;font-size:15px;font-weight:700;padding:14px;cursor:pointer;margin-top:6px;transition:background .15s,opacity .15s;letter-spacing:-.01em}
+    button.gen:hover{background:#4a4ae0}
+    button.gen:disabled{opacity:.45;cursor:not-allowed}
+    .result{margin-top:14px;display:none;flex-direction:column;gap:8px}
+    .result.show{display:flex}
+    .url-wrap{background:#0d0d11;border:1px solid #1e1e26;border-radius:10px;padding:12px 14px;display:flex;align-items:center;gap:10px}
+    .url-text{flex:1;font-size:12px;color:#52527a;font-family:"SF Mono","Fira Code",monospace;word-break:break-all;line-height:1.5}
+    .copy-btn{flex-shrink:0;background:#1a1a22;border:1px solid #2a2a35;border-radius:8px;padding:6px 12px;font-size:12px;font-weight:700;color:#e2e2e4;cursor:pointer;transition:all .15s}
+    .copy-btn:hover{background:#5b5bf6;border-color:#5b5bf6}
+    .copy-btn.done{background:#22c55e;border-color:#22c55e;color:#fff}
+    .step-note{font-size:12px;color:#2e2e3a;text-align:center}
+    footer{margin-top:36px;font-size:11px;color:#1e1e26;text-align:center}
+    @media(max-width:440px){.source-grid,.ql-row{grid-template-columns:1fr}}
+  </style>
 </head>
 <body>
-<div class="container">
+<div class="wrap">
+  <div class="logo">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5b5bf6" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/>
+      <line x1="12" y1="2" x2="12" y2="4"/><line x1="12" y1="20" x2="12" y2="22"/>
+      <line x1="2" y1="12" x2="4" y2="12"/><line x1="20" y1="12" x2="22" y2="12"/>
+    </svg>
+  </div>
+  <h1>Eclipse All-in-One</h1>
+  <p class="sub">Priority-ordered multi-source search with strict deduplication. Drag to reorder — Source 1 shows all results first, lower sources only fill in the gaps.</p>
 
-  <!-- Header -->
-  <header class="header">
-    <div class="logo-mark">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="12" cy="12" r="10"/>
-        <circle cx="12" cy="12" r="3"/>
-        <line x1="12" y1="2" x2="12" y2="5"/>
-        <line x1="12" y1="19" x2="12" y2="22"/>
-        <line x1="2" y1="12" x2="5" y2="12"/>
-        <line x1="19" y1="12" x2="22" y2="12"/>
-      </svg>
-    </div>
-    <div class="header-text">
-      <h1>Eclipse All-in-One</h1>
-      <p>Qobuz · Tidal · Deezer · SoundCloud · MusicBrainz · Internet Archive</p>
-    </div>
-    <span class="version-badge">v${VERSION}</span>
-  </header>
-
-  <!-- Search Sources -->
   <div class="card">
-    <div class="card-title"><span class="card-title-dot"></span>Search Source Priority</div>
-    <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:1rem;">Drag to reorder. Results from source #1 appear first. Lower sources only fill in what's missing.</p>
-    <div class="source-list" id="searchSourceList">
-      <div class="source-item" draggable="true" data-source="tidal">
-        <span class="drag-handle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg></span>
-        <span class="source-dot dot-tidal"></span>
-        <span class="source-name">Tidal</span>
-        <span class="source-badge">HiFi</span>
-        <label class="source-toggle"><input type="checkbox" checked /><span class="source-toggle-track"></span><span class="source-toggle-thumb"></span></label>
-      </div>
-      <div class="source-item" draggable="true" data-source="qobuz">
-        <span class="drag-handle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg></span>
-        <span class="source-dot dot-qobuz"></span>
-        <span class="source-name">Qobuz</span>
-        <span class="source-badge">Hi-Res</span>
-        <label class="source-toggle"><input type="checkbox" checked /><span class="source-toggle-track"></span><span class="source-toggle-thumb"></span></label>
-      </div>
-      <div class="source-item" draggable="true" data-source="deezer">
-        <span class="drag-handle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg></span>
-        <span class="source-dot dot-deezer"></span>
-        <span class="source-name">Deezer</span>
-        <span class="source-badge">HQ</span>
-        <label class="source-toggle"><input type="checkbox" checked /><span class="source-toggle-track"></span><span class="source-toggle-thumb"></span></label>
-      </div>
-      <div class="source-item" draggable="true" data-source="soundcloud">
-        <span class="drag-handle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg></span>
-        <span class="source-dot dot-soundcloud"></span>
-        <span class="source-name">SoundCloud</span>
-        <span class="source-badge">MP3</span>
-        <label class="source-toggle"><input type="checkbox" checked /><span class="source-toggle-track"></span><span class="source-toggle-thumb"></span></label>
-      </div>
-      <div class="source-item" draggable="true" data-source="musicbrainz">
-        <span class="drag-handle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg></span>
-        <span class="source-dot dot-musicbrainz"></span>
-        <span class="source-name">MusicBrainz</span>
-        <span class="source-badge">Meta</span>
-        <label class="source-toggle"><input type="checkbox" checked /><span class="source-toggle-track"></span><span class="source-toggle-thumb"></span></label>
-      </div>
-      <div class="source-item" draggable="true" data-source="internetarchive">
-        <span class="drag-handle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg></span>
-        <span class="source-dot dot-ia"></span>
-        <span class="source-name">Internet Archive</span>
-        <span class="source-badge">Free</span>
-        <label class="source-toggle"><input type="checkbox" checked /><span class="source-toggle-track"></span><span class="source-toggle-thumb"></span></label>
-      </div>
-    </div>
+    <div class="card-title">Addon Name</div>
+    <input type="text" id="addonName" placeholder="My All-in-One" maxlength="40"/>
+    <div class="hint">Shown in Eclipse's connection list.</div>
   </div>
 
-  <!-- Stream Sources -->
   <div class="card">
-    <div class="card-title"><span class="card-title-dot"></span>Stream Source Priority</div>
-    <p style="font-size:0.8rem;color:var(--text-muted);margin-bottom:1rem;">Source #1 is always tried first. If unavailable, falls back automatically down the list.</p>
-    <div class="source-list" id="streamSourceList">
-      <div class="source-item" draggable="true" data-source="qobuz">
-        <span class="drag-handle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg></span>
-        <span class="source-dot dot-qobuz"></span>
-        <span class="source-name">Qobuz</span>
-        <span class="source-badge">Hi-Res</span>
-        <label class="source-toggle"><input type="checkbox" checked /><span class="source-toggle-track"></span><span class="source-toggle-thumb"></span></label>
-      </div>
-      <div class="source-item" draggable="true" data-source="tidal">
-        <span class="drag-handle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg></span>
-        <span class="source-dot dot-tidal"></span>
-        <span class="source-name">Tidal</span>
-        <span class="source-badge">HiFi</span>
-        <label class="source-toggle"><input type="checkbox" checked /><span class="source-toggle-track"></span><span class="source-toggle-thumb"></span></label>
-      </div>
-      <div class="source-item" draggable="true" data-source="deezer">
-        <span class="drag-handle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg></span>
-        <span class="source-dot dot-deezer"></span>
-        <span class="source-name">Deezer</span>
-        <span class="source-badge">HQ</span>
-        <label class="source-toggle"><input type="checkbox" checked /><span class="source-toggle-track"></span><span class="source-toggle-thumb"></span></label>
-      </div>
-      <div class="source-item" draggable="true" data-source="soundcloud">
-        <span class="drag-handle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg></span>
-        <span class="source-dot dot-soundcloud"></span>
-        <span class="source-name">SoundCloud</span>
-        <span class="source-badge">MP3</span>
-        <label class="source-toggle"><input type="checkbox" checked /><span class="source-toggle-track"></span><span class="source-toggle-thumb"></span></label>
-      </div>
-      <div class="source-item" draggable="true" data-source="internetarchive">
-        <span class="drag-handle"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/></svg></span>
-        <span class="source-dot dot-ia"></span>
-        <span class="source-name">Internet Archive</span>
-        <span class="source-badge">Free</span>
-        <label class="source-toggle"><input type="checkbox" checked /><span class="source-toggle-track"></span><span class="source-toggle-thumb"></span></label>
-      </div>
+    <div class="card-title">Search Priority</div>
+    <p style="font-size:12px;color:#2e2e3a;margin-bottom:14px;line-height:1.6">Select and order sources. Source 1 fills all results first — the rest only add what's missing (no repeats).</p>
+    <div class="source-grid" id="searchSources">
+      <label class="src-pill on" data-src="qobuz"><input type="checkbox" checked/><span class="src-dot" style="background:#007cba"></span><span class="src-name">Qobuz</span><span class="src-badge">Hi-Res</span></label>
+      <label class="src-pill on" data-src="tidal"><input type="checkbox" checked/><span class="src-dot" style="background:#00ffff"></span><span class="src-name">Tidal</span><span class="src-badge">HiFi</span></label>
+      <label class="src-pill on" data-src="deezer"><input type="checkbox" checked/><span class="src-dot" style="background:#ef5466"></span><span class="src-name">Deezer</span><span class="src-badge">HQ</span></label>
+      <label class="src-pill" data-src="soundcloud"><input type="checkbox"/><span class="src-dot" style="background:#ff5500"></span><span class="src-name">SoundCloud</span><span class="src-badge">MP3</span></label>
+      <label class="src-pill" data-src="musicbrainz"><input type="checkbox"/><span class="src-dot" style="background:#ba478f"></span><span class="src-name">MusicBrainz</span><span class="src-badge">Meta</span></label>
+      <label class="src-pill" data-src="internetarchive"><input type="checkbox"/><span class="src-dot" style="background:#428bca"></span><span class="src-name">Internet Archive</span><span class="src-badge">Free</span></label>
     </div>
+    <div class="hint" style="margin-top:6px">Order reflects priority 1→6 left-to-right, top-to-bottom.</div>
   </div>
 
-  <!-- Playback Quality -->
   <div class="card">
-    <div class="card-title"><span class="card-title-dot"></span>Playback Quality</div>
-    <div class="field-grid">
-      <div class="field">
-        <label for="qualitySelect">Audio Quality</label>
-        <div class="select-wrap">
-          <select id="qualitySelect">
-            <option value="hires">Hi-Res FLAC (best quality)</option>
-            <option value="lossless" selected>Lossless FLAC</option>
-            <option value="high">High (AAC 320 / MP3 320)</option>
-          </select>
-        </div>
-      </div>
-      <div class="field">
-        <label for="limitSelect">Results Per Source</label>
-        <div class="select-wrap">
-          <select id="limitSelect">
-            <option value="10">10</option>
-            <option value="20" selected>20</option>
-            <option value="30">30</option>
-            <option value="50">50</option>
-          </select>
-        </div>
-      </div>
-      <div class="field">
-        <label for="timeoutSelect">Per-Source Timeout</label>
-        <div class="select-wrap">
-          <select id="timeoutSelect">
-            <option value="4000">4 seconds (fast)</option>
-            <option value="6000">6 seconds</option>
-            <option value="8000" selected>8 seconds (default)</option>
-            <option value="12000">12 seconds (slow connection)</option>
-          </select>
-        </div>
-      </div>
+    <div class="card-title">Stream Priority</div>
+    <div class="source-grid" id="streamSources">
+      <label class="src-pill on" data-src="qobuz"><input type="checkbox" checked/><span class="src-dot" style="background:#007cba"></span><span class="src-name">Qobuz</span><span class="src-badge">Hi-Res</span></label>
+      <label class="src-pill on" data-src="tidal"><input type="checkbox" checked/><span class="src-dot" style="background:#00ffff"></span><span class="src-name">Tidal</span><span class="src-badge">HiFi</span></label>
+      <label class="src-pill on" data-src="deezer"><input type="checkbox" checked/><span class="src-dot" style="background:#ef5466"></span><span class="src-name">Deezer</span><span class="src-badge">HQ</span></label>
+      <label class="src-pill" data-src="soundcloud"><input type="checkbox"/><span class="src-dot" style="background:#ff5500"></span><span class="src-name">SoundCloud</span><span class="src-badge">MP3</span></label>
+      <label class="src-pill" data-src="internetarchive"><input type="checkbox"/><span class="src-dot" style="background:#428bca"></span><span class="src-name">Internet Archive</span><span class="src-badge">Free</span></label>
     </div>
   </div>
 
-  <!-- Extra Content -->
   <div class="card">
-    <div class="card-title"><span class="card-title-dot"></span>Extra Content Sources</div>
-    <div class="checkbox-group" style="margin-bottom:1.25rem;">
-      <label class="checkbox-pill"><input type="checkbox" id="enablePodcasts" checked /><span class="pill-dot"></span>Podcasts</label>
-      <label class="checkbox-pill"><input type="checkbox" id="enableAudiobooks" checked /><span class="pill-dot"></span>Audiobooks</label>
-      <label class="checkbox-pill"><input type="checkbox" id="enableRadio" checked /><span class="pill-dot"></span>Radio</label>
+    <div class="card-title">Playback Quality</div>
+    <div class="ql-row">
+      <div class="ql-btn" id="q-hires" onclick="selQ('hires')">Hi-Res FLAC<span class="ql-sub">24-bit/192kHz</span></div>
+      <div class="ql-btn sel" id="q-lossless" onclick="selQ('lossless')">Lossless FLAC<span class="ql-sub">16-bit/44.1kHz</span></div>
+      <div class="ql-btn" id="q-high" onclick="selQ('high')">High<span class="ql-sub">AAC 320 / MP3</span></div>
+      <div class="ql-btn" id="q-mp3" onclick="selQ('mp3')">MP3<span class="ql-sub">320kbps</span></div>
     </div>
-
-    <details>
-      <summary><span class="card-title-dot"></span>Podcast Index API (optional)</summary>
-      <div style="padding-top:0.25rem;">
-        <div class="field-grid">
-          <div class="field">
-            <label for="piKey">API Key</label>
-            <input type="text" id="piKey" placeholder="Podcast Index API key" />
-          </div>
-          <div class="field">
-            <label for="piSecret">API Secret</label>
-            <input type="password" id="piSecret" placeholder="Podcast Index API secret" />
-          </div>
-        </div>
-        <p style="font-size:0.75rem;color:var(--text-muted);margin-top:0.5rem;">
-          Get free credentials at <a href="https://podcastindex.org" target="_blank" rel="noopener" style="color:#a78bfa;">podcastindex.org</a>. Without these, podcast search uses public RSS feeds only.
-        </p>
-      </div>
-    </details>
   </div>
 
-  <!-- Generate -->
-  <button class="btn-generate" id="generateBtn" onclick="generateURL()">
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="5 3 19 12 5 21 5 3"/></svg>
-    Generate Manifest URL
-  </button>
+  <button class="gen" id="genBtn" onclick="generate()">Generate Addon URL</button>
 
-  <div class="result-box" id="resultBox">
-    <div class="result-url-wrap">
-      <span class="result-url" id="resultUrl"></span>
-      <button class="btn-copy" id="copyBtn" onclick="copyURL()">Copy</button>
+  <div class="result" id="resultBox">
+    <div class="url-wrap">
+      <span class="url-text" id="urlText"></span>
+      <button class="copy-btn" id="copyBtn" onclick="copyUrl()">Copy</button>
     </div>
-    <p class="result-note">Open Eclipse → Settings → Connections → Add Connection → Addon → paste this URL</p>
+    <p class="step-note">Eclipse → Settings → Connections → Add Connection → Addon → Paste URL</p>
   </div>
-
 </div>
 
+<footer>Eclipse All-in-One v${VERSION}</footer>
+
 <script>
-// ── Drag-to-reorder ──────────────────────────────────────────────────────────
-function initDragList(listId) {
-  const list = document.getElementById(listId);
-  let dragged = null;
-
-  list.querySelectorAll('.source-item').forEach(item => {
-    item.addEventListener('dragstart', e => {
-      dragged = item;
-      item.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
-    });
-    item.addEventListener('dragend', () => {
-      item.classList.remove('dragging');
-      list.querySelectorAll('.source-item').forEach(i => i.classList.remove('drag-over'));
-      dragged = null;
-    });
-    item.addEventListener('dragover', e => {
-      e.preventDefault();
-      if (dragged && dragged !== item) {
-        list.querySelectorAll('.source-item').forEach(i => i.classList.remove('drag-over'));
-        item.classList.add('drag-over');
-      }
-    });
-    item.addEventListener('drop', e => {
-      e.preventDefault();
-      if (dragged && dragged !== item) {
-        const items = [...list.querySelectorAll('.source-item')];
-        const dragIdx = items.indexOf(dragged);
-        const dropIdx = items.indexOf(item);
-        if (dragIdx < dropIdx) {
-          list.insertBefore(dragged, item.nextSibling);
-        } else {
-          list.insertBefore(dragged, item);
-        }
-      }
-      list.querySelectorAll('.source-item').forEach(i => i.classList.remove('drag-over'));
+  var _q='lossless', _genUrl=null;
+  function selQ(q){_q=q;['hires','lossless','high','mp3'].forEach(function(k){document.getElementById('q-'+k).classList.toggle('sel',k===q)});}
+  function getSources(containerId){var pills=document.querySelectorAll('#'+containerId+' .src-pill');var out=[];pills.forEach(function(p){if(p.querySelector('input').checked)out.push(p.dataset.src)});return out;}
+  function generate(){
+    var btn=document.getElementById('genBtn');btn.disabled=true;btn.textContent='Generating…';
+    var name=document.getElementById('addonName').value.trim();
+    var ss=getSources('searchSources');var st=getSources('streamSources');
+    if(!ss.length){alert('Select at least one search source.');btn.disabled=false;btn.textContent='Generate Addon URL';return;}
+    fetch('/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({addonName:name||null,quality:_q,searchSources:ss,streamSources:st})})
+      .then(function(r){return r.json()}).then(function(d){
+        if(d.error){alert(d.error);btn.disabled=false;btn.textContent='Generate Addon URL';return;}
+        _genUrl=d.manifestUrl;
+        document.getElementById('urlText').textContent=_genUrl;
+        document.getElementById('resultBox').classList.add('show');
+        document.getElementById('copyBtn').textContent='Copy';
+        btn.disabled=false;btn.textContent='Generate Another URL';
+      }).catch(function(e){alert('Error: '+e.message);btn.disabled=false;btn.textContent='Generate Addon URL';});
+  }
+  function copyUrl(){
+    if(!_genUrl)return;
+    try{navigator.clipboard.writeText(_genUrl)}catch(_){var ta=document.createElement('textarea');ta.value=_genUrl;document.body.appendChild(ta);ta.select();document.execCommand('copy');document.body.removeChild(ta);}
+    var b=document.getElementById('copyBtn');b.textContent='Copied!';b.classList.add('done');setTimeout(function(){b.textContent='Copy';b.classList.remove('done');},2000);
+  }
+  // Toggle pill style on click
+  document.querySelectorAll('.src-pill').forEach(function(p){
+    p.addEventListener('click',function(){
+      var cb=p.querySelector('input');cb.checked=!cb.checked;p.classList.toggle('on',cb.checked);
     });
   });
-}
-
-initDragList('searchSourceList');
-initDragList('streamSourceList');
-
-// ── Generate URL ─────────────────────────────────────────────────────────────
-function getOrderedSources(listId) {
-  const list = document.getElementById(listId);
-  const sources = [];
-  list.querySelectorAll('.source-item').forEach(item => {
-    const toggle = item.querySelector('input[type="checkbox"]');
-    if (toggle?.checked) sources.push(item.dataset.source);
-  });
-  return sources;
-}
-
-function generateURL() {
-  const base = window.location.origin;
-  const searchSources = getOrderedSources('searchSourceList');
-  const streamSources = getOrderedSources('streamSourceList');
-  const quality   = document.getElementById('qualitySelect').value;
-  const limit     = document.getElementById('limitSelect').value;
-  const timeout   = document.getElementById('timeoutSelect').value;
-  const podcasts  = document.getElementById('enablePodcasts').checked;
-  const audiobooks = document.getElementById('enableAudiobooks').checked;
-  const radio     = document.getElementById('enableRadio').checked;
-  const piKey     = document.getElementById('piKey').value.trim();
-  const piSecret  = document.getElementById('piSecret').value.trim();
-
-  const params = new URLSearchParams({
-    searchSources: searchSources.join(','),
-    streamSources: streamSources.join(','),
-    quality, limit, timeout,
-    podcasts:   String(podcasts),
-    audiobooks: String(audiobooks),
-    radio:      String(radio),
-  });
-  if (piKey)    params.set('podcastApiKey',    piKey);
-  if (piSecret) params.set('podcastApiSecret', piSecret);
-
-  const url = base + '/manifest.json?' + params.toString();
-
-  document.getElementById('resultUrl').textContent = url;
-  const box = document.getElementById('resultBox');
-  box.classList.add('visible');
-  box.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
-function copyURL() {
-  const url = document.getElementById('resultUrl').textContent;
-  navigator.clipboard.writeText(url).then(() => {
-    const btn = document.getElementById('copyBtn');
-    btn.textContent = 'Copied!';
-    btn.classList.add('copied');
-    setTimeout(() => {
-      btn.textContent = 'Copy';
-      btn.classList.remove('copied');
-    }, 2000);
-  });
-}
 </script>
 </body>
 </html>`;
 }
 
+// ─── Routes ───────────────────────────────────────────────────────────────────
 
-// ─── Main fetch handler ───────────────────────────────────────────────────────
-export default {
-  async fetch(request, env, ctx) {
-    const url     = new URL(request.url);
-    const path    = url.pathname.replace(/\/$/, "") || "/";
-    const origin  = request.headers.get("Origin") || "*";
-    const allowed = env.ALLOWED_ORIGINS || "*";
+app.get('/', c => new Response(buildConfigPage(
+  (c.req.header('x-forwarded-proto') || 'https') + '://' + c.req.header('host')
+), { headers: { 'Content-Type': 'text/html; charset=utf-8' } }));
 
-    // Pre-flight
-    if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders(origin, allowed) });
-    }
+// Generate token
+app.post('/generate', async c => {
+  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-forwarded-for') || 'unknown';
+  if (!checkIpGenerateRate(ip)) return rateLimitResp('Too many requests. Try again in an hour.');
+  let body = {};
+  try { body = await c.req.json(); } catch {}
+  const quality       = body?.quality        || 'lossless';
+  const addonName     = body?.addonName ? String(body.addonName).trim().slice(0, 40) : null;
+  const searchSources = Array.isArray(body?.searchSources) ? body.searchSources.filter(s => Object.values(S).includes(s)) : DEFAULT_SEARCH_ORDER;
+  const streamSources = Array.isArray(body?.streamSources) ? body.streamSources.filter(s => Object.values(S).includes(s)) : DEFAULT_STREAM_ORDER;
+  const token = generateToken();
+  saveToken(token, { quality, addonName, searchSources, streamSources, createdAt: Date.now() });
+  const base = (c.req.header('x-forwarded-proto') || 'https') + '://' + c.req.header('host');
+  const seg  = buildTokenSegment(token, addonName);
+  return c.json({ token, manifestUrl: base + '/u/' + seg + '/manifest.json' });
+});
 
-    // ── Config UI ──────────────────────────────────────────────────────────────
-    if (path === "/" || path === "/configure") {
-      return new Response(configHTML(url.origin), {
-        headers: { "Content-Type": "text/html;charset=UTF-8" },
-      });
-    }
+// Manifest
+app.get('/u/:token/manifest.json', c => {
+  const { token, embeddedName } = parseTokenParam(c.req.param('token'));
+  let stored = loadToken(token);
+  if (!stored) { stored = { quality: 'lossless', searchSources: DEFAULT_SEARCH_ORDER, streamSources: DEFAULT_STREAM_ORDER }; saveToken(token, stored); }
+  const displayName = embeddedName || stored.addonName || 'Eclipse All-in-One';
+  const sourceDesc  = (stored.searchSources || DEFAULT_SEARCH_ORDER).join(', ');
+  return c.json({
+    id:          'com.eclipse.allinone.' + token.slice(0, 8),
+    name:        displayName,
+    version:     VERSION,
+    description: 'Priority-ordered multi-source search · Sources: ' + sourceDesc,
+    resources:   ['search', 'stream', 'catalog'],
+    types:       ['track', 'album', 'artist'],
+    catalogs: [
+      { id: 'aio-music', type: 'music', name: displayName, extra: [{ name: 'search', isRequired: true }] },
+    ],
+    behaviorHints: { configurable: false },
+  });
+});
 
-    // ── Manifest ───────────────────────────────────────────────────────────────
-    if (path === "/manifest.json") {
-      const cfg = parseConfig(url);
-      const manifest = buildManifest(url.origin, cfg);
-      return jsonResp(manifest, 200, origin, allowed);
-    }
+// Catalog search (Eclipse calls: /catalog/music/aio-music/search=QUERY.json)
+app.get('/u/:token/catalog/:type/:catalogId/:extra.json', async c => {
+  const { token }  = parseTokenParam(c.req.param('token'));
+  const extra      = c.req.param('extra') || '';
+  const queryMatch = extra.match(/^search=(.+)$/);
+  const query      = queryMatch ? decodeURIComponent(queryMatch[1]) : (c.req.query('search') || '').trim();
 
-    // ── Search / Catalog ───────────────────────────────────────────────────────
-    // Eclipse calls: /catalog/{type}/{id}/search={query}.json
-    const catalogMatch = path.match(/^\/catalog\/([^/]+)\/([^/]+)\/search=(.+)\.json$/);
-    if (catalogMatch) {
-      const [, type, catalogId, rawQuery] = catalogMatch;
-      const query = decodeURIComponent(rawQuery);
-      const cfg   = parseConfig(url);
+  if (!query) return c.json({ metas: [] });
+  if (!consumeGlobalBudget())          return rateLimitResp('Daily request limit reached.');
+  if (!checkTokenRate(token, 'search')) return rateLimitResp('Search rate limit exceeded.');
 
-      // Podcast / Audiobook / Radio special handling
-      if (type === "podcast" || catalogId === "eclipse-podcasts") {
-        const results = await piSearch(query, cfg.podcastApiKey, cfg.podcastApiSecret, cfg.limit);
-        return jsonResp({ metas: results }, 200, origin, allowed);
-      }
-      if (type === "audiobook" || catalogId === "eclipse-audiobooks") {
-        const results = await iaAudiobookSearch(query, cfg.limit);
-        return jsonResp({ metas: results }, 200, origin, allowed);
-      }
-      if (type === "radio" || catalogId === "eclipse-radio") {
-        const results = await radioSearch(query, cfg.limit);
-        return jsonResp({ metas: results }, 200, origin, allowed);
-      }
+  const stored = loadToken(token) || { quality: 'lossless', searchSources: DEFAULT_SEARCH_ORDER, streamSources: DEFAULT_STREAM_ORDER };
+  const limit  = 20;
 
-      // Music search — unified with dedup
-      const merged = await unifiedSearch(query, cfg.searchSources, env, cfg.limit);
-      const response = buildCatalogResponse(merged, query);
-      return jsonResp(response, 200, origin, allowed);
-    }
+  const merged = await unifiedSearch(query, stored.searchSources || DEFAULT_SEARCH_ORDER, c.env, limit);
+  return c.json({ metas: buildCatalogMetas(merged) });
+});
 
-    // Also support simpler ?search= query param style
-    if (path === "/catalog" || path.startsWith("/catalog")) {
-      const query = url.searchParams.get("search") || url.searchParams.get("q") || "";
-      if (query) {
-        const cfg = parseConfig(url);
-        const merged = await unifiedSearch(query, cfg.searchSources, env, cfg.limit);
-        const response = buildCatalogResponse(merged, query);
-        return jsonResp(response, 200, origin, allowed);
-      }
-    }
+// Also handle simpler /catalog/ shape that some clients use
+app.get('/u/:token/catalog/:type/:catalogId.json', async c => {
+  const { token }  = parseTokenParam(c.req.param('token'));
+  const query      = (c.req.query('search') || c.req.query('q') || '').trim();
+  if (!query) return c.json({ metas: [] });
+  if (!consumeGlobalBudget())          return rateLimitResp('Daily request limit reached.');
+  if (!checkTokenRate(token, 'search')) return rateLimitResp('Search rate limit exceeded.');
+  const stored = loadToken(token) || { quality: 'lossless', searchSources: DEFAULT_SEARCH_ORDER, streamSources: DEFAULT_STREAM_ORDER };
+  const merged = await unifiedSearch(query, stored.searchSources || DEFAULT_SEARCH_ORDER, c.env, 20);
+  return c.json({ metas: buildCatalogMetas(merged) });
+});
 
-    // ── Meta ──────────────────────────────────────────────────────────────────
-    // Eclipse calls: /meta/{type}/{id}.json
-    const metaMatch = path.match(/^\/meta\/([^/]+)\/([^/]+)\.json$/);
-    if (metaMatch) {
-      const [, type, id] = metaMatch;
+// Stream
+app.get('/u/:token/stream/:type/:id.json', async c => {
+  const { token }  = parseTokenParam(c.req.param('token'));
+  const id         = c.req.param('id');
+  if (!consumeGlobalBudget())           return rateLimitResp('Daily request limit reached.');
+  if (!checkTokenRate(token, 'stream')) return rateLimitResp('Stream rate limit exceeded.');
+  const stored = loadToken(token) || { quality: 'lossless', streamSources: DEFAULT_STREAM_ORDER };
 
-      // Podcast episodes
-      if (type === "podcast") {
-        const feedId = id.replace("podcast-", "");
-        const cfg = parseConfig(url);
-        const episodes = await piGetEpisodes(feedId, cfg.podcastApiKey, cfg.podcastApiSecret, 50);
-        return jsonResp({
-          meta: {
-            id, type,
-            videos: episodes.map(e => ({
-              id:       e.id,
-              title:    e.title,
-              released: e.published ? new Date(e.published * 1000).toISOString() : null,
-              overview: e.description,
-              runtime:  e.duration,
-              thumbnail: e.cover,
-              streams: [{ url: e.streamUrl, title: e.title }],
-            })),
-          }
-        }, 200, origin, allowed);
-      }
+  // Parse source and trackId from prefixed id (e.g. "qobuz:12345", "tidal:67890")
+  const colonIdx = id.indexOf(':');
+  if (colonIdx === -1) return c.json({ streams: [] });
+  const source  = id.slice(0, colonIdx);
+  const trackId = id.slice(colonIdx + 1);
 
-      // Internet Archive audiobook chapters
-      if (type === "audiobook" || id.startsWith("audiobook-") || id.startsWith("ia-")) {
-        const identifier = id.replace(/^(audiobook-|ia-)/, "");
-        try {
-          const r = await fetchWithTimeout(`https://archive.org/metadata/${identifier}`, {}, DEFAULT_TIMEOUT_MS);
-          const d = r.ok ? await r.json() : {};
-          const files = (d.files || []).filter(f => f.name?.match(/\.(flac|mp3|ogg|m4a|wav)$/i));
-          return jsonResp({
-            meta: {
-              id, type: "audiobook",
-              name:   d.metadata?.title || identifier,
-              description: d.metadata?.description || "",
-              videos: files.map((f, i) => ({
-                id:    `${id}-track${i}`,
-                title: f.title || f.name,
-                streams: [{ url: `https://archive.org/download/${identifier}/${f.name}`, title: f.name }],
-              })),
-            }
-          }, 200, origin, allowed);
-        } catch {
-          return jsonResp({ meta: { id, type: "audiobook" } }, 200, origin, allowed);
-        }
-      }
+  const result = await resolveStreamWithFallback(source, trackId, stored.streamSources || DEFAULT_STREAM_ORDER, c.env, stored.quality);
+  if (!result?.url) return c.json({ streams: [] });
 
-      return jsonResp({ meta: { id, type } }, 200, origin, allowed);
-    }
+  return c.json({
+    streams: [{
+      url:   result.url,
+      title: result.quality + ' · ' + result.source,
+      behaviorHints: { notWebReady: false },
+    }],
+  });
+});
 
-    // ── Stream ────────────────────────────────────────────────────────────────
-    // Eclipse calls: /stream/{type}/{id}.json
-    const streamMatch = path.match(/^\/stream\/([^/]+)\/([^/]+)\.json$/);
-    if (streamMatch) {
-      const [, type, id] = streamMatch;
-      const cfg = parseConfig(url);
+// Meta (minimal — Eclipse uses this to get track/album detail)
+app.get('/u/:token/meta/:type/:id.json', async c => {
+  return c.json({ meta: {} });
+});
 
-      // Direct stream types
-      if (type === "radio") {
-        const stationId = id.replace("radio-", "");
-        const url2 = `${RADIO_BASE}/stations/byuuid/${stationId}`;
-        const r = await fetchWithTimeout(url2, { headers: { "User-Agent": "EclipseAllInOne/2.0" } }, DEFAULT_TIMEOUT_MS).catch(() => null);
-        if (r?.ok) {
-          const d = await r.json();
-          const station = Array.isArray(d) ? d[0] : d;
-          if (station?.url_resolved) {
-            return jsonResp({
-              streams: [{ url: station.url_resolved, title: station.name, behaviorHints: { notWebReady: false } }]
-            }, 200, origin, allowed);
-          }
-        }
-        return jsonResp({ streams: [] }, 200, origin, allowed);
-      }
+// Health
+app.get('/health', async c => {
+  const inst = await getWorkingHiFiInstance().catch(() => null);
+  return c.json({ status: inst ? 'ok' : 'degraded', hifi: inst, version: VERSION });
+});
 
-      // Determine source from id prefix
-      let sourceId = null;
-      let trackId  = id;
+// Legacy flat manifest (no token)
+app.get('/manifest.json', c => c.json({
+  id: 'com.eclipse.allinone', name: 'Eclipse All-in-One', version: VERSION,
+  description: 'Multi-source music search with priority dedup',
+  resources: ['catalog', 'stream', 'search'], types: ['track', 'album', 'artist'],
+  catalogs: [{ id: 'aio-music', type: 'music', name: 'Eclipse All-in-One', extra: [{ name: 'search', isRequired: true }] }],
+}));
 
-      if (id.startsWith("tidal-"))   { sourceId = SOURCE_IDS.TIDAL;           trackId = id.replace("tidal-", ""); }
-      else if (id.startsWith("qobuz-")) { sourceId = SOURCE_IDS.QOBUZ;         trackId = id.replace("qobuz-", ""); }
-      else if (id.startsWith("deezer-")) { sourceId = SOURCE_IDS.DEEZER;       trackId = id.replace("deezer-", ""); }
-      else if (id.startsWith("sc-"))  { sourceId = SOURCE_IDS.SOUNDCLOUD;      trackId = id.replace("sc-", ""); }
-      else if (id.startsWith("ia-"))  { sourceId = SOURCE_IDS.INTERNET_ARCHIVE; trackId = id.replace("ia-", ""); }
-
-      if (!sourceId) {
-        return jsonResp({ streams: [] }, 200, origin, allowed);
-      }
-
-      const resolved = await resolveStreamWithFallback(sourceId, trackId, cfg.streamSources, env, cfg.quality);
-      if (!resolved) {
-        return jsonResp({ streams: [] }, 200, origin, allowed);
-      }
-
-      return jsonResp({
-        streams: [{
-          url:   resolved.url,
-          title: `${resolved.source.charAt(0).toUpperCase() + resolved.source.slice(1)} · ${cfg.quality}`,
-          behaviorHints: { notWebReady: false },
-        }]
-      }, 200, origin, allowed);
-    }
-
-    // ── 404 ───────────────────────────────────────────────────────────────────
-    return new Response(JSON.stringify({ error: "Not found", path }), {
-      status: 404,
-      headers: { "Content-Type": "application/json", ...corsHeaders(origin, allowed) },
-    });
-  },
-};
+export default app;
