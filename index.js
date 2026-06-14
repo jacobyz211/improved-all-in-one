@@ -2321,22 +2321,36 @@ async function deezerArtist(artistId) {
   const cached = await cacheGet(cacheKey);
   if (cached) return cached;
   try {
-    const [infoRes, topRes, albumsRes] = await Promise.allSettled([
+    const [infoRes, topRes] = await Promise.allSettled([
       axios.get(`${DEEZER_API}/artist/${artistId}`, { headers: { 'User-Agent': UA }, timeout: 8000 }),
       axios.get(`${DEEZER_API}/artist/${artistId}/top`, { params: { limit: 20 }, headers: { 'User-Agent': UA }, timeout: 8000 }),
-      axios.get(`${DEEZER_API}/artist/${artistId}/albums`, { params: { limit: 50 }, headers: { 'User-Agent': UA }, timeout: 8000 }),
     ]);
     const info      = infoRes.status === 'fulfilled' ? (infoRes.value.data || {}) : {};
     const rawTop    = topRes.status === 'fulfilled' ? (topRes.value.data?.data || []) : [];
-    const rawAlbums = albumsRes.status === 'fulfilled' ? (albumsRes.value.data?.data || []) : [];
     const artworkURL = info.picture_xl || info.picture_big || info.picture || null;
     const artistName = info.name || 'Unknown Artist';
+    // FIX: paginate Deezer albums — fetch up to 300 across 3 pages so all albums/EPs/singles appear
+    let allRawAlbums = [];
+    const _albumPageSize = 100;
+    for (let _page = 0; _page < 3; _page++) {
+      try {
+        const aRes = await axios.get(`${DEEZER_API}/artist/${artistId}/albums`, {
+          params: { limit: _albumPageSize, index: _page * _albumPageSize },
+          headers: { 'User-Agent': UA }, timeout: 8000,
+        });
+        const pageData = aRes.data?.data || [];
+        if (!pageData.length) break;
+        allRawAlbums = allRawAlbums.concat(pageData);
+        const total = aRes.data?.total || 0;
+        if (allRawAlbums.length >= total || pageData.length < _albumPageSize) break;
+      } catch(e) { console.warn('[Deezer artist albums page]', e.message); break; }
+    }
     const topTracks = rawTop.map(t => ({
       id: `deezer:${t.id}`, title: t.title || 'Unknown', artist: artistName,
       album: t.album?.title || '', duration: t.duration || undefined,
       artworkURL: t.album?.cover_xl || t.album?.cover_big || artworkURL, format: 'mp3', source: 'deezer',
     }));
-    const albums = rawAlbums.map(a => ({
+    const albums = allRawAlbums.map(a => ({
       id: `deezer:album:${a.id}`, title: a.title || 'Unknown Album', artist: artistName,
       artworkURL: a.cover_xl || a.cover_big || a.cover || null, year: safeYear(a.release_date), source: 'deezer',
     }));
@@ -3737,7 +3751,12 @@ async function handleStream(c) {
           try {
             const hifiRes = await hifiSearch(`${scMeta.artist} ${scMeta.title}`, cfg.hifiInstances);
             const hifiTracks = Array.isArray(hifiRes) ? hifiRes : (hifiRes?.tracks || []);
-            for (const ht of hifiTracks.slice(0, 3)) {
+            for (const ht of hifiTracks.slice(0, 5)) {
+              // FIX: duration gate — skip if >15s off the SC track's known duration
+              if (scMeta.duration && ht.duration) {
+                const _hd = Math.abs(scMeta.duration - ht.duration);
+                if (_hd > 15) { console.log(`[SC→HiFi] dur mismatch ${_hd}s — skip ${ht.id}`); continue; }
+              }
               const hifiStreamResult = await hifiStream(ht.id, cfg.hifiInstances, cfg.preferredQuality);
               if (hifiStreamResult) { console.log(`[SC→HiFi] ${scMeta.title} → ${ht.id}`); return c.json({ ...hifiStreamResult, fallback: 'hifi' }); }
             }
@@ -3746,9 +3765,19 @@ async function handleStream(c) {
         if (_fbSrc === 'deezer') {
           try {
             const dzRes = await deezerSearch(`${scMeta.artist} ${scMeta.title}`);
-            const dzTrack = dzRes?.tracks?.[0];
-            if (dzTrack?.id) {
-              const dzId = dzTrack.id.replace('deezer:', '');
+            const dzTracks = dzRes?.tracks || [];
+            // FIX: duration gate — don't blindly take [0], pick first result within 15s
+            let _dzBest = null;
+            for (const _dzt of dzTracks.slice(0, 5)) {
+              if (scMeta.duration && _dzt.duration) {
+                const _dzd = Math.abs(scMeta.duration - _dzt.duration);
+                if (_dzd > 15) { console.log(`[SC→Deezer] dur mismatch ${_dzd}s — skip ${_dzt.id}`); continue; }
+              }
+              _dzBest = _dzt;
+              break;
+            }
+            if (_dzBest?.id) {
+              const dzId = String(_dzBest.id).replace(/^deezer:/i, '');
               const dzStream = await deezerStream(dzId, c.env, c.req);
               if (dzStream) { console.log(`[SC→Deezer] ${scMeta.title} → ${dzId}`); statHit('deezer'); return c.json({ ...dzStream, fallback: 'deezer' }); }
             }
@@ -5036,7 +5065,7 @@ async function handleArtist(c) {
             if (!yb) return -1;
             return yb - ya;
           })
-          .slice(0, 80)
+          .slice(0, 200) // FIX: raised from 80 so large catalogs show all albums/EPs/singles
           .map(a => ({
             id:         `qobuzalbum_${a.id}`,
             title:      a.title || 'Unknown Album',
