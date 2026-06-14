@@ -4641,9 +4641,9 @@ async function handleArtist(c) {
       const [infoRes, discRes, albumsRes, topTracksRes, albumsRes2, discRes2] = await Promise.allSettled([
         axios.get(`${inst}/artist/`, { params: { id: artistId }, headers: { 'User-Agent': UA }, timeout: 3000 }),
         axios.get(`${inst}/artist/`, { params: { f: artistId, skip_tracks: false }, headers: { 'User-Agent': UA }, timeout: 3000 }),
-        axios.get(`${inst}/artist/albums/`, { params: { id: artistId, limit: 50, offset: 0 }, headers: { 'User-Agent': UA }, timeout: 3000 }),
+        axios.get(`${inst}/artist/albums/`, { params: { id: artistId, limit: 100, offset: 0 }, headers: { 'User-Agent': UA }, timeout: 3000 }),
         axios.get(`${inst}/artist/toptracks/`, { params: { id: artistId, limit: 20 }, headers: { 'User-Agent': UA }, timeout: 3000 }),
-        axios.get(`${inst}/artist/albums/`, { params: { artistId, limit: 50 }, headers: { 'User-Agent': UA }, timeout: 3000 }),
+        axios.get(`${inst}/artist/albums/`, { params: { artistId, limit: 100 }, headers: { 'User-Agent': UA }, timeout: 3000 }),
         axios.get(`${inst}/artist/discography/`, { params: { id: artistId, limit: 50 }, headers: { 'User-Agent': UA }, timeout: 3000 }),
       ]);
 
@@ -4700,6 +4700,17 @@ async function handleArtist(c) {
           const ad = aRes.value.data?.data || aRes.value.data;
           addAlbums(Array.isArray(ad) ? ad : (ad?.items || []));
         }
+      }
+      // FIX: fetch page 2 of HiFi albums for artists with large catalogs
+      if (Object.keys(albumMap).length >= 100) {
+        try {
+          const albumsPage2 = await axios.get(`${inst}/artist/albums/`, {
+            params: { id: artistId, limit: 100, offset: 100 },
+            headers: { 'User-Agent': UA }, timeout: 5000
+          });
+          const ap2 = albumsPage2.data?.data || albumsPage2.data;
+          addAlbums(Array.isArray(ap2) ? ap2 : (ap2?.items || []));
+        } catch(e) { /* page 2 optional */ }
       }
       // Also extract albums from info response (some instances nest them there)
       if (infoRes.status === 'fulfilled') {
@@ -4785,7 +4796,7 @@ async function handleArtist(c) {
           if (!yb) return -1; // b has no year → push to end
           return yb - ya;     // newest first
         })
-        .slice(0, 60)
+        .slice(0, 200)
         .map(a => ({
           id:         `hifi_album_${instB64}_${a.id}`,
           title:      a.title || 'Unknown Album',
