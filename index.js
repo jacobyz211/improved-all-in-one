@@ -1,5 +1,5 @@
 /**
- * Eclipse Universal Addon
+ * Eclipse Addon
  * Sources (in priority order):
  *   MUSIC:    HiFi instances → SoundCloud → Internet Archive
  *   PODCASTS: Podcast Index → Taddy → Apple Podcasts
