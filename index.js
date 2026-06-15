@@ -2140,7 +2140,7 @@ async function dzGetPremiumStreamInfo(trackId, arl, env) {
     if (!song?.MD5_ORIGIN) return null;
 
     const { MD5_ORIGIN, MEDIA_VERSION, SNG_ID, TRACK_TOKEN } = song;
-    const trackIsrc = song.ISRC || song.isrc || null;
+    const trackIsrc = song.ISRC ? String(song.ISRC).toUpperCase().replace(/[^A-Z0-9]/g, '') : null;
     const blowfishKey = dzGetBlowfishKey(String(SNG_ID || trackId));
     let streamUrl = null, streamCipher = 'BF_CBC_STRIPE', quality = '320kbps';
 
@@ -2245,7 +2245,8 @@ async function deezerSearch(query) {
       id: `deezer:${t.id}`, title: t.title || 'Unknown', artist: t.artist?.name || 'Unknown',
       album: t.album?.title || '', duration: t.duration || undefined,
       artworkURL: t.album?.cover_xl || t.album?.cover_big || t.album?.cover || null,
-      format: 'mp3', source: 'deezer', isrc: t.isrc || null,
+      format: 'mp3', source: 'deezer',
+      isrc: t.isrc ? String(t.isrc).toUpperCase().replace(/[^A-Z0-9]/g, '') : null,
     }));
     const albums = rawAlbums.slice(0, 8).map(a => ({
       id: `deezer:album:${a.id}`, title: a.title || 'Unknown Album', artist: a.artist?.name || 'Unknown',
@@ -2270,8 +2271,7 @@ async function deezerSearch(query) {
   }
 }
 
-
-// ── deezerFindByIsrc — ISRC exact lookup via public Deezer API ───────────────
+// ── deezerFindByIsrc — exact ISRC lookup via Deezer public API ──────────────
 async function deezerFindByIsrc(isrc) {
   if (!isrc) return null;
   const normIsrc = String(isrc).toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -2288,7 +2288,7 @@ async function deezerFindByIsrc(isrc) {
     });
     const items = r.data?.data || [];
     const match = items.find(t =>
-      t.isrc && t.isrc.toUpperCase().replace(/[^A-Z0-9]/g, '') === normIsrc
+      t.isrc && String(t.isrc).toUpperCase().replace(/[^A-Z0-9]/g, '') === normIsrc
     );
     if (match) {
       const result = {
@@ -2297,7 +2297,7 @@ async function deezerFindByIsrc(isrc) {
         title: match.title || 'Unknown',
         artist: match.artist?.name || 'Unknown',
         album: match.album?.title || '',
-        duration: match.duration || undefined,
+        duration: match.duration ?? undefined,
         artworkURL: match.album?.cover_xl || match.album?.cover_big || null,
         isrc: normIsrc,
         source: 'deezer',
@@ -2324,24 +2324,29 @@ async function deezerStream(trackId, env, req, expectedIsrc = null) {
   const cacheKey  = `dz:stream:result:${numericId}`;
   const cached    = await cacheGet(cacheKey);
   if (cached) {
-    if (expectedIsrc && cached.isrc) {
-      const cachedIsrc = String(cached.isrc).toUpperCase().replace(/[^A-Z0-9]/g, '');
+    // ISRC validation on cache hit — bust cache if ISRC mismatch
+    if (expectedIsrc) {
       const wantIsrc   = String(expectedIsrc).toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const cachedIsrc = cached.isrc ? String(cached.isrc).toUpperCase().replace(/[^A-Z0-9]/g, '') : null;
       if (cachedIsrc && cachedIsrc !== wantIsrc) {
-        console.warn(`[Deezer stream] ISRC mismatch in cache for ${numericId}: got ${cachedIsrc}, want ${wantIsrc} — busting cache`);
+        console.warn(`[Deezer stream] ISRC mismatch in cache for ${numericId}: got ${cachedIsrc}, expected ${wantIsrc} — busting cache`);
         // fall through to re-fetch
-      } else { return cached; }
-    } else { return cached; }
+      } else {
+        return cached;
+      }
+    } else {
+      return cached;
+    }
   }
 
   try {
     const info = await dzGetPremiumStreamInfo(numericId, arl, env);
     if (!info?.url) return null;
 
-    // ISRC validation gate — reject if Deezer returned a different track
+    // ISRC validation on fresh fetch — reject if Deezer track ISRC doesn't match
     if (expectedIsrc && info.isrc) {
-      const gotIsrc  = String(info.isrc).toUpperCase().replace(/[^A-Z0-9]/g, '');
       const wantIsrc = String(expectedIsrc).toUpperCase().replace(/[^A-Z0-9]/g, '');
+      const gotIsrc  = String(info.isrc).toUpperCase().replace(/[^A-Z0-9]/g, '');
       if (gotIsrc && gotIsrc !== wantIsrc) {
         console.warn(`[Deezer stream] ISRC mismatch: track ${numericId} has ${gotIsrc}, expected ${wantIsrc} — rejecting`);
         return null;
@@ -4046,20 +4051,6 @@ async function handleStream(c) {
     const dzArtist2 = dzArtist || _dzCachedMeta?.artist || '';
     const dzIsrc    = dzIsrc0  || _dzCachedMeta?.isrc   || null;
 
-    // ISRC fast path: confirm correct Deezer track ID via public API before streaming
-    if (dzIsrc && !dzSkipDeezer) {
-      try {
-        const dzByIsrc = await deezerFindByIsrc(dzIsrc);
-        if (dzByIsrc?.numericId && dzByIsrc.numericId !== dzId) {
-          console.log(`[Deezer ISRC fast path] ISRC ${dzIsrc} maps to id=${dzByIsrc.numericId}, not ${dzId} — using confirmed ID`);
-          const confirmedStream = await deezerStream(dzByIsrc.numericId, c.env, c.req, dzIsrc);
-          if (confirmedStream) return c.json(confirmedStream);
-        } else if (dzByIsrc?.numericId && dzByIsrc.numericId === dzId) {
-          console.log(`[Deezer ISRC fast path] ISRC ${dzIsrc} confirmed -> id=${dzId}`);
-        }
-      } catch (e) { console.warn('[Deezer ISRC fast path]', e.message); }
-    }
-
     // FIX: when streamOrder is set and non-empty, treat any source NOT in it as disabled.
     // e.g. streamOrder=['deezer'] → qobuz/hifi/sc are all implicitly excluded,
     // even if cfg.noQobuz etc. aren't explicitly true.
@@ -4106,7 +4097,21 @@ async function handleStream(c) {
 
     // Deezer IS in streamOrder (or no explicit order) — try it directly first
     if (!dzSkipDeezer) {
-      const s = await deezerStream(dzId, c.env, c.req, dzIsrc);
+      // ISRC fast path: if we have an ISRC, confirm the correct Deezer track ID first
+      if (dzIsrc) {
+        try {
+          const dzByIsrc = await deezerFindByIsrc(dzIsrc);
+          if (dzByIsrc?.numericId && dzByIsrc.numericId !== dzId) {
+            // ISRC lookup returned a different (correct) track — stream that one instead
+            const isrcStream = await deezerStream(dzByIsrc.numericId, c.env, c.req, dzIsrc);
+            if (isrcStream) {
+              console.log(`[Deezer] ISRC-confirmed stream ${dzIsrc} -> id=${dzByIsrc.numericId} (URL had id=${dzId})`);
+              return c.json(isrcStream);
+            }
+          }
+        } catch (e) { console.warn('[Deezer ISRC fast path]', e.message); }
+      }
+      const s = await deezerStream(dzId, c.env, c.req, dzIsrc || null);
       if (s) return c.json(s);
       console.log(`[Deezer direct] stream failed for ${dzId} — falling back to upgrade sources`);
       // Deezer failed — walk full streamOrder for best available source
