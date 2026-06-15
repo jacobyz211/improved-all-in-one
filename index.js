@@ -199,13 +199,14 @@ function getConfig(c) {
     noPodcast:   !!(cfg.no_podcast   === true || cfg.no_podcast   === 1 || cfg.no_podcast   === "true"),
     noAudiobook: !!(cfg.no_audiobook === true || cfg.no_audiobook === 1 || cfg.no_audiobook === "true"),
     noRadio:     !!(cfg.no_radio     === true || cfg.no_radio     === 1 || cfg.no_radio     === "true"),
-    noDeezer:    (!!(cfg.no_deezer === true || cfg.no_deezer === 1 || cfg.no_deezer === "true")) || !c.env?.DEEZER_ARL,
+    noDeezer:    (!!(cfg.no_deezer === true || cfg.no_deezer === 1 || cfg.no_deezer === "true")) || (!c.env?.DEEZER_ARL && !cfg.deezer_arl),
+    deezerArl:      cfg.deezer_arl       || c.env?.DEEZER_ARL       || null,
+    qobuzUserToken: cfg.qobuz_user_token || c.env?.QOBUZ_USER_TOKEN || null,
+    qobuzSecret:    cfg.qobuz_secret     || c.env?.QOBUZ_SECRET     || null,
+    qobuzAppId:     cfg.qobuz_app_id     || c.env?.QOBUZ_APP_ID     || null,
     // Ordered priority arrays for search/stream (empty = all enabled, default order)
     searchOrder: Array.isArray(cfg.search_order) ? cfg.search_order : [],
-    qobuzUserToken: cfg.qobuz_user_token || (c.env && c.env.QOBUZ_USER_TOKEN) || null,
-  qobuzSecret:    cfg.qobuz_secret    || (c.env && c.env.QOBUZ_SECRET)     || null,
-  qobuzAppId:     cfg.qobuz_app_id    || (c.env && c.env.QOBUZ_APP_ID)     || null,
-  streamOrder: Array.isArray(cfg.stream_order) ? cfg.stream_order : [],
+    streamOrder: Array.isArray(cfg.stream_order) ? cfg.stream_order : [],
   };
 }
 
@@ -2245,8 +2246,8 @@ async function deezerSearch(query) {
 
 // ── deezerStream — ARL-based, with BF_CBC_STRIPE proxy or direct NONE URL ────
 async function deezerStream(trackId, env, req) {
-  const arl = env?.DEEZER_ARL || null;
-  if (!arl) { console.warn('[deezer] No DEEZER_ARL env var set'); return null; }
+  const arl = env?.deezerArl || env?.DEEZER_ARL || null;
+  if (!arl) { console.warn('[deezer] No DEEZER_ARL configured'); return null; }
 
   const numericId = decodeURIComponent(String(trackId || '')).replace(/^deezer(?::|%3A)/i, '');
   const cacheKey  = `dz:stream:result:${numericId}`;
@@ -2504,7 +2505,8 @@ async function radioSearch(query) {
 // Fetches the encrypted CDN audio and streams it back with Blowfish decryption.
 // Range requests are fully supported so seeking works correctly on all clients.
 async function handleDzProxy(c) {
-  const arl = c.env?.DEEZER_ARL;
+  const _dzCfg = getConfig(c);
+  const arl = _dzCfg.deezerArl || c.env?.DEEZER_ARL;
   if (!arl) return c.json({ error: 'No DEEZER_ARL configured' }, 403);
 
   const trackId  = c.req.param('id');
@@ -3463,11 +3465,6 @@ async function handleStream(c) {
   if (!(await checkRateLimit(c.env, ip))) return c.json({ error: 'Too many requests.' }, 429);
   const id = c.req.param('id');
   const cfg = getConfig(c);
-  // Merge per-user Qobuz creds from token into env so qobuzNativeStream uses them
-  const qobuzEnv = Object.assign({}, c.env || {});
-  if (cfg.qobuzUserToken) qobuzEnv.QOBUZ_USER_TOKEN = cfg.qobuzUserToken;
-  if (cfg.qobuzSecret)    qobuzEnv.QOBUZ_SECRET     = cfg.qobuzSecret;
-  if (cfg.qobuzAppId)     qobuzEnv.QOBUZ_APP_ID     = cfg.qobuzAppId;
 
   if (id.startsWith('hifi_album_')) {
     const data = await hifiAlbum(id);
@@ -3519,9 +3516,9 @@ async function handleStream(c) {
     }
     if (!_hifiSkipSelf && !_skipQobuz && (qMeta?.title || qMeta?.isrc)) {
       try {
-        const qTrack = await qobuzFindBestTrack(qMeta.title, qMeta.artist, qMeta.isrc || null, qobuzEnv, qMeta.duration);
+        const qTrack = await qobuzFindBestTrack(qMeta.title, qMeta.artist, qMeta.isrc || null, c.env, qMeta.duration);
         if (qTrack && qTrack.id) {
-          const qStream = await qobuzStream(qTrack.id, qobuzEnv);
+          const qStream = await qobuzStream(qTrack.id, c.env);
           if (qStream) {
             const matchInfo = qMeta.isrc ? `ISRC:${qMeta.isrc}` : `"${qMeta.title}" by "${qMeta.artist}"`;
             console.log(`[Qobuz] HIT ${matchInfo} -> id=${qTrack.id} quality=${qStream.quality}`);
@@ -3557,11 +3554,11 @@ async function handleStream(c) {
         if (_fb === 'qobuz' && !cfg.noQobuz && !_skipQobuz) continue; // already tried above
         if (_fb === 'qobuz' && !cfg.noQobuz && _skipQobuz) {
           try {
-            const qTrack = await qobuzFindBestTrack(meta.title, meta.artist, meta.isrc || null, qobuzEnv, meta.duration);
+            const qTrack = await qobuzFindBestTrack(meta.title, meta.artist, meta.isrc || null, c.env, meta.duration);
             if (qTrack?.id) {
               const _qd = (meta.duration && qTrack.duration) ? Math.abs(meta.duration - qTrack.duration) : 0;
               if (_qd <= 20) {
-                const qs = await qobuzStream(qTrack.id, qobuzEnv);
+                const qs = await qobuzStream(qTrack.id, c.env);
                 if (qs) { await cacheSet(streamCacheKey, { ...qs, fallback: 'qobuz' }, 280); return c.json({ ...qs, fallback: 'qobuz' }); }
               }
             }
@@ -3640,7 +3637,7 @@ async function handleStream(c) {
     // on SC-exclusive / indie content. If no ISRC, always play natively on SC.
     if (!_scSkipSelf && scMeta0?.title && scMeta0?.isrc && _qIdx !== -1 && (_scIdx === -1 || _qIdx < _scIdx) && !cfg.noQobuz) {
       try {
-        const qTrack = await qobuzFindBestTrack(scMeta0.title, scMeta0.artist, scMeta0.isrc, qobuzEnv, scMeta0.duration);
+        const qTrack = await qobuzFindBestTrack(scMeta0.title, scMeta0.artist, scMeta0.isrc, c.env, scMeta0.duration);
         if (qTrack?.id) {
           const _qDurDiff = (scMeta0.duration && qTrack.duration)
             ? Math.abs(scMeta0.duration - qTrack.duration) : 0;
@@ -3648,7 +3645,7 @@ async function handleStream(c) {
           if (_qDurDiff > 5) {
             console.log(`[SC→Qobuz] dur mismatch ${_qDurDiff}s — playing SC natively`);
           } else {
-            const qStream = await qobuzStream(qTrack.id, qobuzEnv);
+            const qStream = await qobuzStream(qTrack.id, c.env);
             if (qStream) {
               console.log(`[SC→Qobuz priority] ISRC:${scMeta0.isrc} → qobuz:${qTrack.id}`);
               await cacheSet(scStreamCacheKey, qStream, 280);
@@ -3747,11 +3744,11 @@ async function handleStream(c) {
 
       if (_fbSources.includes('qobuz')) {
         _scFbAttempts.push((async () => {
-          const qTrack = await qobuzFindBestTrack(scMeta.title, scMeta.artist, scMeta.isrc || null, qobuzEnv, _scDurSec);
+          const qTrack = await qobuzFindBestTrack(scMeta.title, scMeta.artist, scMeta.isrc || null, c.env, _scDurSec);
           if (!qTrack?.id) throw new Error('no qobuz track');
           const _sqd = (_scDurSec && qTrack.duration) ? Math.abs(_scDurSec - qTrack.duration) : 0;
           if (_sqd > 15) throw new Error(`qobuz dur mismatch ${_sqd}s`);
-          const qs = await qobuzStream(qTrack.id, qobuzEnv);
+          const qs = await qobuzStream(qTrack.id, c.env);
           if (!qs) throw new Error('qobuz stream failed');
           console.log(`[SC→Qobuz] ${scMeta.isrc || scMeta.title} → ${qTrack.id}`);
           statHit('qobuz');
@@ -3830,7 +3827,7 @@ async function handleStream(c) {
     const _qSkipSelf = _qSelfOrder.length > 0 && !_qSelfOrder.includes('qobuz');
     if (!_qSkipSelf) {
       try {
-        const result = await qobuzStream(qobuzId, qobuzEnv);
+        const result = await qobuzStream(qobuzId, c.env);
         if (result) {
           await cacheSet(sCacheKey, result, 280);
           return c.json(result);
@@ -3974,8 +3971,8 @@ async function handleStream(c) {
       // Deezer excluded from streamOrder — go straight to other sources
       if (!_dzEffNoQobuz && dzTitle2) {
         try {
-          const qTrack = dzIsrc ? await qobuzFindByIsrc(dzIsrc) : await qobuzFindBestTrack(dzTitle2, dzArtist2, dzIsrc, qobuzEnv);
-          if (qTrack?.id) { const qStream = await qobuzStream(qTrack.id, qobuzEnv); if (qStream) { console.log(`[Deezer→Qobuz skip] ${dzTitle2}`); return c.json(qStream); } }
+          const qTrack = dzIsrc ? await qobuzFindByIsrc(dzIsrc) : await qobuzFindBestTrack(dzTitle2, dzArtist2, dzIsrc, c.env);
+          if (qTrack?.id) { const qStream = await qobuzStream(qTrack.id, c.env); if (qStream) { console.log(`[Deezer→Qobuz skip] ${dzTitle2}`); return c.json(qStream); } }
         } catch(e) { console.warn('[Deezer→Qobuz skip]', e.message); }
       }
       if (!_dzEffNoHifi && dzTitle2) {
@@ -4018,9 +4015,9 @@ async function handleStream(c) {
           try {
             const qTrack = dzIsrc
               ? await qobuzFindByIsrc(dzIsrc)
-              : (dzTitle2 ? await qobuzFindBestTrack(dzTitle2, dzArtist2, null, qobuzEnv) : null);
+              : (dzTitle2 ? await qobuzFindBestTrack(dzTitle2, dzArtist2, null, c.env) : null);
             if (qTrack?.id) {
-              const qStream = await qobuzStream(qTrack.id, qobuzEnv);
+              const qStream = await qobuzStream(qTrack.id, c.env);
               if (qStream) { console.log(`[Deezer→Qobuz fallback] ${dzIsrc || dzTitle2}`); return c.json({ ...qStream, fallback: 'qobuz' }); }
             }
           } catch(e) { console.warn('[Deezer→Qobuz fallback]', e.message); }
@@ -4087,7 +4084,7 @@ async function handleStream(c) {
       try {
         const qTrack = await qobuzFindByIsrc(qIsrc);
         if (qTrack?.id) {
-          const qStream = await qobuzStream(qTrack.id, qobuzEnv);
+          const qStream = await qobuzStream(qTrack.id, c.env);
           if (qStream) { console.log(`[Social→Qobuz ISRC] ${qIsrc} → ${qTrack.id}`); statHit('qobuz'); return c.json({ ...qStream, fallback: 'qobuz_isrc' }); }
         }
       } catch(e) { console.warn('[Social→Qobuz ISRC]', e.message); }
@@ -5451,286 +5448,385 @@ function buildConfigPage(baseUrl) {
   w('--bg:#0a0a0b;--surf:#111113;--surf2:#18181b;--surf3:#1f1f23;');
   w('--bdr:rgba(255,255,255,.07);--bdrh:rgba(255,255,255,.14);');
   w('--txt:#e8e8f0;--muted:#8b8b9e;--faint:#3f3f52;');
-  w('--accent:#6ee7b7;--accent-dim:rgba(110,231,183,.12);--accent-bdr:rgba(110,231,183,.3);');
-  w('--ok:#6ee7b7;--err:#f87171;');
+  w('--accent:#6ee7b7;--accent-dim:rgba(110,231,183,.10);--accent-bdr:rgba(110,231,183,.28);');
+  w('--ok:#6ee7b7;--err:#f87171;--warn:#fbbf24;');
   w('--r:8px;--rsm:5px;--rlg:12px;');
   w('--tr:150ms cubic-bezier(0.16,1,0.3,1);');
   w('}');
   w('html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;scroll-behavior:smooth}');
   w('body{font-family:"Inter",system-ui,sans-serif;background:var(--bg);color:var(--txt);min-height:100dvh;line-height:1.55;font-size:14px}');
-  w('.page{max-width:580px;margin:0 auto;padding:44px 20px 80px}');
-  w('.hdr{display:flex;align-items:center;gap:14px;margin-bottom:40px;padding-bottom:28px;border-bottom:1px solid var(--bdr)}');
-  w('.hdr-logo{width:42px;height:42px;border-radius:10px;background:var(--accent-dim);border:1px solid var(--accent-bdr);display:flex;align-items:center;justify-content:center;flex-shrink:0}');
+  w('.page{max-width:600px;margin:0 auto;padding:44px 20px 80px}');
+  w('.hdr{display:flex;align-items:center;gap:14px;margin-bottom:36px;padding-bottom:24px;border-bottom:1px solid var(--bdr)}');
+  w('.hdr-logo{width:40px;height:40px;border-radius:10px;background:var(--accent-dim);border:1px solid var(--accent-bdr);display:flex;align-items:center;justify-content:center;flex-shrink:0}');
   w('.hdr-logo svg{color:var(--accent)}');
-  w('.hdr-title{font-size:1.05rem;font-weight:700;letter-spacing:-.02em;color:#fff}');
-  w('.hdr-sub{font-size:.75rem;color:var(--muted);margin-top:2px}');
-  w('.hdr-badge{margin-left:auto;font-size:.65rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--accent);background:var(--accent-dim);border:1px solid var(--accent-bdr);padding:3px 9px;border-radius:99px;flex-shrink:0}');
-  w('.card{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--rlg);padding:20px;margin-bottom:10px}');
-  w('.clabel{font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:14px;display:flex;align-items:center;gap:8px}');
-  w('.otag{font-size:.6rem;font-weight:500;text-transform:none;letter-spacing:0;color:var(--muted);opacity:.7;background:var(--surf3);padding:2px 7px;border-radius:99px;border:1px solid var(--bdr)}');
-  w('label.lbl{display:block;font-size:.67rem;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:5px;margin-top:12px}');
+  w('.hdr-title{font-size:1rem;font-weight:700;letter-spacing:-.02em;color:#fff}');
+  w('.hdr-sub{font-size:.72rem;color:var(--muted);margin-top:2px}');
+  w('.hdr-badge{margin-left:auto;font-size:.6rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);background:var(--accent-dim);border:1px solid var(--accent-bdr);padding:3px 9px;border-radius:99px;flex-shrink:0}');
+  w('.sec-head{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--faint);margin:28px 0 8px;padding-left:2px;display:flex;align-items:center;gap:8px}');
+  w('.sec-opt{font-weight:400;text-transform:none;letter-spacing:0;color:var(--faint);font-size:.6rem}');
+  w('.card{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--rlg);padding:18px 20px;margin-bottom:8px}');
+  w('.card-title{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:14px;display:flex;align-items:center;gap:8px}');
+  w('.ctag{font-size:.58rem;font-weight:500;text-transform:none;letter-spacing:0;color:var(--faint);background:var(--surf3);padding:2px 8px;border-radius:99px;border:1px solid var(--bdr)}');
+  w('label.lbl{display:block;font-size:.63rem;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:5px;margin-top:14px}');
   w('label.lbl:first-child{margin-top:0}');
   w('input[type=text],input[type=password]{width:100%;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);color:var(--txt);padding:9px 11px;font-size:.875rem;font-family:"Inter",system-ui,sans-serif;transition:border-color var(--tr),box-shadow var(--tr);outline:none}');
   w('input:focus{border-color:var(--accent-bdr);box-shadow:0 0 0 3px var(--accent-dim)}');
   w('input::placeholder{color:var(--faint)}');
-  w('.hint{font-size:.7rem;color:var(--muted);line-height:1.6;margin-top:5px}');
-  w('.hint a{color:var(--accent);text-decoration:none}.hint a:hover{text-decoration:underline}');
   w('.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}');
-  w('@media(max-width:460px){.row2{grid-template-columns:1fr}}');
-  w('.tip{background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);padding:10px 13px;font-size:.75rem;color:var(--muted);line-height:1.65;margin-bottom:12px}');
+  w('@media(max-width:480px){.row2{grid-template-columns:1fr}}');
+  w('.hint{font-size:.7rem;color:var(--muted);line-height:1.65;margin-top:6px}');
+  w('.hint a,.tip a{color:var(--accent);text-decoration:none}.hint a:hover,.tip a:hover{text-decoration:underline}');
+  w('.tip{background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);padding:10px 13px;font-size:.74rem;color:var(--muted);line-height:1.65;margin-bottom:12px}');
   w('.tip b{color:var(--txt)}');
-  w('.qobuz-card{background:linear-gradient(135deg,rgba(110,231,183,.04) 0%,var(--surf) 60%);border-color:rgba(110,231,183,.12)}');
-  w('.qobuz-header{display:flex;align-items:center;gap:10px;margin-bottom:14px}');
-  w('.qobuz-icon{width:30px;height:30px;border-radius:6px;background:var(--accent-dim);border:1px solid var(--accent-bdr);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:.7rem;font-weight:800;color:var(--accent)}');
-  w('.qobuz-title{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}');
-  w('.stitle{font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:7px;margin-top:16px}');
+  w('.tip.warn{border-color:rgba(251,191,36,.18);background:rgba(251,191,36,.05);color:#a37a10}');
+  w('.tip.warn b{color:var(--warn)}');
+  w('code.inline{font-family:"JetBrains Mono","SF Mono",ui-monospace,monospace;font-size:.72rem;color:var(--accent);background:var(--surf3);padding:1px 5px;border-radius:3px}');
+  w('.qrow{display:flex;gap:7px;flex-wrap:wrap}');
+  w('.qbtn{background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);padding:9px 14px;cursor:pointer;color:var(--muted);font-size:.75rem;font-weight:600;transition:all var(--tr);display:flex;flex-direction:column;align-items:center;gap:3px;min-width:80px;user-select:none}');
+  w('.qbtn:hover{border-color:var(--bdrh);color:var(--txt)}');
+  w('.qbtn.on{background:var(--accent-dim);border-color:var(--accent-bdr);color:var(--accent)}');
+  w('.qbtn .qs{font-size:.6rem;opacity:.55;margin-top:1px;font-weight:400}');
+  w('.src-note{font-size:.7rem;color:var(--faint);margin-top:10px;line-height:1.8;border-top:1px solid var(--bdr);padding-top:10px}');
+  w('.src-note b{color:var(--muted)}');
+  w('.stitle{font-size:.63rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:7px;margin-top:16px}');
+  w('.stitle:first-child{margin-top:0}');
   w('.srow{display:flex;flex-wrap:wrap;gap:7px}');
-  w('.sbtn{display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--r);padding:9px 13px;cursor:pointer;color:var(--muted);transition:all var(--tr);min-width:86px;position:relative;user-select:none}');
+  w('.sbtn{display:flex;flex-direction:column;align-items:center;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--r);padding:9px 12px;cursor:pointer;color:var(--muted);transition:all var(--tr);min-width:88px;position:relative;user-select:none}');
   w('.sbtn:hover{background:var(--surf3);color:var(--txt);border-color:var(--bdrh)}');
   w('.sbtn.on{background:var(--accent-dim);border-color:var(--accent-bdr);color:var(--accent)}');
   w('.sbtn .sn{font-size:.75rem;font-weight:700;line-height:1.3}');
-  w('.sbtn .st{font-size:.63rem;opacity:.5;margin-top:2px}');
+  w('.sbtn .st{font-size:.6rem;opacity:.5;margin-top:2px}');
   w('.sbadge{position:absolute;top:-8px;left:50%;transform:translateX(-50%);background:var(--accent);color:#000;font-size:.55rem;font-weight:800;padding:1px 6px;border-radius:99px;white-space:nowrap}');
-  w('.shint{font-size:.7rem;color:var(--faint);margin-top:6px;line-height:1.6}');
-  w('.ct-row{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:4px}');
-  w('.ct-btn{display:flex;align-items:center;gap:8px;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--r);padding:10px 14px;cursor:pointer;transition:all var(--tr);user-select:none;min-width:130px}');
+  w('.shint{font-size:.68rem;color:var(--faint);margin-top:8px;line-height:1.65}');
+  w('.ct-row{display:flex;flex-wrap:wrap;gap:8px}');
+  w('.ct-btn{display:flex;align-items:center;gap:9px;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--r);padding:10px 14px;cursor:pointer;transition:all var(--tr);user-select:none;min-width:128px}');
   w('.ct-btn:hover{border-color:var(--bdrh);background:var(--surf3)}');
   w('.ct-btn.on{background:var(--accent-dim);border-color:var(--accent-bdr)}');
-  w('.ct-dot{width:8px;height:8px;border-radius:50%;background:var(--faint);transition:all var(--tr);flex-shrink:0}');
-  w('.ct-btn.on .ct-dot{background:var(--accent);box-shadow:0 0 6px rgba(110,231,183,.5)}');
-  w('.ct-label{font-size:.78rem;font-weight:600;color:var(--muted);transition:color var(--tr)}');
-  w('.ct-btn.on .ct-label{color:var(--accent)}');
-  w('.ct-sub{font-size:.63rem;color:var(--faint);margin-top:1px}');
+  w('.ct-dot{width:7px;height:7px;border-radius:50%;background:var(--faint);transition:all var(--tr);flex-shrink:0}');
+  w('.ct-btn.on .ct-dot{background:var(--accent);box-shadow:0 0 6px rgba(110,231,183,.45)}');
+  w('.ct-lbl{font-size:.78rem;font-weight:600;color:var(--muted);transition:color var(--tr)}');
+  w('.ct-btn.on .ct-lbl{color:var(--accent)}');
+  w('.ct-sub{font-size:.62rem;color:var(--faint);margin-top:1px}');
   w('.ct-info{display:flex;flex-direction:column}');
-  w('.qrow{display:flex;gap:8px;flex-wrap:wrap}');
-  w('.qbtn{background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);padding:8px 14px;cursor:pointer;color:var(--muted);font-size:.75rem;font-weight:600;transition:all var(--tr);display:flex;flex-direction:column;align-items:center;gap:2px}');
-  w('.qbtn:hover{border-color:var(--bdrh);color:var(--txt)}');
-  w('.qbtn.on{background:var(--accent-dim);border-color:var(--accent-bdr);color:var(--accent)}');
-  w('.qbtn .qs{font-size:.6rem;opacity:.6;margin-top:1px}');
   w('.brow{display:flex;gap:10px;flex-wrap:wrap}');
-  w('.btn{padding:11px 22px;border-radius:var(--rsm);font-size:.875rem;font-weight:600;font-family:"Inter",system-ui,sans-serif;cursor:pointer;transition:all var(--tr);border:none;outline:none}');
-  w('.bprimary{background:var(--accent);color:#000;box-shadow:0 2px 12px rgba(110,231,183,.25)}');
-  w('.bprimary:hover{background:#86efac;box-shadow:0 4px 20px rgba(110,231,183,.35);transform:translateY(-1px)}');
+  w('.btn{padding:10px 22px;border-radius:var(--rsm);font-size:.875rem;font-weight:600;font-family:"Inter",system-ui,sans-serif;cursor:pointer;transition:all var(--tr);border:none;outline:none}');
+  w('.bprimary{background:var(--accent);color:#000;box-shadow:0 2px 14px rgba(110,231,183,.22)}');
+  w('.bprimary:hover{background:#86efac;box-shadow:0 4px 22px rgba(110,231,183,.32);transform:translateY(-1px)}');
   w('.bprimary:active{transform:none;box-shadow:none}');
-  w('.bprimary:disabled{background:var(--surf3);color:var(--muted);box-shadow:none;cursor:not-allowed;transform:none}');
+  w('.bprimary:disabled{background:var(--surf3);color:var(--faint);box-shadow:none;cursor:not-allowed;transform:none}');
   w('.bsec{background:var(--surf2);border:1px solid var(--bdr);color:var(--muted)}');
   w('.bsec:hover{border-color:var(--bdrh);color:var(--txt)}');
   w('.status{padding:10px 14px;border-radius:var(--rsm);font-size:.78rem;margin-top:10px;display:none;line-height:1.5}');
-  w('.s-ok{background:rgba(110,231,183,.08);border:1px solid rgba(110,231,183,.2);color:var(--ok)}');
-  w('.s-err{background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.2);color:var(--err)}');
+  w('.s-ok{background:rgba(110,231,183,.07);border:1px solid rgba(110,231,183,.18);color:var(--ok)}');
+  w('.s-err{background:rgba(248,113,113,.07);border:1px solid rgba(248,113,113,.18);color:var(--err)}');
   w('.outbox{display:none;margin-top:16px}');
-  w('.out-item{margin-bottom:14px}.out-item:last-child{margin-bottom:0}');
-  w('.olbl{font-size:.63rem;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:5px}');
+  w('.out-item{margin-bottom:12px}.out-item:last-child{margin-bottom:0}');
+  w('.olbl{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:5px}');
   w('.orow{display:flex;gap:8px;align-items:stretch}');
-  w('.ourl{flex:1;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);padding:9px 12px;font-size:.7rem;font-family:"JetBrains Mono","SF Mono",ui-monospace,monospace;color:#86efac;word-break:break-all;line-height:1.5;min-height:38px;display:flex;align-items:center}');
-  w('.cbtn{background:var(--surf2);border:1px solid var(--bdr);color:var(--muted);padding:8px 14px;border-radius:var(--rsm);cursor:pointer;font-size:.75rem;font-family:"Inter",system-ui,sans-serif;white-space:nowrap;transition:all var(--tr);flex-shrink:0}');
+  w('.ourl{flex:1;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);padding:9px 12px;font-size:.68rem;font-family:"JetBrains Mono","SF Mono",ui-monospace,monospace;color:#86efac;word-break:break-all;line-height:1.55;min-height:38px;display:flex;align-items:center}');
+  w('.cbtn{background:var(--surf2);border:1px solid var(--bdr);color:var(--muted);padding:8px 14px;border-radius:var(--rsm);cursor:pointer;font-size:.74rem;font-family:"Inter",system-ui,sans-serif;white-space:nowrap;transition:all var(--tr);flex-shrink:0}');
   w('.cbtn:hover{border-color:var(--accent-bdr);color:var(--accent)}');
-  w('.cbtn.cp{border-color:rgba(110,231,183,.4);color:var(--ok);background:rgba(110,231,183,.08)}');
+  w('.cbtn.cp{border-color:rgba(110,231,183,.38);color:var(--ok);background:rgba(110,231,183,.07)}');
   w('.steps{display:flex;flex-direction:column;gap:10px}');
   w('.step{display:flex;gap:12px;align-items:flex-start}');
-  w('.stepn{width:24px;height:24px;border-radius:50%;background:var(--accent-dim);border:1px solid var(--accent-bdr);color:var(--accent);font-size:.72rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}');
-  w('.stept{font-size:.78rem;color:var(--muted);line-height:1.55}');
+  w('.stepn{width:22px;height:22px;border-radius:50%;background:var(--accent-dim);border:1px solid var(--accent-bdr);color:var(--accent);font-size:.7rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px}');
+  w('.stept{font-size:.78rem;color:var(--muted);line-height:1.6}');
   w('.stept b{color:var(--txt)}');
-  w('footer{margin-top:32px;text-align:center;font-size:.67rem;color:var(--faint);line-height:1.8}');
+  w('footer{margin-top:36px;text-align:center;font-size:.65rem;color:var(--faint);line-height:1.9}');
   w('</style>');
   w('</head>');
   w('<body>');
   w('<div class="page">');
 
   w('<div class="hdr">');
-  w('  <div class="hdr-logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="3" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="21"/><line x1="3" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="21" y2="12"/></svg></div>');
-  w('  <div><div class="hdr-title">Eclipse Universal Addon</div><div class="hdr-sub">HiFi &middot; Qobuz &middot; SoundCloud &middot; Deezer &middot; Podcasts &middot; Radio</div></div>');
+  w('  <div class="hdr-logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="3" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="21"/><line x1="3" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="21" y2="12"/></svg></div>');
+  w('  <div><div class="hdr-title">Eclipse Universal Addon</div><div class="hdr-sub">Qobuz &middot; Tidal HiFi &middot; Deezer &middot; SoundCloud &middot; Podcasts &middot; Radio</div></div>');
   w('  <span class="hdr-badge">v1.4</span>');
   w('</div>');
 
+  w('<div class="sec-head">Deployment</div>');
   w('<div class="card">');
-  w('  <div class="clabel">Deployment URL <span class="otag">pre-filled</span></div>');
+  w('  <div class="card-title">Base URL <span class="ctag">pre-filled</span></div>');
   w('  <label class="lbl" for="vercelUrl">Your addon base URL</label>');
-  var baseUrlEsc = String(baseUrl).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-  w('  <input type="text" id="vercelUrl" value="' + baseUrlEsc + '" placeholder="https://your-addon.vercel.app">');
-  w('  <p class="hint">Only change this if you\'re self-hosting on a different domain.</p>');
+  var escaped = String(baseUrl).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+  w('  <input type="text" id="vercelUrl" value="' + escaped + '" placeholder="https://your-addon.vercel.app">');
+  w('  <p class="hint">Only change this if you are self-hosting on a different domain.</p>');
   w('</div>');
 
-  w('<div class="card qobuz-card">');
-  w('  <div class="qobuz-header"><div class="qobuz-icon">Q</div><div class="qobuz-title">Qobuz Credentials <span class="otag">optional</span></div></div>');
-  w('  <div class="tip"><b>Use your own Qobuz account</b> for direct hi-res streaming. Leave blank to use the shared public credentials. Your token is encoded in the URL and never stored on our servers.</div>');
+  w('<div class="sec-head">Streaming Credentials <span class="sec-opt">&mdash; all optional, encoded in your URL only</span></div>');
+
+  w('<div class="card">');
+  w('  <div class="card-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> Qobuz <span class="ctag">optional</span></div>');
+  w('  <div class="tip"><b>Use your own account for direct hi-res streaming.</b> Leave blank to use the built-in shared credentials. Your token is encoded in the URL only &mdash; never stored on the server.</div>');
   w('  <label class="lbl" for="qobuzUserToken">User Auth Token</label>');
-  w('  <input type="password" id="qobuzUserToken" placeholder="Your Qobuz user_auth_token">');
-  w('  <div class="row2" style="margin-top:10px">');
+  w('  <input type="password" id="qobuzUserToken" placeholder="Your user_auth_token from Qobuz">');
+  w('  <div class="row2" style="margin-top:2px">');
   w('    <div><label class="lbl" for="qobuzSecret">App Secret</label><input type="password" id="qobuzSecret" placeholder="32-char hex secret"></div>');
-  w('    <div><label class="lbl" for="qobuzAppId">App ID <span class="otag">optional</span></label><input type="text" id="qobuzAppId" placeholder="e.g. 312369995"></div>');
+  w('    <div><label class="lbl" for="qobuzAppId">App ID <span class="ctag">optional</span></label><input type="text" id="qobuzAppId" placeholder="e.g. 312369995"></div>');
   w('  </div>');
-  w('  <p class="hint" style="margin-top:8px">Find your token via the Qobuz app or a network interceptor. App ID &amp; Secret are only needed if you have custom Qobuz API credentials.</p>');
+  w('  <p class="hint">Get your token via <a href="https://github.com/nickcoutsos/qobuz-dl" target="_blank" rel="noopener">qobuz-dl</a> or by intercepting the Qobuz app network traffic. App ID &amp; Secret are only needed if you have custom Qobuz API credentials.</p>');
   w('</div>');
 
   w('<div class="card">');
-  w('  <div class="clabel">API Keys <span class="otag">optional</span></div>');
-  w('  <label class="lbl" for="hifiInst">HiFi / Tidal Instance URLs</label>');
+  w('  <div class="card-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg> Deezer ARL <span class="ctag">optional</span></div>');
+  w('  <div class="tip warn"><b>Deezer requires an ARL cookie</b> from a logged-in account to stream. Without it, Deezer tracks will appear in search results but will not play. Streams are FLAC (HiFi tier) or MP3 320 kbps.</div>');
+  w('  <label class="lbl" for="deezerArl">ARL Cookie Value</label>');
+  w('  <input type="password" id="deezerArl" placeholder="Your deezer.com arl= cookie value (long hex string)">');
+  w('  <p class="hint">In your browser: open deezer.com &rarr; DevTools &rarr; Application &rarr; Cookies &rarr; copy the <code class="inline">arl</code> value. Valid for ~3 months.</p>');
+  w('</div>');
+
+  w('<div class="card">');
+  w('  <div class="card-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg> Tidal HiFi Instances <span class="ctag">optional</span></div>');
+  w('  <div class="tip warn"><b>Tidal via HiFi proxy is currently High quality only</b> (AAC 320 kbps). Hi-res FLAC from Tidal is not yet supported through the proxy network.</div>');
+  w('  <label class="lbl" for="hifiInst">Custom instance URLs</label>');
   w('  <input type="text" id="hifiInst" placeholder="https://hifi.yourdomain.com  (comma-separated)">');
-  w('  <p class="hint">Leave blank to use the built-in public instance pool.</p>');
-  w('  <label class="lbl" for="scId">SoundCloud Client ID</label>');
+  w('  <p class="hint">Leave blank to use the built-in public instance pool. Only set this if you run your own HiFi proxy.</p>');
+  w('</div>');
+
+  w('<div class="card">');
+  w('  <div class="card-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 14.5A4.5 4.5 0 0 1 6.5 10c.28 0 .56.03.83.08A6 6 0 0 1 18 10.5a3.5 3.5 0 0 1 3 3.5"/><path d="M2 14.5v1a2.5 2.5 0 0 0 5 0v-1"/></svg> SoundCloud <span class="ctag">optional</span></div>');
+  w('  <div class="tip">SoundCloud streams at <b>320 kbps MP3</b> (or lower for older tracks). The client ID is auto-discovered &mdash; only set this if auto-discovery breaks.</div>');
+  w('  <label class="lbl" for="scId">Client ID</label>');
   w('  <input type="text" id="scId" placeholder="Leave blank for auto-discovery">');
-  w('  <div class="row2" style="margin-top:10px">');
-  w('    <div><label class="lbl" for="piKey">Podcast Index API Key</label><input type="text" id="piKey" placeholder="PI key"></div>');
-  w('    <div><label class="lbl" for="piSecret">Podcast Index Secret</label><input type="password" id="piSecret" placeholder="PI secret"></div>');
-  w('  </div>');
-  w('  <div class="row2" style="margin-top:10px">');
-  w('    <div><label class="lbl" for="taddyKey">Taddy API Key</label><input type="text" id="taddyKey" placeholder="Taddy key"></div>');
-  w('    <div><label class="lbl" for="taddyUid">Taddy User ID</label><input type="text" id="taddyUid" placeholder="Taddy UID"></div>');
+  w('</div>');
+
+  w('<div class="card">');
+  w('  <div class="card-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="11" r="3"/><path d="M12 2a9 9 0 0 1 9 9c0 4.97-6 11-9 11S3 15.97 3 11a9 9 0 0 1 9-9z"/></svg> Podcast Index <span class="ctag">optional</span></div>');
+  w('  <div class="tip">Free keys from <a href="https://api.podcastindex.org/" target="_blank" rel="noopener">api.podcastindex.org</a>. Without keys, the addon falls back to Apple Podcasts search only.</div>');
+  w('  <div class="row2">');
+  w('    <div><label class="lbl" for="piKey">API Key</label><input type="text" id="piKey" placeholder="PI key"></div>');
+  w('    <div><label class="lbl" for="piSecret">API Secret</label><input type="password" id="piSecret" placeholder="PI secret"></div>');
   w('  </div>');
   w('</div>');
 
   w('<div class="card">');
-  w('  <div class="clabel">Preferred Audio Quality <span class="otag">optional</span></div>');
-  w('  <div class="tip">Sets the target quality for Qobuz &amp; HiFi streams. Always falls back to lower tiers if unavailable.</div>');
+  w('  <div class="card-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg> Taddy <span class="ctag">optional</span></div>');
+  w('  <div class="tip">Enhanced podcast metadata and series search. Free plan at <a href="https://taddy.org" target="_blank" rel="noopener">taddy.org</a>.</div>');
+  w('  <div class="row2">');
+  w('    <div><label class="lbl" for="taddyKey">API Key</label><input type="text" id="taddyKey" placeholder="Taddy key"></div>');
+  w('    <div><label class="lbl" for="taddyUid">User ID</label><input type="text" id="taddyUid" placeholder="Taddy UID"></div>');
+  w('  </div>');
+  w('</div>');
+
+  w('<div class="sec-head">Audio Quality</div>');
+  w('<div class="card">');
+  w('  <div class="card-title">Qobuz Quality Target <span class="ctag">optional</span></div>');
+  w('  <div class="tip"><b>This only affects Qobuz streams.</b> The addon always falls back gracefully if the selected tier is unavailable for a track.</div>');
   w('  <div class="qrow">');
-  w('    <div class="qbtn" id="q-auto"     onclick="setQuality(null)">        <span>Auto</span>     <span class="qs">Best available</span></div>');
-  w('    <div class="qbtn" id="q-hires"    onclick="setQuality(\'HIRES\')">  <span>Hi-Res</span>   <span class="qs">up to 192kHz</span></div>');
-  w('    <div class="qbtn" id="q-lossless" onclick="setQuality(\'LOSSLESS\')"><span>Lossless</span> <span class="qs">CD quality</span></div>');
-  w('    <div class="qbtn" id="q-high"     onclick="setQuality(\'HIGH\')">   <span>High</span>     <span class="qs">320 kbps</span></div>');
-  w('    <div class="qbtn" id="q-low"      onclick="setQuality(\'LOW\')">    <span>Low</span>      <span class="qs">128 kbps</span></div>');
+  w('    <div class="qbtn on" id="q-auto"     onclick="setQuality(null)">        <span>Auto</span>    <span class="qs">Best available</span></div>');
+  w('    <div class="qbtn"    id="q-hires"    onclick="setQuality(\'HIRES\')">   <span>Hi-Res</span>  <span class="qs">up to 192 kHz</span></div>');
+  w('    <div class="qbtn"    id="q-lossless" onclick="setQuality(\'LOSSLESS\')"><span>Lossless</span><span class="qs">CD 44.1 kHz</span></div>');
+  w('    <div class="qbtn"    id="q-high"     onclick="setQuality(\'HIGH\')">    <span>High</span>    <span class="qs">320 kbps MP3</span></div>');
+  w('  </div>');
+  w('  <div class="src-note">');
+  w('    <b>Tidal HiFi</b> &mdash; AAC 320 kbps only (proxy limitation) &nbsp;&bull;&nbsp; <b>Deezer</b> &mdash; FLAC (HiFi accounts) or MP3 320 kbps &nbsp;&bull;&nbsp; <b>SoundCloud</b> &mdash; 320 kbps MP3 or lower');
   w('  </div>');
   w('</div>');
 
+  w('<div class="sec-head">Content Types</div>');
   w('<div class="card">');
-  w('  <div class="clabel">Content Types</div>');
-  w('  <div class="tip"><b>Enabled types get their own install URL.</b> Disable any you don\'t want.</div>');
+  w('  <div class="card-title">Enabled Types</div>');
+  w('  <div class="tip"><b>Each enabled type gets its own install URL.</b> Disable anything you don\'t want &mdash; it will be excluded from search results.</div>');
   w('  <div class="ct-row">');
-  w('    <div class="ct-btn on" id="ct-podcast"   onclick="toggleCT(\'podcast\')">  <div class="ct-dot"></div><div class="ct-info"><div class="ct-label">Podcasts</div>  <div class="ct-sub">PI &middot; Taddy &middot; Apple</div></div></div>');
-  w('    <div class="ct-btn on" id="ct-audiobook" onclick="toggleCT(\'audiobook\')"><div class="ct-dot"></div><div class="ct-info"><div class="ct-label">Audiobooks</div><div class="ct-sub">LibriVox &middot; Archive</div></div></div>');
-  w('    <div class="ct-btn on" id="ct-radio"     onclick="toggleCT(\'radio\')">    <div class="ct-dot"></div><div class="ct-info"><div class="ct-label">Radio</div>      <div class="ct-sub">Radio Browser &middot; SomaFM</div></div></div>');
+  w('    <div class="ct-btn on" id="ct-podcast"   onclick="toggleCT(\'podcast\')">  <div class="ct-dot"></div><div class="ct-info"><div class="ct-lbl">Podcasts</div>  <div class="ct-sub">PI &middot; Taddy &middot; Apple</div></div></div>');
+  w('    <div class="ct-btn on" id="ct-audiobook" onclick="toggleCT(\'audiobook\')"><div class="ct-dot"></div><div class="ct-info"><div class="ct-lbl">Audiobooks</div><div class="ct-sub">LibriVox &middot; Archive</div></div></div>');
+  w('    <div class="ct-btn on" id="ct-radio"     onclick="toggleCT(\'radio\')">    <div class="ct-dot"></div><div class="ct-info"><div class="ct-lbl">Radio</div>      <div class="ct-sub">Browser &middot; SomaFM</div></div></div>');
   w('  </div>');
   w('  <p class="hint" style="margin-top:10px">Music is always included and cannot be disabled.</p>');
   w('</div>');
 
+  w('<div class="sec-head">Source Priority <span class="sec-opt">&mdash; optional, click to set order</span></div>');
   w('<div class="card">');
-  w('  <div class="clabel">Music Source Priority <span class="otag">optional</span></div>');
-  w('  <div class="tip"><b>Click to set priority order.</b> First clicked = highest priority. Click again to deactivate.</div>');
-  w('  <div class="stitle">Search Sources</div>');
+  w('  <div class="tip">Click a source to set priority &mdash; first clicked = highest priority. Numbers show rank. Click an active source again to remove it from the custom order (it will still be used, just at default priority).</div>');
+  w('  <div class="stitle">Search Priority</div>');
   w('  <div class="srow" id="searchRow">');
-  w('    <div class="sbtn" id="ss-hifi"   onclick="toggleSearch(\'hifi\')">  <span class="sn">Tidal HiFi</span><span class="st">Hi-Res FLAC</span></div>');
   w('    <div class="sbtn" id="ss-qobuz"  onclick="toggleSearch(\'qobuz\')"> <span class="sn">Qobuz</span>     <span class="st">Hi-Res FLAC</span></div>');
-  w('    <div class="sbtn" id="ss-sc"     onclick="toggleSearch(\'sc\')">    <span class="sn">SoundCloud</span><span class="st">MP3 Free</span></div>');
+  w('    <div class="sbtn" id="ss-hifi"   onclick="toggleSearch(\'hifi\')">  <span class="sn">Tidal HiFi</span><span class="st">AAC 320</span></div>');
+  w('    <div class="sbtn" id="ss-deezer" onclick="toggleSearch(\'deezer\')"><span class="sn">Deezer</span>    <span class="st">FLAC / MP3</span></div>');
+  w('    <div class="sbtn" id="ss-sc"     onclick="toggleSearch(\'sc\')">    <span class="sn">SoundCloud</span><span class="st">MP3 320</span></div>');
   w('    <div class="sbtn" id="ss-ia"     onclick="toggleSearch(\'ia\')">    <span class="sn">Archive</span>   <span class="st">Various</span></div>');
-  w('    <div class="sbtn" id="ss-deezer" onclick="toggleSearch(\'deezer\')"><span class="sn">Deezer</span>    <span class="st">MP3 Free</span></div>');
   w('  </div>');
   w('  <div class="shint" id="searchHint"></div>');
-  w('  <div class="stitle">Stream Sources</div>');
+  w('  <div class="stitle" style="margin-top:18px">Stream Priority</div>');
   w('  <div class="srow" id="streamRow">');
-  w('    <div class="sbtn" id="st-hifi"   onclick="toggleStream(\'hifi\')">  <span class="sn">Tidal HiFi</span><span class="st">Hi-Res FLAC</span></div>');
   w('    <div class="sbtn" id="st-qobuz"  onclick="toggleStream(\'qobuz\')"> <span class="sn">Qobuz</span>     <span class="st">Hi-Res FLAC</span></div>');
-  w('    <div class="sbtn" id="st-sc"     onclick="toggleStream(\'sc\')">    <span class="sn">SoundCloud</span><span class="st">MP3 Free</span></div>');
+  w('    <div class="sbtn" id="st-hifi"   onclick="toggleStream(\'hifi\')">  <span class="sn">Tidal HiFi</span><span class="st">AAC 320</span></div>');
+  w('    <div class="sbtn" id="st-deezer" onclick="toggleStream(\'deezer\')"><span class="sn">Deezer</span>    <span class="st">FLAC / MP3</span></div>');
+  w('    <div class="sbtn" id="st-sc"     onclick="toggleStream(\'sc\')">    <span class="sn">SoundCloud</span><span class="st">MP3 320</span></div>');
   w('    <div class="sbtn" id="st-ia"     onclick="toggleStream(\'ia\')">    <span class="sn">Archive</span>   <span class="st">Various</span></div>');
-  w('    <div class="sbtn" id="st-deezer" onclick="toggleStream(\'deezer\')"><span class="sn">Deezer</span>    <span class="st">MP3 Free</span></div>');
   w('  </div>');
   w('  <div class="shint" id="streamHint"></div>');
   w('</div>');
 
+  w('<div class="sec-head">Generate</div>');
   w('<div class="card">');
-  w('  <div class="clabel">Generate URLs</div>');
+  w('  <div class="card-title">Your Install URLs</div>');
   w('  <div class="brow"><button class="btn bprimary" id="genBtn" onclick="doGenerate()">Generate My Addon URLs</button></div>');
   w('  <div class="status" id="genStatus"></div>');
   w('  <div class="outbox" id="genBox">');
-  w('    <div class="out-item"><div class="olbl">&#9834; Music</div><div class="orow"><div class="ourl" id="urlMusic"></div><button class="cbtn" id="cpMusic" onclick="copyIt(\'urlMusic\',\'cpMusic\')">Copy</button></div></div>');
+  w('    <div class="out-item" id="out-music"><div class="olbl">&#9834; Music</div><div class="orow"><div class="ourl" id="urlMusic"></div><button class="cbtn" id="cpMusic" onclick="copyIt(\'urlMusic\',\'cpMusic\')">Copy</button></div></div>');
   w('    <div class="out-item" id="out-podcast"><div class="olbl">&#127897; Podcasts</div><div class="orow"><div class="ourl" id="urlPodcast"></div><button class="cbtn" id="cpPodcast" onclick="copyIt(\'urlPodcast\',\'cpPodcast\')">Copy</button></div></div>');
   w('    <div class="out-item" id="out-audiobook"><div class="olbl">&#128214; Audiobooks</div><div class="orow"><div class="ourl" id="urlAudiobook"></div><button class="cbtn" id="cpAudiobook" onclick="copyIt(\'urlAudiobook\',\'cpAudiobook\')">Copy</button></div></div>');
   w('    <div class="out-item" id="out-radio"><div class="olbl">&#128251; Radio</div><div class="orow"><div class="ourl" id="urlRadio"></div><button class="cbtn" id="cpRadio" onclick="copyIt(\'urlRadio\',\'cpRadio\')">Copy</button></div></div>');
   w('  </div>');
   w('</div>');
 
+  w('<div class="sec-head">Refresh Existing URL <span class="sec-opt">&mdash; optional</span></div>');
   w('<div class="card">');
-  w('  <div class="clabel">Refresh Existing URL <span class="otag">optional</span></div>');
-  w('  <label class="lbl" for="existingUrl">Paste your current addon URL</label>');
+  w('  <label class="lbl" for="existingUrl">Paste your current manifest URL</label>');
   w('  <input type="text" id="existingUrl" placeholder="https://your-addon.vercel.app/abc123.../manifest.json">');
   w('  <div class="brow" style="margin-top:10px"><button class="btn bsec" onclick="doRefresh()">Refresh URL</button></div>');
   w('  <div class="status" id="refStatus"></div>');
-  w('  <div class="outbox" id="refBox"><div class="olbl">Refreshed URL</div><div class="orow"><div class="ourl" id="urlRef"></div><button class="cbtn" id="cpRef" onclick="copyIt(\'urlRef\',\'cpRef\')">Copy</button></div></div>');
-  w('</div>');
-
-  w('<div class="card">');
-  w('  <div class="clabel">How to Install</div>');
-  w('  <div class="steps">');
-  w('    <div class="step"><div class="stepn">1</div><div class="stept">Fill in any optional API keys, then click <b>Generate My Addon URLs</b>.</div></div>');
-  w('    <div class="step"><div class="stepn">2</div><div class="stept">Open <b>Eclipse</b> &rarr; Settings &rarr; Connections &rarr; Add Connection &rarr; Addon.</div></div>');
-  w('    <div class="step"><div class="stepn">3</div><div class="stept">Paste a Manifest URL and tap <b>Install</b>. Install each content type separately.</div></div>');
+  w('  <div class="outbox" id="refBox">');
+  w('    <div class="olbl">Refreshed URL</div><div class="orow"><div class="ourl" id="urlRef"></div><button class="cbtn" id="cpRef" onclick="copyIt(\'urlRef\',\'cpRef\')">Copy</button></div>');
   w('  </div>');
   w('</div>');
 
-  w('<footer>Eclipse Universal Addon &bull; Credentials encoded in URL &bull; Never stored server-side</footer>');
+  w('<div class="sec-head">How to Install</div>');
+  w('<div class="card">');
+  w('  <div class="steps">');
+  w('    <div class="step"><div class="stepn">1</div><div class="stept">Fill in any credentials above, then click <b>Generate My Addon URLs</b>.</div></div>');
+  w('    <div class="step"><div class="stepn">2</div><div class="stept">Open <b>Eclipse</b> &rarr; Settings &rarr; Connections &rarr; Add Connection &rarr; Addon.</div></div>');
+  w('    <div class="step"><div class="stepn">3</div><div class="stept">Paste a Manifest URL and tap <b>Install</b>. Install each content type separately &mdash; Music, Podcasts, Audiobooks, and Radio each get their own dedicated URL.</div></div>');
+  w('  </div>');
+  w('</div>');
+
+  w('<footer>Eclipse Universal Addon &bull; Credentials encoded in URL only &bull; Never stored server-side<br>Qobuz &bull; Tidal HiFi &bull; Deezer &bull; SoundCloud &bull; Internet Archive &bull; Podcasts &bull; Radio</footer>');
   w('</div>');
 
   w('<script>');
-  w('var selectedQuality=null;');
-  w('var searchOrder=["hifi","qobuz","deezer","sc","ia"];');
-  w('var streamOrder=["qobuz","hifi","deezer","sc","ia"];');
-  w('var ctEnabled={podcast:true,audiobook:true,radio:true};');
-  w('var SRCLABELS={hifi:"Tidal HiFi",qobuz:"Qobuz",sc:"SoundCloud",ia:"Internet Archive",deezer:"Deezer"};');
-  w('var ALLSRCS=["hifi","qobuz","sc","ia","deezer"];');
-  w('function setQuality(q){selectedQuality=q;["auto","hires","lossless","high","low"].forEach(function(k){var el=document.getElementById("q-"+k);if(el)el.classList.toggle("on",(q===null&&k==="auto")||(q&&q.toLowerCase()===k));});}');
-  w('setQuality(null);');
-  w('function toggleCT(type){ctEnabled[type]=!ctEnabled[type];var btn=document.getElementById("ct-"+type);if(ctEnabled[type])btn.classList.add("on");else btn.classList.remove("on");}');
-  w('function toggleSearch(src){var idx=searchOrder.indexOf(src);if(idx===-1)searchOrder.push(src);else searchOrder.splice(idx,1);renderSRow("ss-",searchOrder);updateHint("searchHint",searchOrder);}');
-  w('function toggleStream(src){var idx=streamOrder.indexOf(src);if(idx===-1)streamOrder.push(src);else streamOrder.splice(idx,1);renderSRow("st-",streamOrder);updateHint("streamHint",streamOrder);}');
-  w('function renderSRow(pfx,order){ALLSRCS.forEach(function(src){var el=document.getElementById(pfx+src);if(!el)return;var pos=order.indexOf(src);var badge=el.querySelector(".sbadge");if(pos===-1){el.classList.remove("on");if(badge)badge.remove();}else{el.classList.add("on");if(!badge){badge=document.createElement("span");badge.className="sbadge";el.appendChild(badge);}badge.textContent=pos+1;}});}');
-  w('function updateHint(hintId,order){var el=document.getElementById(hintId);if(!el)return;if(!order.length){el.textContent="All sources used with default priority.";return;}var names=order.map(function(s){return SRCLABELS[s];});var unsel=ALLSRCS.filter(function(s){return order.indexOf(s)===-1;});var msg="Priority: "+names.join(" \u2192 ");if(unsel.length)msg+=" \u2022 disabled: "+unsel.map(function(s){return SRCLABELS[s];}).join(", ");el.textContent=msg;}');
-  w('function showStatus(id,msg,type){var el=document.getElementById(id);el.textContent=msg;el.className="status "+(type==="ok"?"s-ok":"s-err");el.style.display="block";}');
-  w('function copyIt(urlId,btnId){var text=document.getElementById(urlId).textContent.trim();if(!text)return;navigator.clipboard.writeText(text).then(function(){var btn=document.getElementById(btnId);btn.textContent="Copied!";btn.classList.add("cp");setTimeout(function(){btn.textContent="Copy";btn.classList.remove("cp");},2000);});}');
-  w('function v(id){return(document.getElementById(id)||{}).value||"";}');
-  w('function doGenerate(){');
-  w('  var btn=document.getElementById("genBtn");');
-  w('  var vercel=v("vercelUrl").replace(/\\/+$/,"");');
-  w('  if(!vercel)vercel=window.location.origin;');
-  w('  if(vercel.indexOf("http")!==0)vercel="https://"+vercel;');
-  w('  btn.disabled=true;btn.textContent="Generating...";');
-  w('  document.getElementById("genStatus").style.display="none";');
-  w('  var body={vercelUrl:vercel};');
-  w('  if(v("hifiInst"))       body.hifi=v("hifiInst");');
-  w('  if(v("scId"))           body.sc=v("scId");');
-  w('  if(v("piKey"))          body.pi_key=v("piKey");');
-  w('  if(v("piSecret"))       body.pi_secret=v("piSecret");');
-  w('  if(v("taddyKey"))       body.taddy_key=v("taddyKey");');
-  w('  if(v("taddyUid"))       body.taddy_uid=v("taddyUid");');
-  w('  if(v("qobuzUserToken")) body.qobuz_user_token=v("qobuzUserToken");');
-  w('  if(v("qobuzSecret"))    body.qobuz_secret=v("qobuzSecret");');
-  w('  if(v("qobuzAppId"))     body.qobuz_app_id=v("qobuzAppId");');
-  w('  if(selectedQuality)     body.q=selectedQuality;');
-  w('  if(!ctEnabled.podcast)  body.no_podcast=true;');
-  w('  if(!ctEnabled.audiobook)body.no_audiobook=true;');
-  w('  if(!ctEnabled.radio)    body.no_radio=true;');
-  w('  if(searchOrder.length)  body.search_order=searchOrder;');
-  w('  if(streamOrder.length)  body.stream_order=streamOrder;');
-  w('  fetch("/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})');
-  w('    .then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json();})');
-  w('    .then(function(data){');
-  w('      if(data.error)throw new Error(data.error);');
-  w('      document.getElementById("urlMusic").textContent=data.manifestUrl;');
-  w('      var sp=data.podcastManifestUrl,sa=data.audiobookManifestUrl,sr=data.radioManifestUrl;');
-  w('      document.getElementById("out-podcast").style.display=(ctEnabled.podcast&&sp)?"":"none";');
-  w('      document.getElementById("out-audiobook").style.display=(ctEnabled.audiobook&&sa)?"":"none";');
-  w('      document.getElementById("out-radio").style.display=(ctEnabled.radio&&sr)?"":"none";');
-  w('      if(sp)document.getElementById("urlPodcast").textContent=sp;');
-  w('      if(sa)document.getElementById("urlAudiobook").textContent=sa;');
-  w('      if(sr)document.getElementById("urlRadio").textContent=sr;');
-  w('      document.getElementById("genBox").style.display="block";');
-  w('      showStatus("genStatus","Done! Copy your install URLs above.","ok");');
-  w('    })');
-  w('    .catch(function(e){showStatus("genStatus","Error: "+e.message,"err");})');
-  w('    .finally(function(){btn.disabled=false;btn.textContent="Generate My Addon URLs";});');
-  w('}');
-  w('function doRefresh(){');
-  w('  var raw=v("existingUrl");if(!raw){showStatus("refStatus","Paste your existing URL first.","err");return;}');
-  w('  fetch("/refresh",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({existingUrl:raw})})');
-  w('    .then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json();})');
-  w('    .then(function(data){if(data.error)throw new Error(data.error);document.getElementById("urlRef").textContent=data.manifestUrl;document.getElementById("refBox").style.display="block";showStatus("refStatus","Refreshed!","ok");})');
-  w('    .catch(function(e){showStatus("refStatus","Error: "+e.message,"err");});');
-  w('}');
-  w('renderSRow("ss-",searchOrder);updateHint("searchHint",searchOrder);');
-  w('renderSRow("st-",streamOrder);updateHint("streamHint",streamOrder);');
-  w('</script>');
-  w('</body>');
-  w('</html>');
+  w('var selectedQuality = null;');
+  w('var searchOrder = [];');
+  w('var streamOrder = [];');
+  w('var ctEnabled = { podcast: true, audiobook: true, radio: true };');
+  w('var SRCLABELS = { hifi:"Tidal HiFi", qobuz:"Qobuz", sc:"SoundCloud", ia:"Internet Archive", deezer:"Deezer" };');
+  w('var ALLSRCS = ["qobuz","hifi","deezer","sc","ia"];');
 
-  return S.join('\n');
+  w('function setQuality(q) {');
+  w('  selectedQuality = q;');
+  w('  ["auto","hires","lossless","high"].forEach(function(k) {');
+  w('    var el = document.getElementById("q-" + k); if (!el) return;');
+  w('    el.classList.toggle("on", (q === null && k === "auto") || (q && q.toLowerCase() === k));');
+  w('  });');
+  w('}');
+  w('setQuality(null);');
+
+  w('function toggleCT(t) {');
+  w('  ctEnabled[t] = !ctEnabled[t];');
+  w('  var b = document.getElementById("ct-" + t);');
+  w('  ctEnabled[t] ? b.classList.add("on") : b.classList.remove("on");');
+  w('}');
+
+  w('function toggleSearch(src) {');
+  w('  var i = searchOrder.indexOf(src);');
+  w('  if (i === -1) searchOrder.push(src); else searchOrder.splice(i, 1);');
+  w('  renderSRow("ss-", searchOrder); updateHint("searchHint", searchOrder);');
+  w('}');
+  w('function toggleStream(src) {');
+  w('  var i = streamOrder.indexOf(src);');
+  w('  if (i === -1) streamOrder.push(src); else streamOrder.splice(i, 1);');
+  w('  renderSRow("st-", streamOrder); updateHint("streamHint", streamOrder);');
+  w('}');
+
+  w('function renderSRow(pfx, order) {');
+  w('  ALLSRCS.forEach(function(src) {');
+  w('    var el = document.getElementById(pfx + src); if (!el) return;');
+  w('    var pos = order.indexOf(src);');
+  w('    var badge = el.querySelector(".sbadge");');
+  w('    if (pos === -1) { el.classList.remove("on"); if (badge) badge.remove(); }');
+  w('    else { el.classList.add("on"); if (!badge) { badge = document.createElement("span"); badge.className = "sbadge"; el.appendChild(badge); } badge.textContent = pos + 1; }');
+  w('  });');
+  w('}');
+
+  w('function updateHint(id, order) {');
+  w('  var el = document.getElementById(id); if (!el) return;');
+  w('  if (!order.length) { el.textContent = "All sources used with default priority."; return; }');
+  w('  var names = order.map(function(s) { return SRCLABELS[s]; });');
+  w('  var off = ALLSRCS.filter(function(s) { return order.indexOf(s) === -1; });');
+  w('  var msg = "Priority: " + names.join(" \u2192 ");');
+  w('  if (off.length) msg += " \u2022 not in custom order (use default): " + off.map(function(s) { return SRCLABELS[s]; }).join(", ");');
+  w('  el.textContent = msg;');
+  w('}');
+
+  w('function showStatus(id, msg, type) {');
+  w('  var el = document.getElementById(id);');
+  w('  el.textContent = msg; el.className = "status " + (type === "ok" ? "s-ok" : "s-err"); el.style.display = "block";');
+  w('}');
+
+  w('function copyIt(urlId, btnId) {');
+  w('  var text = document.getElementById(urlId).textContent.trim(); if (!text) return;');
+  w('  navigator.clipboard.writeText(text).then(function() {');
+  w('    var btn = document.getElementById(btnId);');
+  w('    btn.textContent = "Copied!"; btn.classList.add("cp");');
+  w('    setTimeout(function() { btn.textContent = "Copy"; btn.classList.remove("cp"); }, 2000);');
+  w('  });');
+  w('}');
+
+  w('function v(id) { return (document.getElementById(id) || {}).value || ""; }');
+
+  w('function doGenerate() {');
+  w('  var btn = document.getElementById("genBtn");');
+  w('  var vercel = v("vercelUrl").replace(/\\/+$/, "");');
+  w('  if (!vercel) vercel = window.location.origin;');
+  w('  if (vercel.indexOf("http") !== 0) vercel = "https://" + vercel;');
+  w('  btn.disabled = true; btn.textContent = "Generating...";');
+  w('  document.getElementById("genStatus").style.display = "none";');
+  w('  var body = { vercelUrl: vercel };');
+  w('  if (v("hifiInst"))       body.hifi             = v("hifiInst");');
+  w('  if (v("scId"))           body.sc               = v("scId");');
+  w('  if (v("piKey"))          body.pi_key           = v("piKey");');
+  w('  if (v("piSecret"))       body.pi_secret        = v("piSecret");');
+  w('  if (v("taddyKey"))       body.taddy_key        = v("taddyKey");');
+  w('  if (v("taddyUid"))       body.taddy_uid        = v("taddyUid");');
+  w('  if (v("qobuzUserToken")) body.qobuz_user_token = v("qobuzUserToken");');
+  w('  if (v("qobuzSecret"))    body.qobuz_secret     = v("qobuzSecret");');
+  w('  if (v("qobuzAppId"))     body.qobuz_app_id     = v("qobuzAppId");');
+  w('  if (v("deezerArl"))      body.deezer_arl       = v("deezerArl");');
+  w('  if (selectedQuality)     body.q                = selectedQuality;');
+  w('  if (!ctEnabled.podcast)   body.no_podcast   = true;');
+  w('  if (!ctEnabled.audiobook) body.no_audiobook = true;');
+  w('  if (!ctEnabled.radio)     body.no_radio     = true;');
+  w('  if (searchOrder.length)  body.search_order  = searchOrder;');
+  w('  if (streamOrder.length)  body.stream_order  = streamOrder;');
+  w('  fetch("/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })');
+  w('    .then(function(r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })');
+  w('    .then(function(data) {');
+  w('      if (data.error) throw new Error(data.error);');
+  w('      document.getElementById("urlMusic").textContent = data.manifestUrl;');
+  w('      var sp = data.podcastManifestUrl, sa = data.audiobookManifestUrl, sr = data.radioManifestUrl;');
+  w('      document.getElementById("out-podcast").style.display   = (ctEnabled.podcast   && sp) ? "" : "none";');
+  w('      document.getElementById("out-audiobook").style.display = (ctEnabled.audiobook && sa) ? "" : "none";');
+  w('      document.getElementById("out-radio").style.display     = (ctEnabled.radio     && sr) ? "" : "none";');
+  w('      if (sp) document.getElementById("urlPodcast").textContent   = sp;');
+  w('      if (sa) document.getElementById("urlAudiobook").textContent = sa;');
+  w('      if (sr) document.getElementById("urlRadio").textContent     = sr;');
+  w('      document.getElementById("genBox").style.display = "block";');
+  w('      showStatus("genStatus", "Done! Copy your install URLs below.", "ok");');
+  w('    })');
+  w('    .catch(function(e) { showStatus("genStatus", "Error: " + e.message, "err"); })');
+  w('    .finally(function() { btn.disabled = false; btn.textContent = "Generate My Addon URLs"; });');
+  w('}');
+
+  w('function doRefresh() {');
+  w('  var raw = v("existingUrl"); if (!raw) { showStatus("refStatus", "Paste your existing URL first.", "err"); return; }');
+  w('  fetch("/refresh", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ existingUrl: raw }) })');
+  w('    .then(function(r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })');
+  w('    .then(function(data) {');
+  w('      if (data.error) throw new Error(data.error);');
+  w('      document.getElementById("urlRef").textContent = data.manifestUrl;');
+  w('      document.getElementById("refBox").style.display = "block";');
+  w('      showStatus("refStatus", "Refreshed!", "ok");');
+  w('    })');
+  w('    .catch(function(e) { showStatus("refStatus", "Error: " + e.message, "err"); });');
+  w('}');
+
+  w('renderSRow("ss-", searchOrder); updateHint("searchHint", searchOrder);');
+  w('renderSRow("st-", streamOrder); updateHint("streamHint", streamOrder);');
+  w('<\/script>');
+  w('<\/body>');
+  w('<\/html>');
+
+  return S.join(\'\\n\');
 }
 
 function getBaseUrl(c) {
@@ -5768,10 +5864,10 @@ app.post('/generate', async function(c) {
   // Ordered search/stream priority arrays
   if (Array.isArray(b.search_order) && b.search_order.length) cfg.search_order = b.search_order;
   if (Array.isArray(b.stream_order) && b.stream_order.length) cfg.stream_order = b.stream_order;
-  // Qobuz per-user credentials
   if (b.qobuz_user_token) cfg.qobuz_user_token = b.qobuz_user_token;
   if (b.qobuz_secret)     cfg.qobuz_secret     = b.qobuz_secret;
   if (b.qobuz_app_id)     cfg.qobuz_app_id     = b.qobuz_app_id;
+  if (b.deezer_arl)       cfg.deezer_arl       = b.deezer_arl;
 
   // Always generate a tokenized URL, even when no optional keys are set.
   // This keeps podcast/audiobook installs on the token-prefixed route shape:
