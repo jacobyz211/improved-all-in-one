@@ -185,7 +185,8 @@ function getConfig(c) {
       : (c.env.HIFI_INSTANCES
           ? c.env.HIFI_INSTANCES.split(',').map(u => u.trim()).filter(Boolean)
           : []),
-    scClientId: cfg.sc || c.env.SC_CLIENT_ID || null,
+    scClientId:   cfg.sc       || c.env.SC_CLIENT_ID    || null,
+    scOAuthToken: cfg.sc_oauth || c.env.SC_OAUTH_TOKEN  || null,
     piKey: cfg.pi_key || c.env.PI_KEY || null,
     piSecret: cfg.pi_secret || c.env.PI_SECRET || null,
     taddyKey: cfg.taddy_key || c.env.TADDY_KEY || null,
@@ -1193,7 +1194,23 @@ async function scSearch(query, clientId) {
 }
 
 
-async function scStream(origId, clientId) {
+
+// ── raceNonNull: resolves with first non-null result from any promise (fast parallel fallback) ──
+function raceNonNull(promises) {
+  return new Promise((resolve) => {
+    let pending = promises.length;
+    if (!pending) return resolve(null);
+    let resolved = false;
+    promises.forEach(p =>
+      Promise.resolve(p)
+        .then(v => { if (v != null && !resolved) { resolved = true; resolve(v); } })
+        .catch(() => {})
+        .finally(() => { if (--pending === 0 && !resolved) resolve(null); })
+    );
+  });
+}
+
+async function scStream(origId, clientId, oauthToken) {
   const cid = await getSCClientId(clientId);
   // Even without a client_id, try using a cached transcoding URL from search
   const cachedTranscodingUrl = await cacheGet(`sc:transcodings:${origId}`);
@@ -1206,6 +1223,7 @@ async function scStream(origId, clientId) {
   try {
     const res = await axios.get(`https://api-v2.soundcloud.com/tracks/${origId}`, {
       params: { client_id: cid },
+      headers: oauthToken ? { Authorization: `OAuth ${oauthToken}` } : {},
       timeout: 8000,
     });
     const transcodings = res.data?.media?.transcodings || [];
@@ -1217,6 +1235,7 @@ async function scStream(origId, clientId) {
     if (!transcoding?.url) return null;
     const streamRes = await axios.get(transcoding.url, {
       params: { client_id: cid },
+      headers: oauthToken ? { Authorization: `OAuth ${oauthToken}` } : {},
       timeout: 8000,
     });
     const url = streamRes.data?.url;
@@ -1225,9 +1244,12 @@ async function scStream(origId, clientId) {
     // Detect snipped/preview tracks: SC returns short URLs or policy says SNIP/BLOCK
     const trackData = res.data;
     const policy = (trackData?.policy || '').toUpperCase();
-    const isSnipped = policy === 'SNIP' || policy === 'BLOCK'
+    // With a valid OAuth token the user is authenticated — SUB_HIGH_TIER tracks are accessible
+    const isSnipped = !oauthToken && (
+      policy === 'SNIP' || policy === 'BLOCK'
       || trackData?.monetization_model === 'SUB_HIGH_TIER'
-      || (trackData?.full_duration && trackData?.duration && trackData.full_duration > trackData.duration + 5000);
+      || (trackData?.full_duration && trackData?.duration && trackData.full_duration > trackData.duration + 5000)
+    );
     // Never serve a snippet — return null so caller gets a 404 or tries HiFi
     if (isSnipped) {
       console.warn(`[SC stream] ${origId} is snipped/sub-only, refusing to serve preview`);
@@ -3589,11 +3611,12 @@ async function handleStream(c) {
             if (cid) {
               const scRes = await axios.get('https://api-v2.soundcloud.com/search/tracks', {
                 params: { q: `${meta.artist} ${meta.title}`, client_id: cid, limit: 8 },
+                headers: cfg.scOAuthToken ? { Authorization: `OAuth ${cfg.scOAuthToken}` } : {},
                 timeout: 5000,
               });
               const scTracks = scRes.data?.collection || [];
               const scResults = await Promise.all(
-                scTracks.map(st => scStream(String(st.id), cid).then(r => ({ r, st })).catch(() => ({ r: null, st })))
+                scTracks.map(st => scStream(String(st.id), cid, cfg.scOAuthToken).then(r => ({ r, st })).catch(() => ({ r: null, st })))
               );
               for (const { r: scr, st } of scResults) {
                 if (!scr || scr._scSnipped) continue;
@@ -3683,7 +3706,7 @@ async function handleStream(c) {
 
     // Skip primary scStream if sc not in streamOrder
     if (!_scSkipSelf) {
-      const data = await scStream(origId, cfg.scClientId);
+      const data = await scStream(origId, cfg.scClientId, cfg.scOAuthToken);
       if (data) {
         const { _scSnipped, ...cleanData } = data;
         await cacheSet(scStreamCacheKey, cleanData, 280);
@@ -3884,7 +3907,7 @@ async function handleStream(c) {
                 const _sd = (_qMeta.duration && _st.full_duration)
                   ? Math.abs(_qMeta.duration - _st.full_duration / 1000) : 0;
                 if (_sd > 20) continue;
-                const _ss = await scStream(String(_st.id), _cid);
+                const _ss = await scStream(String(_st.id), _cid, cfg.scOAuthToken);
                 if (_ss && !_ss._scSnipped) {
                   const { _scSnipped, ...clean } = _ss;
                   await cacheSet(sCacheKey, { ...clean, fallback: 'sc' }, 280);
@@ -3996,7 +4019,7 @@ async function handleStream(c) {
           if (cid) {
             const scRes = await axios.get('https://api-v2.soundcloud.com/search/tracks', { params: { q: `${dzArtist2} ${dzTitle2}`, client_id: cid, limit: 5 }, timeout: 5000 });
             const scTrack = (scRes.data?.collection || []).find(t => t.streamable);
-            if (scTrack) { const r = await scStream(String(scTrack.id), cid); if (r) { console.log(`[Deezer→SC skip] ${dzTitle2}`); return c.json({ ...r, fallback: 'sc' }); } }
+            if (scTrack) { const r = await scStream(String(scTrack.id), cid, cfg.scOAuthToken); if (r) { console.log(`[Deezer→SC skip] ${dzTitle2}`); return c.json({ ...r, fallback: 'sc' }); } }
           }
         } catch(e) { console.warn('[Deezer→SC skip]', e.message); }
       }
@@ -4047,7 +4070,7 @@ async function handleStream(c) {
               });
               const scTrack = (scRes.data?.collection || []).find(t => t.streamable);
               if (scTrack) {
-                const _dzScResult2 = await scStream(String(scTrack.id), cid);
+                const _dzScResult2 = await scStream(String(scTrack.id), cid, cfg.scOAuthToken);
                 if (_dzScResult2) { console.log(`[Deezer→SC fallback] ${dzTitle2}`); return c.json({ ..._dzScResult2, fallback: 'sc' }); }
               }
             }
@@ -5484,7 +5507,7 @@ function buildConfigPage(baseUrl) {
   w('.hint a,.tip a{color:var(--accent);text-decoration:none}.hint a:hover,.tip a:hover{text-decoration:underline}');
   w('.tip{background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);padding:10px 13px;font-size:.74rem;color:var(--muted);line-height:1.65;margin-bottom:12px}');
   w('.tip b{color:var(--txt)}');
-  w('.tip.warn{border-color:rgba(251,191,36,.18);background:rgba(251,191,36,.05);color:#a37a10}');
+  w('.tip.warn{border-color:rgba(251,191,36,.18);background:rgba(251,191,36,.05);color:#a37a10}.tip.ok{border-color:#2e7d32;background:#e8f5e9;color:#1b5e20}');
   w('.tip.warn b{color:var(--warn)}');
   w('code.inline{font-family:"JetBrains Mono","SF Mono",ui-monospace,monospace;font-size:.72rem;color:var(--accent);background:var(--surf3);padding:1px 5px;border-radius:3px}');
   w('.qrow{display:flex;gap:7px;flex-wrap:wrap}');
@@ -5575,7 +5598,9 @@ function buildConfigPage(baseUrl) {
 
   w('<div class="card">');
   w('  <div class="card-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg> Deezer ARL <span class="ctag">optional</span></div>');
-  w('  <div class="tip warn"><b>Deezer requires an ARL cookie</b> from a logged-in account to stream. Without it, Deezer tracks will appear in search results but will not play. Streams are FLAC (HiFi tier) or MP3 320 kbps.</div>');
+  (c.env && c.env.DEEZER_ARL
+    ? w('  <div class="tip ok"><b>Deezer ARL is optional.</b> &#x2705; An ARL is <b>already configured server-side</b> &mdash; you don\'t need to enter one. You can paste your own below to override it.</div>')
+    : w('  <div class="tip"><b>Deezer ARL is optional.</b> Without it, Deezer tracks appear in search but won\'t stream. Streams are FLAC (HiFi) or MP3 320 kbps when set.</div>'));
   w('  <label class="lbl" for="deezerArl">ARL Cookie Value</label>');
   w('  <input type="password" id="deezerArl" placeholder="Your deezer.com arl= cookie value (long hex string)">');
   w('  <p class="hint">In your browser: open deezer.com &rarr; DevTools &rarr; Application &rarr; Cookies &rarr; copy the <code class="inline">arl</code> value. Valid for ~3 months.</p>');
@@ -5583,7 +5608,7 @@ function buildConfigPage(baseUrl) {
 
   w('<div class="card">');
   w('  <div class="card-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg> Tidal HiFi Instances <span class="ctag">optional</span></div>');
-  w('  <div class="tip warn"><b>Tidal via HiFi proxy is currently High quality only</b> (AAC 320 kbps). Hi-res FLAC from Tidal is not yet supported through the proxy network.</div>');
+  w('  <div class="tip">Tidal streams via HiFi proxy at AAC 320 kbps. Leave blank to use the built-in public instance pool.</div>');
   w('  <label class="lbl" for="hifiInst">Custom instance URLs</label>');
   w('  <input type="text" id="hifiInst" placeholder="https://hifi.yourdomain.com  (comma-separated)">');
   w('  <p class="hint">Leave blank to use the built-in public instance pool. Only set this if you run your own HiFi proxy.</p>');
@@ -5594,6 +5619,9 @@ function buildConfigPage(baseUrl) {
   w('  <div class="tip">SoundCloud streams at <b>320 kbps MP3</b> (or lower for older tracks). The client ID is auto-discovered &mdash; only set this if auto-discovery breaks.</div>');
   w('  <label class="lbl" for="scId">Client ID</label>');
   w('  <input type="text" id="scId" placeholder="Leave blank for auto-discovery">');
+  w('  <label class="lbl" for="scOAuth" style="margin-top:var(--sp)">OAuth Token <span class="ctag">optional &mdash; full tracks</span></label>');
+  w('  <input type="password" id="scOAuth" placeholder="Paste OAuth token to unlock full tracks (removes 30-sec preview limit)">');
+  w('  <p class="hint">Get it: open <a href="https://soundcloud.com" target="_blank" rel="noopener">soundcloud.com</a> &rarr; F12 &rarr; Application &rarr; Local Storage &rarr; soundcloud.com &rarr; copy <code>oauth_token</code>. Or Network tab &rarr; any api-v2 request &rarr; <code>Authorization: OAuth &hellip;</code></p>');
   w('</div>');
 
   w('<div class="card">');
@@ -5781,6 +5809,7 @@ function buildConfigPage(baseUrl) {
   w('  var body = { vercelUrl: vercel };');
   w('  if (v("hifiInst"))       body.hifi             = v("hifiInst");');
   w('  if (v("scId"))           body.sc               = v("scId");');
+  w('  if (v("scOAuth"))        body.sc_oauth         = v("scOAuth");');
   w('  if (v("piKey"))          body.pi_key           = v("piKey");');
   w('  if (v("piSecret"))       body.pi_secret        = v("piSecret");');
   w('  if (v("taddyKey"))       body.taddy_key        = v("taddyKey");');
@@ -5855,6 +5884,7 @@ app.post('/generate', async function(c) {
   var cfg = {};
   if (b.hifi)      cfg.hifi      = b.hifi;
   if (b.sc)        cfg.sc        = b.sc;
+  if (b.sc_oauth)  cfg.sc_oauth  = b.sc_oauth;
   if (b.pi_key)    cfg.pi_key    = b.pi_key;
   if (b.pi_secret) cfg.pi_secret = b.pi_secret;
   if (b.taddy_key) cfg.taddy_key = b.taddy_key;
