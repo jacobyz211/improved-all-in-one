@@ -212,6 +212,11 @@ function getConfig(c) {
     blockedIsrcs: Array.isArray(cfg.blocked_isrcs)
       ? cfg.blocked_isrcs.map(i => String(i).toUpperCase().replace(/[^A-Z0-9]/g, '')).filter(Boolean)
       : [],
+    // ISRC enrichment source toggles (default: all enabled)
+    noMusicBrainz: !!cfg.no_musicbrainz,
+    noTheAudioDB:  !!cfg.no_theaudiodb,
+    noDeezerIsrc:  !!cfg.no_deezer_isrc,
+    noQobuzIsrc:   !!cfg.no_qobuz_isrc,
   };
 }
 
@@ -547,8 +552,8 @@ async function qobuzFindBestTrack(title, artist, isrc, _env, expectedDuration) {
     console.log(`[Qobuz ISRC] no confirmed match for ${isrc} — falling back to title search`);
   }
   if (!title) return null;
-  // FIX: MusicBrainz ISRC enrichment — try to fetch ISRC if we don't have one
-  if (!isrc && title && artist) {
+  // MusicBrainz ISRC enrichment (can be disabled via cfg.noMusicBrainz)
+  if (!isrc && title && artist && !(_env && (await getConfig(_env)).noMusicBrainz)) {
     try {
       const _mbRes = await axios.get(
         `https://musicbrainz.org/ws/2/recording/?query=recording:${encodeURIComponent(title)}+AND+artist:${encodeURIComponent(artist)}&fmt=json&limit=3`,
@@ -564,8 +569,8 @@ async function qobuzFindBestTrack(title, artist, isrc, _env, expectedDuration) {
       }
     } catch(e) { /* non-fatal */ }
   }
-  // TheAudioDB ISRC enrichment fallback
-  if (!isrc && title && artist) {
+  // TheAudioDB ISRC enrichment fallback (can be disabled via cfg.noTheAudioDB)
+  if (!isrc && title && artist && !(_env && (await getConfig(_env)).noTheAudioDB)) {
     try {
       const _tadbRes = await axios.get(
         `https://www.theaudiodb.com/api/v1/json/2/searchtrack.php?s=${encodeURIComponent(artist)}&t=${encodeURIComponent(title)}`,
@@ -5629,16 +5634,18 @@ function buildConfigPage(baseUrl, env) {
   w('.sbtn .sn{font-size:.75rem;font-weight:700;line-height:1.3}');
   w('.sbtn .st{font-size:.6rem;opacity:.5;margin-top:2px}');
   w('.sbadge{position:absolute;top:-8px;left:50%;transform:translateX(-50%);background:var(--accent);color:#000;font-size:.55rem;font-weight:800;padding:1px 6px;border-radius:99px;white-space:nowrap}');
-  w('.isrc-row{display:flex;gap:8px;align-items:stretch;margin-bottom:8px}');
-  w('.isrc-row input{flex:1;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);color:var(--txt);padding:8px 11px;font-size:.8rem;font-family:"JetBrains Mono","SF Mono",ui-monospace,monospace;outline:none;transition:border-color var(--tr),box-shadow var(--tr)}');
-  w('.isrc-row input:focus{border-color:var(--accent-bdr);box-shadow:0 0 0 3px var(--accent-dim)}');
-  w('.isrc-add-btn{background:var(--accent-dim);border:1px solid var(--accent-bdr);border-radius:var(--rsm);color:var(--accent);font-size:.75rem;font-weight:700;padding:8px 14px;cursor:pointer;white-space:nowrap;transition:all var(--tr)}');
-  w('.isrc-add-btn:hover{background:var(--accent);color:#000}');
-  w('#isrcList{display:flex;flex-wrap:wrap;gap:6px;min-height:28px;align-items:center}');
-  w('.isrc-chip{display:inline-flex;align-items:center;gap:5px;background:var(--surf3);border:1px solid var(--bdr);border-radius:99px;padding:3px 10px 3px 12px;font-size:.7rem}');
-  w('.isrc-code{font-family:"JetBrains Mono","SF Mono",ui-monospace,monospace;color:var(--accent);font-weight:600;letter-spacing:.04em}');
-  w('.isrc-del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.85rem;line-height:1;padding:0 2px;transition:color var(--tr)}');
-  w('.isrc-del:hover{color:var(--err)}');
+  w('.isrc-toggle-row{display:flex;flex-direction:column;gap:8px}');
+  w('.isrc-toggle-item{display:flex;align-items:flex-start;gap:12px;padding:10px 12px;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);transition:border-color var(--tr),background var(--tr)}');
+  w('.isrc-toggle-item.off{opacity:.65}');
+  w('.isrc-toggle-item .itlabel{flex:1;min-width:0}');
+  w('.isrc-toggle-item .itname{font-size:.8rem;font-weight:600;color:var(--txt);margin-bottom:2px}');
+  w('.isrc-toggle-item .itdesc{font-size:.7rem;color:var(--muted);line-height:1.4}');
+  w('.isrc-toggle-item .itwarn{font-size:.7rem;color:var(--warn,#c87941);margin-top:3px;display:none}');
+  w('.isrc-toggle-item.off .itwarn{display:none}');
+  w('.isrc-toggle-btn{flex-shrink:0;width:36px;height:20px;border-radius:99px;border:1px solid var(--bdr);background:var(--surf3);cursor:pointer;position:relative;transition:background var(--tr),border-color var(--tr);margin-top:1px}');
+  w('.isrc-toggle-btn::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--muted);transition:transform var(--tr),background var(--tr)}');
+  w('.isrc-toggle-btn.on{background:var(--accent-dim);border-color:var(--accent-bdr)}');
+  w('.isrc-toggle-btn.on::after{transform:translateX(16px);background:var(--accent)}');
   w('.shint{font-size:.68rem;color:var(--faint);margin-top:8px;line-height:1.65}');
   w('.ct-row{display:flex;flex-wrap:wrap;gap:8px}');
   w('.ct-btn{display:flex;align-items:center;gap:9px;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--r);padding:10px 14px;cursor:pointer;transition:all var(--tr);user-select:none;min-width:128px}');
@@ -5806,15 +5813,40 @@ function buildConfigPage(baseUrl, env) {
   w('  <div class="shint" id="streamHint"></div>');
   w('</div>');
 
-  w('<div class="sec-head">Blocked ISRCs <span class="sec-opt">optional</span></div>');
+  w('<div class="sec-head">ISRC Enrichment Sources <span class="ctag">optional</span></div>');
   w('<div class="card">');
-  w('  <div class="hint" style="margin-bottom:12px">Tracks matching these ISRCs will be hidden from all search results &mdash; useful for excluding wrong versions, remasters, or explicit duplicates.</div>');
-  w('  <div class="isrc-row">');
-  w('    <input type="text" id="isrcInput" placeholder="e.g. USUM71400040" maxlength="12" autocomplete="off" autocorrect="off" spellcheck="false" onkeydown="if(event.key===\'Enter\'){addBlockedIsrc();event.preventDefault();}">');
-  w('    <button class="isrc-add-btn" onclick="addBlockedIsrc()">Add</button>');
+  w('  <div class="hint" style="margin-bottom:12px">Controls which external databases are used to look up ISRCs when a track is missing one. Disabling speeds up resolution but may reduce match accuracy.</div>');
+  w('  <div class="isrc-toggle-row">');
+  w('    <div class="isrc-toggle-item on" id="itm-musicbrainz">');
+  w('      <div class="itlabel">');
+  w('        <div class="itname">MusicBrainz</div>');
+  w('        <div class="itdesc">Open metadata database — used to enrich missing ISRCs before Qobuz/Tidal matching.</div>');
+  w('      </div>');
+  w('      <button class="isrc-toggle-btn on" id="btn-musicbrainz" onclick="toggleIsrcSource(\'musicbrainz\')" aria-label="Toggle MusicBrainz"></button>');
+  w('    </div>');
+  w('    <div class="isrc-toggle-item on" id="itm-theaudiodb">');
+  w('      <div class="itlabel">');
+  w('        <div class="itname">TheAudioDB</div>');
+  w('        <div class="itdesc">Secondary ISRC enrichment fallback — consulted when MusicBrainz has no result.</div>');
+  w('      </div>');
+  w('      <button class="isrc-toggle-btn on" id="btn-theaudiodb" onclick="toggleIsrcSource(\'theaudiodb\')" aria-label="Toggle TheAudioDB"></button>');
+  w('    </div>');
+  w('    <div class="isrc-toggle-item on" id="itm-deezer_isrc">');
+  w('      <div class="itlabel">');
+  w('        <div class="itname">Deezer ISRC Matching</div>');
+  w('        <div class="itdesc">Uses ISRC to find the exact track on Deezer during stream resolution.</div>');
+  w('        <div class="itwarn">&#9888; Disabling this while Deezer is active as a stream source may cause incorrect tracks or broken streams.</div>');
+  w('      </div>');
+  w('      <button class="isrc-toggle-btn on" id="btn-deezer_isrc" onclick="toggleIsrcSource(\'deezer_isrc\')" aria-label="Toggle Deezer ISRC"></button>');
+  w('    </div>');
+  w('    <div class="isrc-toggle-item on" id="itm-qobuz_isrc">');
+  w('      <div class="itlabel">');
+  w('        <div class="itname">Qobuz ISRC Matching</div>');
+  w('        <div class="itdesc">Uses ISRC for direct Qobuz track lookup — faster and more accurate than title search.</div>');
+  w('      </div>');
+  w('      <button class="isrc-toggle-btn on" id="btn-qobuz_isrc" onclick="toggleIsrcSource(\'qobuz_isrc\')" aria-label="Toggle Qobuz ISRC"></button>');
+  w('    </div>');
   w('  </div>');
-  w('  <div id="isrcList" style="margin-top:10px"></div>');
-  w('  <div id="isrcStatus" class="status" style="margin-top:8px;display:none"></div>');
   w('</div>');
 
   w('<div class="sec-head">Generate</div>');
@@ -5858,7 +5890,7 @@ function buildConfigPage(baseUrl, env) {
   w('var searchOrder = ["hifi","qobuz","deezer","sc","ia"];');
   w('var streamOrder = ["qobuz","hifi","deezer","sc","ia"];');
   w('var ctEnabled = { podcast: true, audiobook: true, radio: true };');
-  w('var blockedIsrcs = [];');
+  w('var isrcToggles = { musicbrainz: true, theaudiodb: true, deezer_isrc: true, qobuz_isrc: true };');
   w('var SRCLABELS = { hifi:"Tidal HiFi", qobuz:"Qobuz", sc:"SoundCloud", ia:"Internet Archive", deezer:"Deezer" };');
   w('var ALLSRCS = ["qobuz","hifi","deezer","sc","ia"];');
 
@@ -5949,7 +5981,10 @@ function buildConfigPage(baseUrl, env) {
   w('  if (!ctEnabled.radio)     body.no_radio     = true;');
   w('  if (searchOrder.length)  body.search_order  = searchOrder;');
   w('  if (streamOrder.length)  body.stream_order  = streamOrder;');
-  w('  if (blockedIsrcs.length) body.blocked_isrcs = blockedIsrcs.slice();');
+  w('  if (!isrcToggles.musicbrainz) body.no_musicbrainz = true;');
+  w('  if (!isrcToggles.theaudiodb)  body.no_theaudiodb  = true;');
+  w('  if (!isrcToggles.deezer_isrc) body.no_deezer_isrc = true;');
+  w('  if (!isrcToggles.qobuz_isrc)  body.no_qobuz_isrc  = true;');
   w('  fetch("/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })');
   w('    .then(function(r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })');
   w('    .then(function(data) {');
@@ -5985,28 +6020,17 @@ function buildConfigPage(baseUrl, env) {
   w('renderSRow("ss-", searchOrder); updateHint("searchHint", searchOrder);');
   w('renderSRow("st-", streamOrder); updateHint("streamHint", streamOrder);');
 
-  w('function addBlockedIsrc() {');
-  w('  var inp = document.getElementById("isrcInput");');
-  w('  var raw = (inp.value||"").toUpperCase().replace(/[^A-Z0-9]/g,"");');
-  w(`  if (!raw||raw.length<10||raw.length>12){showStatus("isrcStatus","Invalid ISRC (10-12 alphanumeric chars)","err");return;}`);
-  w('  if (blockedIsrcs.indexOf(raw)!==-1){showStatus("isrcStatus","Already blocked","err");return;}');
-  w('  blockedIsrcs.push(raw);');
-  w('  inp.value="";');
-  w('  renderIsrcList();');
-  w('  showStatus("isrcStatus","Blocked: "+raw,"ok");');
+  w('function toggleIsrcSource(key) {');
+  w('  isrcToggles[key] = !isrcToggles[key];');
+  w('  var btn = document.getElementById("btn-" + key);');
+  w('  var itm = document.getElementById("itm-" + key);');
+  w('  var on = isrcToggles[key];');
+  w('  if (btn) { on ? btn.classList.add("on") : btn.classList.remove("on"); }');
+  w('  if (itm) { on ? itm.classList.add("on") : itm.classList.remove("on"); }');
+  w('  var warn = itm ? itm.querySelector(".itwarn") : null;');
+  w('  if (warn) warn.style.display = (!on) ? "block" : "none";');
   w('}');
-  w('function removeBlockedIsrc(isrc) {');
-  w('  var i=blockedIsrcs.indexOf(isrc); if(i!==-1) blockedIsrcs.splice(i,1);');
-  w('  renderIsrcList();');
-  w('}');
-  w('function renderIsrcList() {');
-  w('  var el=document.getElementById("isrcList"); if(!el) return;');
-  w(`  if(!blockedIsrcs.length){el.innerHTML='<span style="color:var(--faint);font-size:.7rem">No ISRCs blocked yet.</span>';return;}`);
-  w('  el.innerHTML=blockedIsrcs.map(function(c){');
-  w(`    return '<span class="isrc-chip"><span class="isrc-code">' + c + '</span><button class="isrc-del" onclick="removeBlockedIsrc(\\'' + c + '\\')">&#215;</button></span>';`);
-  w('  }).join("");');
-  w('}');
-  w('renderIsrcList();');
+
 
   w('<\/script>');
   w('<\/body>');
@@ -6053,6 +6077,11 @@ app.post('/generate', async function(c) {
   if (Array.isArray(b.stream_order) && b.stream_order.length) cfg.stream_order = b.stream_order;
   // Blocked ISRCs
   if (Array.isArray(b.blocked_isrcs) && b.blocked_isrcs.length) cfg.blocked_isrcs = b.blocked_isrcs;
+  // ISRC enrichment source toggles
+  if (b.no_musicbrainz) cfg.no_musicbrainz = true;
+  if (b.no_theaudiodb)  cfg.no_theaudiodb  = true;
+  if (b.no_deezer_isrc) cfg.no_deezer_isrc = true;
+  if (b.no_qobuz_isrc)  cfg.no_qobuz_isrc  = true;
   if (b.qobuz_user_token) cfg.qobuz_user_token = b.qobuz_user_token;
   if (b.qobuz_secret)     cfg.qobuz_secret     = b.qobuz_secret;
   if (b.qobuz_app_id)     cfg.qobuz_app_id     = b.qobuz_app_id;
