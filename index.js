@@ -5438,24 +5438,26 @@ async function handleArtist(c) {
             albumMap[key] = a;
           }
 
-          // Tracks — collect from all searches, dedup by track id
-          const rawTracks = data.tracks?.items || data.tracks || [];
-          for (const t of rawTracks) {
-            if (!isThisArtist(t)) continue;
-            if (topTracks.length >= 20) break;
-            const _tkey = String(t.id);
-            if (seenTrackIds.has(_tkey)) continue; // FIX: skip already-seen track ids
-            seenTrackIds.add(_tkey);
-            topTracks.push({
-              id:         `qobuz_${t.id}`,
-              title:      t.title || 'Unknown',
-              artist:     t.performer?.name || t.artist?.name || artistName,
-              album:      t.album?.title || '',
-              duration:   t.duration || undefined,
-              artworkURL: t.album?.image?.large || t.album?.image?.small || cover,
-              format:     'flac',
-              source:     'qobuz',
-            });
+          // Tracks — collect from all searches, dedup by track id, hard cap at 20 total
+          if (topTracks.length < 20) {
+            const rawTracks = data.tracks?.items || data.tracks || [];
+            for (const t of rawTracks) {
+              if (topTracks.length >= 20) break;
+              if (!isThisArtist(t)) continue;
+              const _tkey = String(t.id);
+              if (seenTrackIds.has(_tkey)) continue;
+              seenTrackIds.add(_tkey);
+              topTracks.push({
+                id:         `qobuz_${t.id}`,
+                title:      t.title || 'Unknown',
+                artist:     t.performer?.name || t.artist?.name || artistName,
+                album:      t.album?.title || '',
+                duration:   t.duration || undefined,
+                artworkURL: t.album?.image?.large || t.album?.image?.thumbnail || t.album?.image?.small || cover,
+                format:     'flac',
+                source:     'qobuz',
+              });
+            }
           }
         }
 
