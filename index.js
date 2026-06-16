@@ -2718,6 +2718,8 @@ async function radioSearch(query) {
 // Fetches the encrypted CDN audio and streams it back with Blowfish decryption.
 // Range requests are fully supported so seeking works correctly on all clients.
 async function handleDzProxy(c) {
+  const _rlResDz = await applyRateLimit(c, 'dzProxy');
+  if (_rlResDz) return _rlResDz;
   const _dzCfg = getConfig(c);
   const arl = _dzCfg.deezerArl || c.env?.DEEZER_ARL;
   if (!arl) return c.json({ error: 'No DEEZER_ARL configured' }, 403);
@@ -3032,35 +3034,120 @@ async function qobuzGet(url, params, timeout = 7000) {
   }
 }
 
-// ─── Rate Limiting (two-tier sliding window) ──────────────────────────────────
-// Tier 1: 300 req/min  — kills burst attacks (legit peak is ~50/min)
-// Tier 2: 2000 req/10min — kills sustained scrapers
-async function checkRateLimit(env, ip) {
-  if (!env?.UPSTASH_REDIS_REST_URL || !env?.UPSTASH_REDIS_REST_TOKEN) return true;
-  const now10 = Math.floor(Date.now() / 600000); // 10-min bucket
-  const now1  = Math.floor(Date.now() / 60000);  // 1-min bucket
-  const k1  = `rl1:${ip}:${now1}`;
-  const k10 = `rl10:${ip}:${now10}`;
-  try {
-    const [r1, r10] = await Promise.all([
-      upstashCmd(env, 'INCR', k1).then(async n => {
-        if (n === 1) upstashCmd(env, 'EXPIRE', k1, 90).catch(()=>{}); // 90s TTL
-        return n;
-      }),
-      upstashCmd(env, 'INCR', k10).then(async n => {
-        if (n === 1) upstashCmd(env, 'EXPIRE', k10, 660).catch(()=>{}); // 11min TTL
-        return n;
-      }),
-    ]);
-    if (r1 > 300)  return false; // burst: >300 in 1 min
-    if (r10 > 2000) return false; // sustained: >2000 in 10 min
-  } catch(e) {}
-  return true;
+// ─── Rate Limiting ────────────────────────────────────────────────────────────
+// Dual-layer sliding window: always-on in-memory (no Upstash required) +
+// optional Upstash Redis for distributed deployments.
+//
+// Per-IP limits by route type:
+//   stream   → 40 req / 60 s   (normal playback = ~1 req per track)
+//   search   → 25 req / 60 s   (fast typists do ~1 req/keystroke burst)
+//   catalog  → 20 req / 60 s   (album/artist/playlist browse)
+//   resolve  → 20 req / 60 s
+//   dzProxy  → 30 req / 60 s   (each track = 1 req, similar to stream)
+//   manifest → 8  req / 60 s   (addon install only)
+//   global   → 80 req / 60 s   (health, stats, instances, etc.)
+
+const _rlWindows = new Map(); // "ip:type" -> { count, windowStart }
+
+const RL_CFG = {
+  stream:   { window: 60_000, max: 40  },
+  search:   { window: 60_000, max: 25  },
+  catalog:  { window: 60_000, max: 20  },
+  resolve:  { window: 60_000, max: 20  },
+  dzProxy:  { window: 60_000, max: 30  },
+  manifest: { window: 60_000, max: 8   },
+  global:   { window: 60_000, max: 80  },
+};
+
+// Prune stale windows every 2 minutes to keep memory flat
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of _rlWindows) {
+    const type = key.split(':').pop();
+    const cfg  = RL_CFG[type] || RL_CFG.global;
+    if (now - entry.windowStart > cfg.window * 2) _rlWindows.delete(key);
+  }
+}, 120_000);
+
+/**
+ * checkRateLimit(env, ip, type)
+ * Returns { allowed: boolean, headers: object }
+ * Always enforces in-memory limits. If Upstash is configured it also
+ * runs a supplementary distributed check (used as secondary firewall).
+ */
+async function checkRateLimit(env, ip, type = 'global') {
+  const cfg = RL_CFG[type] || RL_CFG.global;
+  const key = `${ip}:${type}`;
+  const now = Date.now();
+
+  // ── In-memory sliding window (always active) ────────────────────────────
+  let entry = _rlWindows.get(key);
+  if (!entry || now - entry.windowStart > cfg.window) {
+    entry = { count: 0, windowStart: now };
+  }
+  entry.count++;
+  _rlWindows.set(key, entry);
+
+  const remaining  = Math.max(0, cfg.max - entry.count);
+  const resetEpoch = Math.ceil((entry.windowStart + cfg.window) / 1000);
+  const retryAfter = Math.ceil((entry.windowStart + cfg.window - now) / 1000);
+
+  const headers = {
+    'X-RateLimit-Limit':     String(cfg.max),
+    'X-RateLimit-Remaining': String(remaining),
+    'X-RateLimit-Reset':     String(resetEpoch),
+  };
+
+  if (entry.count > cfg.max) {
+    headers['Retry-After'] = String(Math.max(1, retryAfter));
+    return { allowed: false, headers };
+  }
+
+  // ── Optional Upstash secondary check (distributed deployments) ──────────
+  if (env?.UPSTASH_REDIS_REST_URL && env?.UPSTASH_REDIS_REST_TOKEN) {
+    try {
+      const bucket = Math.floor(now / cfg.window);
+      const rKey   = `rl:${type}:${ip}:${bucket}`;
+      const count  = await upstashCmd(env, 'INCR', rKey);
+      if (count === 1) upstashCmd(env, 'EXPIRE', rKey, Math.ceil(cfg.window / 1000) + 10).catch(() => {});
+      if (count > cfg.max) {
+        headers['X-RateLimit-Remaining'] = '0';
+        headers['Retry-After'] = String(Math.ceil((cfg.window - (now % cfg.window)) / 1000));
+        return { allowed: false, headers };
+      }
+    } catch (_) { /* non-fatal — fall through to in-memory result */ }
+  }
+
+  return { allowed: true, headers };
+}
+
+/** Convenience: extract best-effort client IP from a Hono context */
+function getClientIp(c) {
+  return (
+    c.req.header('cf-connecting-ip') ||
+    c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
+    c.req.header('x-real-ip') ||
+    'unknown'
+  );
+}
+
+/** Apply rate limit to a Hono handler context. Returns 429 response or null. */
+async function applyRateLimit(c, type) {
+  const ip = getClientIp(c);
+  const rl = await checkRateLimit(c.env, ip, type);
+  for (const [k, v] of Object.entries(rl.headers)) c.header(k, v);
+  if (!rl.allowed) {
+    return c.json(
+      { error: 'Too Many Requests', retryAfter: Number(rl.headers['Retry-After'] || 5) },
+      429,
+    );
+  }
+  return null; // allowed
 }
 
 async function handleSearch(c) {
-  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-real-ip') || 'unknown';
-  if (!(await checkRateLimit(c.env, ip))) return c.json({ error: 'Too many requests.' }, 429);
+  const _rlRes = await applyRateLimit(c, 'search');
+  if (_rlRes) return _rlRes;
   const query = c.req.query('q') || '';
   if (!query || query.trim().length < 2) return c.json({ tracks: [], albums: [], artists: [], playlists: [] });
   const cfg = getConfig(c);
@@ -3463,6 +3550,8 @@ app.get('/:token/search', handleSearch);
 
 // ─── Podcast-only search (/podcast/search) ───────────────────────────────────
 async function handlePodcastSearch(c) {
+  const _rlResPs = await applyRateLimit(c, 'search');
+  if (_rlResPs) return _rlResPs;
   const query = c.req.query('q') || '';
   if (!query || query.trim().length < 2) return c.json({ tracks: [], albums: [], artists: [], playlists: [] });
   const cfg = getConfig(c);
@@ -3525,6 +3614,8 @@ async function handlePodcastSearch(c) {
 
 // ─── Audiobook-only search (/audiobook/search) ───────────────────────────────
 async function handleAudiobookSearch(c) {
+  const _rlResAs = await applyRateLimit(c, 'search');
+  if (_rlResAs) return _rlResAs;
   const query = c.req.query('q') || '';
   if (!query) return c.json({ tracks: [], albums: [], artists: [], playlists: [] });
   const cfg = getConfig(c);
@@ -3633,6 +3724,8 @@ app.get('/:token/audiobook/artist/:id',    handleArtist);
 
 // ─── Radio-only search handler (Radio Browser + SomaFM) ──────────────────────
 async function handleRadioSearch(c) {
+  const _rlResRs = await applyRateLimit(c, 'search');
+  if (_rlResRs) return _rlResRs;
   const query = c.req.query('q') || '';
   if (!query) return c.json({ tracks: [], albums: [], artists: [], playlists: [] });
   const cacheKey = `search:radio:${c.req.param('token') || 'noop'}:${query}`;
@@ -3733,6 +3826,8 @@ app.get('/:token/radio/stream/:id',   handleStream);
 // Lightweight resolve for playlist import — HiFi only, skips podcast/radio/IA overhead
 // Use this endpoint for per-track lookups during CSV/link playlist imports
 async function handleResolve(c) {
+  const _rlResRv = await applyRateLimit(c, 'resolve');
+  if (_rlResRv) return _rlResRv;
   const query = c.req.query('q') || '';
   if (!query) return c.json({ tracks: [] });
   const cfg = getConfig(c);
@@ -3762,8 +3857,8 @@ app.get('/:token/resolve', handleResolve);
 
 // Stream resolution
 async function handleStream(c) {
-  const ip = c.req.header('cf-connecting-ip') || c.req.header('x-real-ip') || 'unknown';
-  if (!(await checkRateLimit(c.env, ip))) return c.json({ error: 'Too many requests.' }, 429);
+  const _rlRes = await applyRateLimit(c, 'stream');
+  if (_rlRes) return _rlRes;
   const id = c.req.param('id');
   const cfg = getConfig(c);
 
@@ -4560,6 +4655,8 @@ app.get('/:token/stream/:id', handleStream);
 
 // Album detail (audiobooks)
 async function handleAlbum(c) {
+  const _rlResAlb = await applyRateLimit(c, 'catalog');
+  if (_rlResAlb) return _rlResAlb;
   const id = c.req.param('id');
 
   if (id.startsWith('lvox_')) {
@@ -4663,6 +4760,8 @@ async function handleAlbum(c) {
 }
 
 async function handleAlbumWithHifi(c) {
+  const _rlResAwh = await applyRateLimit(c, 'catalog');
+  if (_rlResAwh) return _rlResAwh;
   const id = c.req.param('id');
   const cfg = getConfig(c);
 
@@ -4999,6 +5098,8 @@ app.get('/:token/album/:id', handleAlbumWithHifi);
 
 // ─── Artist detail ────────────────────────────────────────────────────────────
 async function handleArtist(c) {
+  const _rlResArt = await applyRateLimit(c, 'catalog');
+  if (_rlResArt) return _rlResArt;
   const id = c.req.param('id');
   const cfg = getConfig(c);
 
@@ -5501,6 +5602,8 @@ app.get('/:token/artist/:id', handleArtist);
 
 // Playlist detail (podcast series)
 async function handlePlaylist(c) {
+  const _rlResPl = await applyRateLimit(c, 'catalog');
+  if (_rlResPl) return _rlResPl;
   const id = c.req.param('id');
   const cfg = getConfig(c);
 
