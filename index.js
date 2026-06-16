@@ -1457,15 +1457,16 @@ async function piSearchEpisodes(query, key, secret) {
   if (cached) return cached;
   try {
     // Run both PI calls in parallel to cut search latency in half
+    const _piHdrs = await podcastIndexHeaders(key, secret);
     const [feedsRes, epRes] = await Promise.allSettled([
       axios.get('https://api.podcastindex.org/api/1.0/search/byterm', {
         params: { q: query, max: 10, fulltext: true },
-        headers: podcastIndexHeaders(key, secret),
+        headers: _piHdrs,
         timeout: 5000,
       }),
       axios.get('https://api.podcastindex.org/api/1.0/search/byterm', {
         params: { q: query, max: 10, fulltext: true, type: 'episode' },
-        headers: podcastIndexHeaders(key, secret),
+        headers: _piHdrs,
         timeout: 5000,
       }),
     ]);
@@ -1526,9 +1527,10 @@ async function piGetEpisodes(feedId, key, secret) {
   const cached = await cacheGet(cacheKey);
   if (cached) return cached;
   try {
+    const _piHdrs2 = await podcastIndexHeaders(key, secret);
     const res = await axios.get('https://api.podcastindex.org/api/1.0/episodes/byfeedid', {
       params: { id: feedId, max: 50 },
-      headers: podcastIndexHeaders(key, secret),
+      headers: _piHdrs2,
       timeout: 8000,
     });
     const items = (res.data?.items || []).map(e => ({
@@ -4831,18 +4833,18 @@ async function handleAlbumWithHifi(c) {
 
     const [feedRes, epRes] = await Promise.allSettled([
       cfg.piKey && cfg.piSecret
-        ? axios.get('https://api.podcastindex.org/api/1.0/podcasts/byfeedid', {
+        ? podcastIndexHeaders(cfg.piKey, cfg.piSecret).then(h => axios.get('https://api.podcastindex.org/api/1.0/podcasts/byfeedid', {
             params: { id: feedId },
-            headers: podcastIndexHeaders(cfg.piKey, cfg.piSecret),
+            headers: h,
             timeout: 8000,
-          })
+          }))
         : Promise.resolve(null),
       cfg.piKey && cfg.piSecret
-        ? axios.get('https://api.podcastindex.org/api/1.0/episodes/byfeedid', {
+        ? podcastIndexHeaders(cfg.piKey, cfg.piSecret).then(h => axios.get('https://api.podcastindex.org/api/1.0/episodes/byfeedid', {
             params: { id: feedId, max: 200, fulltext: true },
-            headers: podcastIndexHeaders(cfg.piKey, cfg.piSecret),
+            headers: h,
             timeout: 10000,
-          })
+          }))
         : Promise.resolve(null),
     ]);
 
@@ -5357,8 +5359,9 @@ async function handleArtist(c) {
       else if (!cfg.piKey) {
         // try to get info from PI without auth
         try {
+          const _piH6 = await podcastIndexHeaders(cfg.piKey, cfg.piSecret);
           const infoRes = await axios.get('https://api.podcastindex.org/api/1.0/podcasts/byfeedid', {
-            params: { id: feedId }, headers: podcastIndexHeaders(cfg.piKey, cfg.piSecret), timeout: 5000,
+            params: { id: feedId }, headers: _piH6, timeout: 5000,
           });
           const f = infoRes.data?.feed;
           if (f) info = { title: f.title, artworkURL: f.artwork || f.image, creator: f.author };
@@ -5661,9 +5664,10 @@ async function handlePlaylist(c) {
     let seriesInfo = await cacheGet(`pi:series_info:${feedId}`);
     if (!seriesInfo && cfg.piKey && cfg.piSecret) {
       try {
+        const _piH7 = await podcastIndexHeaders(cfg.piKey, cfg.piSecret);
         const infoRes = await axios.get('https://api.podcastindex.org/api/1.0/podcasts/byfeedid', {
           params: { id: feedId },
-          headers: podcastIndexHeaders(cfg.piKey, cfg.piSecret),
+          headers: _piH7,
           timeout: 5000,
         });
         const f = infoRes.data?.feed;
