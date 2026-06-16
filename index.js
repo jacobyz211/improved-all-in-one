@@ -2954,7 +2954,7 @@ function buildManifest(token, type) {
   // Default: music
   return {
     id: prefix,
-    name: customName || 'All In One',
+    name: customName || 'All In Eclipse',
     version: '1.4.0',
     description: 'All-in-one: HiFi music, SoundCloud, Internet Archive, Podcasts, Audiobooks, and Live Radio',
     icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTueIUOQATc6lrir4FpwhFl9P656MBFPkvOV03N5P3zlA&s=10',
