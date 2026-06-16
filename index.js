@@ -645,9 +645,24 @@ async function qobuzSearch(query) {
         id:         `qobuz_artist_${a.id}`,
         name:       a.name || 'Unknown Artist',
         // Qobuz search: artist.image.large  or artist.picture (300x300 jpg path)
-        artworkURL: a.picture && a.picture.length > 5
-          ? `https://static.qobuz.com/images/artists/covers/${a.picture}_600.jpg`
-          : (() => { const _u = a.image?.large || a.image?.small || null; if (!_u) return null; return _u.includes('/images/artists/covers/') ? _u.replace(/(_org|_\d+)(\.jpg)$/i, '_600$2') : _u; })(),
+        artworkURL: (() => {
+          // Priority 1: full URL from image.large / thumbnail / small (most reliable from proxy)
+          const fromImage = a.image?.large || a.image?.thumbnail || a.image?.small || null;
+          if (fromImage) {
+            return fromImage.includes('/images/artists/covers/')
+              ? fromImage.replace(/(_org|_\d+)(\.jpg)$/i, '_600$2')
+              : fromImage;
+          }
+          // Priority 2: a.picture is a bare hash → construct static URL
+          if (a.picture && a.picture.length > 5 && !a.picture.startsWith('http')) {
+            return `https://static.qobuz.com/images/artists/covers/${a.picture}_600.jpg`;
+          }
+          // Priority 3: a.picture is already a full URL (rare proxy variants)
+          if (a.picture && a.picture.startsWith('http')) return a.picture;
+          // Priority 4: a.images array (some proxy response shapes)
+          if (Array.isArray(a.images) && a.images[0]) return a.images[0];
+          return null;
+        })(),
         source:     'qobuz',
       }));
 
