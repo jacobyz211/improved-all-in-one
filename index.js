@@ -3266,32 +3266,47 @@ async function handleSearch(c) {
   //      This is the key fix: generic title collisions across sources are allowed
   //      through so niche artists don't get swallowed by popular same-title tracks.
   const _normStr = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 60);
+  // Normalize artist: strip featured artists, "the/a/an" prefix, whitespace
+  const _normArtist = raw => {
+    const base = String(raw || '').split(/[,&]|\s+(?:feat|ft|with|x)/i)[0];
+    const n = _normStr(base);
+    return n.replace(/^(the|a|an)/, '').replace(/^0+/, '').trim() || n;
+  };
 
-  const _canonKey = item => {
-    // Path 1: ISRC available on this item — strongest dedup signal
-    if (item.isrc) return 'isrc:' + item.isrc.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const t   = _normStr(item.title  || '');
-    const _rawA = _normStr((item.artist || '').split(/[,&]/)[0]);
-    const a   = _rawA.replace(/^(the|a|an)/, '').replace(/^0+/, '').trim() || _rawA;
-    // CRITICAL: only build a ta: dedup key when the artist is known and non-empty.
-    // Without an artist component, "First Love" from Gulfateh Khan would collide
-    // with "First Love" from any other artist and get silently dropped.
-    if (!t || !a) return null; // unknown title OR artist → never auto-dedup
+  // _canonKey returns ALL keys that should be marked/checked for this item.
+  // Returns an array: [primaryKey, ...secondaryKeys]
+  // primaryKey  = isrc: key (if ISRC present) or ta:+dur key
+  // secondaryKeys = ta:+nodur key (always), so a duration-missing copy can match
+  const _canonKeys = item => {
+    const t = _normStr(item.title || '');
+    const a = _normArtist(item.artist || '');
     const dur = (item.duration && item.duration > 5) ? item.duration : 0;
     const db  = dur ? '|d' + (Math.round(dur / 5) * 5) : '';
-    // Include BOTH title AND artist in key — different artists = different key = both shown
-    return 'ta:' + t + '|' + a + db;
+    const taBase = (t && a) ? ('ta:' + t + '|' + a) : null;
+    const taFull = taBase ? (taBase + db) : null;
+    const keys = [];
+    if (item.isrc) {
+      const ik = 'isrc:' + item.isrc.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      keys.push(ik);
+    }
+    if (taFull && taFull !== taBase) keys.push(taFull); // with-duration key
+    if (taBase) keys.push(taBase);                       // no-duration key (always added as fallback)
+    return keys; // first key is "primary"; all must be checked AND marked
+  };
+
+  // Backwards-compat single key for _canonAlbKey (albums don't need multi-key)
+  const _canonKey = item => {
+    const keys = _canonKeys(item);
+    return keys.length ? keys[0] : null;
   };
 
   const _canonAlbKey = item => {
-    const t  = _normStr(item.title  || '');
-    const _ra = _normStr((item.artist || '').split(/[,&]/)[0]);
-    const a  = _ra.replace(/^(the|a|an)/, '').replace(/^0+/, '').trim() || _ra;
-    // year-agnostic key: same album from different sources may have year missing on one
-    // so dedup by title+artist only (year only used as tiebreaker when both have it)
-    const y  = item.year ? String(item.year).slice(0, 4) : '';
-    const baseKey = 'alb:' + t + '|' + a;
-    return y ? baseKey + '|' + y : baseKey;
+    const t = _normStr(item.title  || '');
+    const a = _normArtist(item.artist || '');
+    // year-agnostic: same album missing year on one source still deduped
+    const y = item.year ? String(item.year).slice(0, 4) : '';
+    const base = 'alb:' + t + '|' + a;
+    return y ? base + '|' + y : base;
   };
 
   // ── Priority-first dedup interleave ────────────────────────────────────────
@@ -3302,12 +3317,12 @@ async function handleSearch(c) {
   // Duration tolerance: ±3 seconds (strict — avoids deduping edit vs album cuts).
   const interleave = (sourceLists) => {
     // Round-robin interleave: take item[0] from each source, then item[1], etc.
-    // First-seen-wins dedup → highest-priority source (leftmost in sourceLists) claims a
-    // track; lower-priority sources skip it if it's a dupe. But because we round-robin,
-    // deezer[0] and sc[0] appear at positions 4/5 (not after all of qobuz+hifi are drained),
-    // so unique Deezer/SC tracks surface near the top rather than being buried at position 36+.
+    // First-seen-wins dedup using _canonKeys (multi-key):
+    //   - isrc: key + ta:+dur key + ta:+nodur key are ALL checked and ALL marked on insert.
+    //   - This means: a HiFi track with ISRC blocks the same Deezer track even if
+    //     the Deezer copy has no ISRC (ta: keys match). And a Deezer track with
+    //     duration blocks the same SC track missing duration (nodur key matches).
     const result = [], seenIds = new Set(), seenKeys = new Set();
-    const seenKeyDur = new Map();
     const maxLen = Math.max(0, ...sourceLists.map(l => l.length));
     for (let i = 0; i < maxLen; i++) {
       for (const list of sourceLists) {
@@ -3315,24 +3330,19 @@ async function handleSearch(c) {
         const item = list[i];
         if (!item) continue;
         const _rawIk = item.id;
-        const ik = _rawIk ? String(_rawIk).toLowerCase().replace(/^(deezer|tidal|qobuz|sc|hifi):(?!album:|artist:|playlist:)/i, '').trim() : _rawIk;
-        const ck = _canonKey(item);
+        const ik = _rawIk
+          ? String(_rawIk).toLowerCase()
+              .replace(/^(deezer|tidal|qobuz|sc|hifi):(?!album:|artist:|playlist:)/i, '')
+              .trim()
+          : _rawIk;
         if (ik && seenIds.has(ik)) continue;
-        if (ck && seenKeys.has(ck)) {
-          // Allow genuinely different track lengths (> 3s apart) through — e.g. radio edit vs album cut.
-          const prevDur = seenKeyDur.get(ck) || 0;
-          const curDur  = (item.duration && item.duration > 5) ? item.duration : 0;
-          if (prevDur > 10 && curDur > 10 && Math.abs(prevDur - curDur) > 10) {
-            if (ik) seenIds.add(ik);
-            result.push(item);
-          }
-          continue;
-        }
+        // Multi-key dedup: check ALL keys for this item
+        const cks = _canonKeys(item);
+        const isDupe = cks.some(k => seenKeys.has(k));
+        if (isDupe) continue;
+        // Not a dupe — admit and mark ALL keys
         if (ik) seenIds.add(ik);
-        if (ck) {
-          seenKeys.add(ck);
-          if (item.duration && item.duration > 5) seenKeyDur.set(ck, item.duration);
-        }
+        for (const k of cks) seenKeys.add(k);
         result.push(item);
       }
     }
@@ -3347,11 +3357,18 @@ async function handleSearch(c) {
         if (i >= list.length) continue;
         const item = list[i];
         if (!item) continue;
-        const ik = item.id, ck = _canonAlbKey(item);
-        if (ik && seenIds.has(ik))   continue;
-        if (ck && seenKeys.has(ck))  continue;
+        const ik = item.id;
+        if (ik && seenIds.has(ik)) continue;
+        // Check both year-keyed and year-agnostic keys so same album deduped regardless
+        const t = _normStr(item.title || '');
+        const a = _normArtist(item.artist || '');
+        const y = item.year ? String(item.year).slice(0, 4) : '';
+        const keyBase = 'alb:' + t + '|' + a;
+        const keyFull = y ? keyBase + '|' + y : keyBase;
+        if (seenKeys.has(keyBase) || seenKeys.has(keyFull)) continue;
         if (ik) seenIds.add(ik);
-        if (ck) seenKeys.add(ck);
+        seenKeys.add(keyBase);
+        if (keyFull !== keyBase) seenKeys.add(keyFull);
         result.push(item);
       }
     }
@@ -3388,14 +3405,12 @@ async function handleSearch(c) {
   });
   const _seenAlbumKeys = new Set();
   const _dedupeAlbums = list => list.filter(a => {
-    const _at  = _normStr(a.title  || '');
-    const _raa = _normStr((a.artist || '').split(/[,&]/)[0]);
-    const _aa  = _raa.replace(/^(the|a|an)/, '').trim() || _raa;
-    const _ay  = a.year ? String(a.year).slice(0, 4) : '';
-    // Try exact key first, then year-agnostic key — catches same album missing year on one source
+    const _at = _normStr(a.title  || '');
+    const _aa = _normArtist(a.artist || '');
+    const _ay = a.year ? String(a.year).slice(0, 4) : '';
+    if (!_at || !_aa) return true;
     const k    = _at + '|' + _aa + (_ay ? '|' + _ay : '');
     const kNoY = _at + '|' + _aa;
-    if (!_at || !_aa) return true;
     if (_seenAlbumKeys.has(k) || _seenAlbumKeys.has(kNoY)) return false;
     _seenAlbumKeys.add(k);
     _seenAlbumKeys.add(kNoY);
