@@ -5988,7 +5988,7 @@ function buildConfigPage(baseUrl, env) {
   w('function addBlockedIsrc() {');
   w('  var inp = document.getElementById("isrcInput");');
   w('  var raw = (inp.value||"").toUpperCase().replace(/[^A-Z0-9]/g,"");');
-  w('  if (!raw||raw.length<10||raw.length>12){showStatus("isrcStatus","Invalid ISRC (10-12 alphanumeric chars)","err");return;}');
+  w(`  if (!raw||raw.length<10||raw.length>12){showStatus("isrcStatus","Invalid ISRC (10-12 alphanumeric chars)","err");return;}`);
   w('  if (blockedIsrcs.indexOf(raw)!==-1){showStatus("isrcStatus","Already blocked","err");return;}');
   w('  blockedIsrcs.push(raw);');
   w('  inp.value="";');
@@ -6001,9 +6001,9 @@ function buildConfigPage(baseUrl, env) {
   w('}');
   w('function renderIsrcList() {');
   w('  var el=document.getElementById("isrcList"); if(!el) return;');
-  w('  if(!blockedIsrcs.length){el.innerHTML='<span style="color:var(--faint);font-size:.7rem">No ISRCs blocked yet.</span>';return;}');
+  w(`  if(!blockedIsrcs.length){el.innerHTML='<span style="color:var(--faint);font-size:.7rem">No ISRCs blocked yet.</span>';return;}`);
   w('  el.innerHTML=blockedIsrcs.map(function(c){');
-  w('    return '<span class="isrc-chip"><span class="isrc-code">'+c+'</span><button class="isrc-del" onclick="removeBlockedIsrc(\u0027'+c+'\u0027)" title="Remove">×</button></span>';');
+  w(`    return '<span class="isrc-chip"><span class="isrc-code">' + c + '</span><button class="isrc-del" onclick="removeBlockedIsrc(\\'' + c + '\\')">&#215;</button></span>';`);
   w('  }).join("");');
   w('}');
   w('renderIsrcList();');
