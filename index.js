@@ -2273,16 +2273,23 @@ async function deezerSearch(query) {
       artworkURL: p.picture_xl || p.picture_big || p.picture || null,
       trackCount: p.nb_tracks || undefined, source: 'deezer',
     }));
-    // Fallback: if direct track search returned 0 results but albums were found,
-    // fetch tracks from the top 2 albums and surface the best matches.
-    // This handles tracks like "First Love by Gulfateh Khan" where Deezer's
-    // /search endpoint misses the track but the album is indexed correctly.
-    let finalTracks = tracks;
-    if (finalTracks.length === 0 && rawAlbums.length > 0) {
+    // Album-track fallback:
+    // Deezer's /search endpoint sometimes misses tracks that exist on indexed albums
+    // (common for regional/independent artists like Gulfateh Khan).
+    // Strategy:
+    //   1. Always fetch tracks from the top 3 matching albums in parallel.
+    //   2. Score each album track against the query words.
+    //   3. Any album track whose title shares ≥1 query word with the track portion
+    //      of the query AND isn't already in rawTracks (deduped by Deezer ID) is
+    //      appended — this way "First Love" surfaces even when /search returns
+    //      other tracks (e.g. covers) but not the specific one.
+    let finalTracks = [...tracks];
+    if (rawAlbums.length > 0) {
       try {
-        const albumTrackFetches = rawAlbums.slice(0, 2).map(a =>
+        const seenDzIds = new Set(rawTracks.map(t => String(t.id)));
+        const albumTrackFetches = rawAlbums.slice(0, 3).map(a =>
           axios.get(`${DEEZER_API}/album/${a.id}/tracks`, {
-            params: { limit: 50 }, headers: { 'User-Agent': UA }, timeout: 3500
+            params: { limit: 50 }, headers: { 'User-Agent': UA }, timeout: 4000
           })
             .then(r => (r.data?.data || []).map(t => ({
               ...t,
@@ -2293,27 +2300,56 @@ async function deezerSearch(query) {
             .catch(() => [])
         );
         const albumTrackResults = await Promise.all(albumTrackFetches);
-        const qNorm = query.toLowerCase().replace(/[^a-z0-9 ]/g, '');
-        const qWords = qNorm.split(' ').filter(w => w.length > 2);
+
+        // Extract the "track" portion of query — if it contains an artist name
+        // (e.g. "first love gulfateh khan") strip the artist words so we match
+        // only on the track title words.
+        const qFull = query.toLowerCase().replace(/[^a-z0-9 ]/g, ' ').replace(/\s+/g, ' ').trim();
+        const qWords = qFull.split(' ').filter(w => w.length > 2);
+
+        const albumMatches = [];
         for (const tList of albumTrackResults) {
           for (const t of tList) {
-            const tNorm = (t.title || '').toLowerCase().replace(/[^a-z0-9 ]/g, '');
-            if (!tNorm || !qWords.length) continue;
-            if (!qWords.some(w => tNorm.includes(w))) continue;
-            finalTracks.push({
-              id: `deezer:${t.id}`,
-              title: t.title || 'Unknown',
-              artist: t._albumArtist || t.artist?.name || 'Unknown',
-              album: t._albumTitle || '',
-              duration: t.duration || undefined,
-              artworkURL: t._albumCover,
-              format: 'mp3',
-              source: 'deezer',
-              isrc: t.isrc ? String(t.isrc).toUpperCase().replace(/[^A-Z0-9]/g, '') : null,
+            if (seenDzIds.has(String(t.id))) continue; // already in rawTracks
+            const tNorm = (t.title || '').toLowerCase().replace(/[^a-z0-9 ]/g, ' ').trim();
+            if (!tNorm) continue;
+            const tWords = tNorm.split(' ').filter(w => w.length > 1);
+            // Score: how many query words hit the track title
+            const hits = qWords.filter(w => tNorm.includes(w)).length;
+            if (hits === 0) continue;
+            // Prefer tracks where the title itself contains a query word
+            // (not just the artist name from the album metadata)
+            const titleHits = qWords.filter(w => tWords.some(tw => tw.includes(w) || w.includes(tw))).length;
+            albumMatches.push({
+              score: titleHits * 10 + hits,
+              track: {
+                id: `deezer:${t.id}`,
+                title: t.title || 'Unknown',
+                artist: t._albumArtist || t.artist?.name || 'Unknown',
+                album: t._albumTitle || '',
+                duration: t.duration || undefined,
+                artworkURL: t._albumCover,
+                format: 'mp3',
+                source: 'deezer',
+                isrc: t.isrc ? String(t.isrc).toUpperCase().replace(/[^A-Z0-9]/g, '') : null,
+              },
             });
+            seenDzIds.add(String(t.id));
           }
         }
-        finalTracks = finalTracks.slice(0, 20);
+        // Sort best matches first, then prepend to finalTracks when rawTracks was
+        // empty (pure fallback) or append when rawTracks already had results.
+        albumMatches.sort((a, b) => b.score - a.score);
+        const albumTrackList = albumMatches.map(m => m.track).slice(0, 10);
+        if (finalTracks.length === 0) {
+          finalTracks = albumTrackList; // pure fallback — album tracks are primary
+        } else {
+          finalTracks = [...finalTracks, ...albumTrackList]; // supplement existing results
+        }
+        finalTracks = finalTracks.slice(0, 25);
+        if (albumTrackList.length > 0) {
+          console.log(`[Deezer album-track fallback] +${albumTrackList.length} tracks for "${query}"`);
+        }
       } catch(e) { console.warn('[Deezer album-track fallback]', e.message); }
     }
     const result = { tracks: finalTracks, albums, artists, playlists };
