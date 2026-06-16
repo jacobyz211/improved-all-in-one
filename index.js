@@ -6244,9 +6244,13 @@ function buildConfigPage(baseUrl, env) {
   w('      dot.style.cssText="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:"+(inst.online?"#4a9a4a":"#c04040");');
   w('      var urlSpan=document.createElement("span");');
   w('      urlSpan.style.cssText="flex:1;color:var(--muted);font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";');
-  w('      var raw=(inst.inst||inst.url||"").replace(/^https?:\\/\\//,"");');
-  w('      var dp=raw.indexOf(".");');
-  w('      urlSpan.textContent=dp>0?raw.slice(0,dp+5)+"\u2022\u2022\u2022\u2022\u2022"+raw.slice(-4):raw;');
+  w('      var raw=(inst.inst||inst.url||"").replace(/^https?:\\/\\//,"").replace(/\\/$/,"");');
+  w('      var dashIdx=raw.indexOf("-");');
+  w('      var dotIdx=raw.lastIndexOf(".");');
+  w('      var masked;');
+  w('      if(dashIdx>0&&dotIdx>dashIdx){masked=raw.slice(0,dashIdx+5)+"\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"+raw.slice(dotIdx);}');
+  w('      else{masked=raw.slice(0,4)+"\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"+raw.slice(dotIdx>0?dotIdx:"");}');
+  w('      urlSpan.textContent=masked;');
   w('      row.appendChild(dot);row.appendChild(urlSpan);');
   w('      if(inst.online){var ms=document.createElement("span");ms.style.cssText="color:var(--faint);margin-left:auto;font-size:.65rem";ms.textContent=(inst.latency||inst.ms||0)+"ms";row.appendChild(ms);}');
   w('      list.appendChild(row);');
