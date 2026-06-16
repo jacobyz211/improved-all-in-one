@@ -258,25 +258,7 @@ async function getSCClientId(providedId) {
 
 // ─── HiFi Instance Helpers ───────────────────────────────────────────────────
 const DEFAULT_HIFI_INSTANCES = [
-  'https://hifi-api-workers.anothermoumen4.workers.dev',
   'https://hifi-api-bffw.onrender.com',
-  'https://hifi-api-pj08.onrender.com',
-  'https://hifi-api.kennyy.com.br',
-  'https://hifi-api6.spotisaver.net',
-  'https://tidal-api.binimum.org',
-  'https://triton.squid.wtf',
-  'https://ohio-1.monochrome.tf',
-  'https://frankfurt-1.monochrome.tf',
-  'https://vogel.qqdl.site',
-  'https://eu-central.monochrome.tf',
-  'https://us-west.monochrome.tf',
-  'https://hifi.geeked.wtf',
-  'https://monochrome-api.samidy.com',
-  'https://hifi-two.spotisaver.net',
-  'https://wolf.qqdl.site',
-  'https://katze.qqdl.site',
-  'https://hund.qqdl.site',
-  'https://api.monochrome.tf',
 ];
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36';
 
@@ -416,25 +398,21 @@ async function qobuzNativeStream(trackId, formatId, env) {
 
 async function getWorkingHiFiInstance(instances) {
   const list = (instances && instances.length) ? instances : DEFAULT_HIFI_INSTANCES;
-  const cacheKey = 'hifi:working:' + list[0];
+  const inst = list[0];
+  const cacheKey = 'hifi:working:' + inst;
   const cached = await cacheGet(cacheKey);
   if (cached) return cached;
-  const results = await Promise.allSettled(list.map(async inst => {
+  try {
     const r = await axios.get(`${inst}/search/`, {
       params: { s: 'test', limit: 1 },
       headers: { 'User-Agent': UA },
-      timeout: 4000,
+      timeout: 5000,
     });
-    const isJson = typeof r.data === 'object' && r.data !== null;
-    if (r.status === 200 && isJson) return inst;
-    return null;
-  }));
-  for (const r of results) {
-    if (r.status === 'fulfilled' && r.value) {
-      await cacheSet(cacheKey, r.value, 300); // cache 300s — prevent repeated health blasts
-      return r.value;
+    if (r.status === 200 && typeof r.data === 'object' && r.data !== null) {
+      await cacheSet(cacheKey, inst, 300);
+      return inst;
     }
-  }
+  } catch {}
   return null;
 }
 
@@ -462,47 +440,35 @@ async function qobuzStream(trackId, env, preferredQuality) {
   const _qPrefFmt = _qFmtMap[preferredQuality] || 27; // default: hi-res 192kHz
   const fmtOrder = [_qPrefFmt, ...[27, 7, 6, 5].filter(f => f !== _qPrefFmt)];
 
-  // ── Path 1: Native Qobuz direct stream (signed MD5, no proxy) ────────────
-  for (const fmt of fmtOrder) {
-    try {
-      const native = await qobuzNativeStream(trackId, fmt, env);
-      if (native && native.url) {
-        await cacheSet(cacheKey, native, 1680);
-        if (env) upstashCmd(env, 'SET', cacheKey, JSON.stringify(native), 'EX', 720).catch(()=>{});
-        return native;
-      }
-    } catch(e) {
-      // 401/403 = token expired — stop trying native, fall through to proxy
-      if (e.message && (e.message.includes('401') || e.message.includes('403'))) break;
-    }
-  }
+  // ── Race native + all proxy combos simultaneously for fastest result ─────
+  // Native Qobuz direct (signed MD5) runs in parallel with all proxy fallbacks.
+  // We collect all settled results then pick the best quality winner.
+  const nativeCombos = fmtOrder.map(fmt => ({ type: 'native', fmt }));
+  const proxyCombos  = QOBUZ_INSTANCES.flatMap(inst => fmtOrder.map(fmt => ({ type: 'proxy', inst, fmt })));
+  const allCombos    = [...nativeCombos, ...proxyCombos];
 
-  // ── Path 2: Proxy instance fallback (all instances × all formats in parallel) ─
-  const _instOrder = [...QOBUZ_INSTANCES].sort((a, b) => {
-    const ta = cacheGet('qinst:' + a) || 9999;
-    const tb = cacheGet('qinst:' + b) || 9999;
-    return ta - tb;
-  });
-  const combos = [];
-  for (const inst of _instOrder)
-    for (const fmt of fmtOrder)
-      combos.push({ inst, fmt });
-
-  const results = await Promise.allSettled(combos.map(({ inst, fmt }) =>
-    qobuzGet(inst + '/stream/' + trackId, { format_id: fmt }).then(r => {
+  const allResults = await Promise.allSettled(allCombos.map(async combo => {
+    if (combo.type === 'native') {
+      const native = await qobuzNativeStream(trackId, combo.fmt, env);
+      if (native && native.url) return { url: native.url, fmt: combo.fmt, source: 'qobuz-native' };
+      throw new Error('no native url');
+    } else {
+      const r = await qobuzGet(combo.inst + '/stream/' + trackId, { format_id: combo.fmt });
       if (r.data && r.data.url) {
-        cacheSet('qinst:' + inst, Date.now(), 600);
-        return { url: r.data.url, fmt, inst };
+        cacheSet('qinst:' + combo.inst, Date.now(), 600);
+        return { url: r.data.url, fmt: combo.fmt, source: 'qobuz-proxy' };
       }
-      throw new Error('no url');
-    })
-  ));
+      throw new Error('no proxy url');
+    }
+  }));
 
+  // Pick highest-quality winner (prefer native over proxy for same format)
   for (const fmt of fmtOrder) {
-    const hit = results.find(r => r.status === 'fulfilled' && r.value.fmt === fmt);
+    const nativeHit = allResults.find(r => r.status === 'fulfilled' && r.value.fmt === fmt && r.value.source === 'qobuz-native');
+    const proxyHit  = allResults.find(r => r.status === 'fulfilled' && r.value.fmt === fmt && r.value.source === 'qobuz-proxy');
+    const hit = nativeHit || proxyHit;
     if (hit) {
-      const { url } = hit.value;
-      const result = { url, format: fmtLabel[fmt], quality: fmtQuality[fmt], source: 'qobuz-proxy', expiresAt: Math.floor(Date.now()/1000)+1680 };
+      const result = { url: hit.value.url, format: fmtLabel[fmt], quality: fmtQuality[fmt], source: hit.value.source, expiresAt: Math.floor(Date.now()/1000)+1680 };
       await cacheSet(cacheKey, result, 1680);
       if (env) upstashCmd(env, 'SET', cacheKey, JSON.stringify(result), 'EX', 720).catch(()=>{});
       return result;
@@ -732,26 +698,18 @@ async function hifiSearch(query, instances) {
   // Race all instances — first to respond wins for main search
   // Artist searches run in parallel and we collect ALL results
   const HIFI_TIMEOUT = 5000;
-  const mainSearches = list.map(inst =>
-    axios.get(`${inst}/search/`, { params: { s: query, limit: 50 }, headers: { 'User-Agent': UA }, timeout: HIFI_TIMEOUT })
-      .then(r => { if (!r?.data) throw new Error('empty'); return { r, inst }; })
-  );
-  const artistSearches = list.map(inst =>
-    axios.get(`${inst}/search/`, { params: { s: query, type: 'ARTISTS', limit: 10 }, headers: { 'User-Agent': UA }, timeout: HIFI_TIMEOUT })
-      .then(r => ({ r, inst, type: 'artists' })).catch(() => null)
-  );
-
-  // Get fastest main result + all artist results simultaneously
-  let mainHit = null;
-  try {
-    mainHit = await Promise.any(mainSearches);
-  } catch { /* all failed */ }
-
-  const artistSettled = await Promise.allSettled(artistSearches);
-  const inst = mainHit?.inst || list[0];
-  const artistHits = artistSettled
-    .filter(x => x.status === 'fulfilled' && x.value?.r?.data)
-    .map(x => x.value);
+  // Single-instance fast path: run main + artist search in parallel directly
+  const inst = list[0];
+  const [mainSettled, artistSettled0] = await Promise.allSettled([
+    axios.get(`${inst}/search/`, { params: { s: query, limit: 50 }, headers: { 'User-Agent': UA }, timeout: HIFI_TIMEOUT }),
+    axios.get(`${inst}/search/`, { params: { s: query, type: 'ARTISTS', limit: 10 }, headers: { 'User-Agent': UA }, timeout: HIFI_TIMEOUT }),
+  ]);
+  const mainHit = mainSettled.status === 'fulfilled' && mainSettled.value?.data
+    ? { r: mainSettled.value, inst }
+    : null;
+  const artistHits = artistSettled0.status === 'fulfilled' && artistSettled0.value?.data
+    ? [{ r: artistSettled0.value, inst }]
+    : [];
 
   if (!mainHit) return { tracks: [], albums: [], artists: [] };
   try {
@@ -932,9 +890,10 @@ async function hifiStream(id, extraInstances, preferredQuality) {
   const origId    = withoutPrefix.slice(firstUnderscore + 1);
   const preferred = decodeBase64Url(instB64);
 
-  // Preferred instance first, then any user-configured instances, then all defaults
+  // Single instance: always use hifi-api-bffw.onrender.com (the only one configured).
+  // User-configured instances are still prepended in case someone overrides via token.
   const allInstances = [...new Set([preferred, ...(extraInstances || []), ...DEFAULT_HIFI_INSTANCES])];
-  const instanceOrder = allInstances;
+  const instanceOrder = allInstances.slice(0, 3); // cap at 3 to avoid blast
 
   function parseTrackResponse(data) {
     const payload = data?.data || data;
@@ -963,12 +922,12 @@ async function hifiStream(id, extraInstances, preferredQuality) {
   // Each tier is tried fully before falling to the next, so LOSSLESS is always
   // attempted before HIGH or LOW (fixes the bug where LOW won the race).
   async function tryInstance(inst, ql) {
-    // FIX: 2s per-instance timeout — slow instances drop out fast in Promise.any race
+    // 3.5s timeout — render.com free tier has cold starts up to 3s on first wake
     try {
       const r = await axios.get(`${inst}/track/`, {
         params: { id: origId, quality: ql },
         headers: { 'User-Agent': UA, 'Accept': 'application/json' },
-        timeout: 2000,
+        timeout: 3500,
       });
       const parsed = parseTrackResponse(r.data);
       if (parsed) return { ...parsed, quality: ql };
@@ -1023,32 +982,25 @@ async function hifiStream(id, extraInstances, preferredQuality) {
     } catch { /* all tiers/instances failed */ }
   }
 
-  // Legacy /stream/ path fallback — parallel across all instances
-  const legacyResults = await Promise.all(instanceOrder.map(async inst => {
-    for (let _la = 1; _la <= 2; _la++) {
-      try {
-        const r = await axios.get(`${inst}/stream/${origId}`, {
-          headers: { 'User-Agent': UA },
-          timeout: 5000,
-        });
-        if (r.data?.url) {
-          console.log(`[HiFi stream] legacy /stream/ success: ${inst} trackId=${origId}`);
-          return { url: r.data.url, format: r.data.format || 'aac', quality: r.data.quality || 'unknown' };
-        }
-      } catch (e) {
-        const _ls = e.response?.status;
-        if (_ls === 403 || _ls === 404 || _ls === 401) break;
-        if (_la < 2) { await new Promise(r => setTimeout(r, 500)); continue; }
-        if (_ls !== 403 && _ls !== 404 && _ls !== 401)
-          console.warn(`[HiFi stream] legacy ${inst}/stream/${origId} -> ${_ls || 'ERR'}: ${e.message}`);
+  // Legacy /stream/ path — single fast attempt (no retry loop, no sleep)
+  for (const inst of instanceOrder) {
+    try {
+      const r = await axios.get(`${inst}/stream/${origId}`, {
+        headers: { 'User-Agent': UA },
+        timeout: 4000,
+      });
+      if (r.data?.url) {
+        console.log(`[HiFi stream] legacy /stream/ success: ${inst} trackId=${origId}`);
+        return { url: r.data.url, format: r.data.format || 'aac', quality: r.data.quality || 'unknown' };
       }
+    } catch (e) {
+      const _ls = e.response?.status;
+      if (_ls !== 403 && _ls !== 404 && _ls !== 401)
+        console.warn(`[HiFi stream] legacy ${inst}/stream/${origId} -> ${_ls || 'ERR'}: ${e.message}`);
     }
-    return null;
-  }));
-  const legacyWinner = legacyResults.find(r => r !== null);
-  if (legacyWinner) return legacyWinner;
+  }
 
-  console.error(`[HiFi stream] ALL instances failed for trackId=${origId}`);
+  console.error(`[HiFi stream] ALL paths failed for trackId=${origId}`);
   return null;
 }
 
@@ -6443,10 +6395,9 @@ app.get('/:token', function(c) {
 
 // ─── Keepalive: ping cold-start instances on cron ────────────────────────────
 const KEEPALIVE_TARGETS = [
-  'https://hifi-api-pj08.onrender.com',      // Render free — cold starts after 15min idle
+  'https://hifi-api-bffw.onrender.com',       // Render free — cold starts after 15min idle
   'https://qobuz-api1.onrender.com',          // Render free — cold starts after 15min idle
   'https://trypt-hifi-dl-456461932686.us-west1.run.app', // Cloud Run free — cold starts too
-  'https://hifi-api-bffw.onrender.com',
 ];
 
 async function runKeepalive() {
