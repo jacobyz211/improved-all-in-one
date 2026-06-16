@@ -2943,36 +2943,6 @@ app.get('/:config/stats', async (c) => {
 });
 
 
-// ── HiFi instance live status routes ────────────────────────────────────────
-async function _hifiStatusCheck(list) {
-  const results = await Promise.allSettled(list.map(async inst => {
-    const t0 = Date.now();
-    try {
-      const r = await axios.get(`${inst}/search/`, {
-        params: { s: 'test', limit: 1 },
-        headers: { 'User-Agent': UA },
-        timeout: 6000,
-      });
-      const ms = Date.now() - t0;
-      const ok = r.status === 200 && typeof r.data === 'object' && r.data !== null;
-      return { inst, ok, ms, status: ok ? 'online' : 'error' };
-    } catch(e) {
-      return { inst, ok: false, ms: Date.now() - t0, status: 'offline', error: e.message };
-    }
-  }));
-  return results.map(r => r.status === 'fulfilled' ? r.value : { inst: '?', ok: false, ms: 0, status: 'offline' });
-}
-app.get('/hifi-status', async (c) => {
-  const statuses = await _hifiStatusCheck(DEFAULT_HIFI_INSTANCES);
-  return c.json({ instances: statuses, checked: new Date().toISOString() }, 200, jsonHeaders);
-});
-app.get('/:token/hifi-status', async (c) => {
-  const cfg = getConfig(c);
-  const list = (cfg.hifiInstances && cfg.hifiInstances.length) ? cfg.hifiInstances : DEFAULT_HIFI_INSTANCES;
-  const statuses = await _hifiStatusCheck(list);
-  return c.json({ instances: statuses, checked: new Date().toISOString() }, 200, jsonHeaders);
-});
-
 // ── Deezer BF proxy routes (must be before /:token/* wildcards)
 app.get('/dz-proxy/:id',      handleDzProxy);
 app.get('/:token/dz-proxy/:id', handleDzProxy);
@@ -6251,39 +6221,6 @@ function buildConfigPage(baseUrl, env) {
   w('}');
 
 
-  w('<div id="hifi-status-panel" style="margin:2rem auto 1.5rem;max-width:700px;background:#0d1f18;border:1px solid #1e3a2f;border-radius:12px;padding:1.5rem 2rem;">');
-  w('<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;">');
-  w('<h3 style="color:#4f98a3;margin:0;font-size:1rem;letter-spacing:.04em;">&#128246; HiFi Instance Status<\/h3>');
-  w('<button id="hifi-refresh-btn" onclick="checkHifiStatus()" style="background:#1a3a30;border:1px solid #4f98a3;color:#4f98a3;border-radius:8px;padding:.4rem .9rem;cursor:pointer;font-size:.82rem;transition:background .2s;" onmouseover="this.style.background=\'#0f2a22\';" onmouseout="this.style.background=\'#1a3a30\';">&#8635; Refresh<\/button>');
-  w('<\/div>');
-  w('<div id="hifi-status-rows" style="display:flex;flex-direction:column;gap:.45rem;"><div style="color:#555;font-size:.85rem;text-align:center;padding:.5rem 0;">Click Refresh to check instance status...<\/div><\/div>');
-  w('<div id="hifi-status-ts" style="color:#3a5a50;font-size:.72rem;margin-top:.75rem;text-align:right;"><\/div>');
-  w('<\/div>');
-  w('<script>');
-  w('(function(){');
-  w('function checkHifiStatus(){');
-  w('var btn=document.getElementById("hifi-refresh-btn"),rows=document.getElementById("hifi-status-rows"),ts=document.getElementById("hifi-status-ts");');
-  w('if(btn){btn.disabled=true;btn.textContent="Checking...";}');
-  w('if(rows)rows.innerHTML=\'<div style="color:#555;font-size:.85rem;text-align:center;padding:.6rem 0;">Pinging instance...</div>\';');
-  w('var base=window.location.pathname.replace(/\/configure.*$/,"").replace(/\/+$/,"");');
-  w('fetch(base+"/hifi-status").then(function(r){return r.json();}).then(function(d){');
-  w('if(!rows)return;');
-  w('if(!d.instances||!d.instances.length){rows.innerHTML=\'<div style="color:#c06060">No instances configured.<\/div>\';return;}');
-  w('rows.innerHTML=d.instances.map(function(s){');
-  w('var dot=s.ok?"#4f98a3":"#c06060";');
-  w('var ping=s.ok?" &bull; "+s.ms+"ms":"";');
-  w('var err=(!s.ok&&s.error)?\'<div style="color:#8a5a5a;font-size:.73rem;margin-top:.2rem;">\'+(s.error?s.error.toString().slice(0,80):"")+\'<\/div>\':"";');
-  w('return \'<div style="display:flex;align-items:flex-start;gap:.7rem;padding:.5rem .75rem;background:#0a1810;border-radius:8px;border:1px solid #1a3028;">\'');
-  w('+\'<span style="width:9px;height:9px;border-radius:50%;background:\'+dot+\';margin-top:.35rem;flex-shrink:0;box-shadow:0 0 6px \'+dot+\'80;">&nbsp;<\/span>\'');
-  w('+\'<div style="flex:1;min-width:0;"><div style="color:#c8d4cf;font-size:.85rem;font-family:monospace;">\'+(s.inst||"?")');
-  w('+\'<span style="color:\'+dot+\';margin-left:.6rem;font-size:.75rem;font-family:sans-serif;">\'+(s.ok?"ONLINE":"OFFLINE")+ping+\'<\/span><\/div>\'+err+\'<\/div><\/div>\';');
-  w('}).join("");');
-  w('if(ts)ts.textContent="Last checked: "+new Date(d.checked).toLocaleTimeString();');
-  w('}).catch(function(e){if(rows)rows.innerHTML=\'<div style="color:#c06060;font-size:.85rem;">&#9888; Check failed: \'+(e.message||"network error")+\'<\/div>\';');
-  w('}).finally(function(){if(btn){btn.disabled=false;btn.textContent="\u21BB Refresh";}});');
-  w('}');
-  w('window.checkHifiStatus=checkHifiStatus;');
-  w('}());');
   w('<\/script>');
   w('<\/body>');
   w('<\/html>');
