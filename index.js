@@ -1235,12 +1235,17 @@ async function scStream(origId, clientId, oauthToken) {
       timeout: 8000,
     });
     const transcodings = res.data?.media?.transcodings || [];
+    // Prefer progressive MP3 > progressive any > HLS MP3 > HLS any > first available
     const transcoding =
       transcodings.find(t => t.format?.protocol === 'progressive' && t.format?.mime_type?.includes('mpeg')) ||
       transcodings.find(t => t.format?.protocol === 'progressive') ||
-      transcodings.find(t => t.format?.mime_type?.includes('mpeg')) ||
+      transcodings.find(t => t.format?.protocol === 'hls' && t.format?.mime_type?.includes('mpeg')) ||
+      transcodings.find(t => t.format?.protocol === 'hls') ||
       transcodings[0];
-    if (!transcoding?.url) return null;
+    if (!transcoding?.url) {
+      console.warn(`[SC] no transcodings available for track ${origId}`);
+      return null;
+    }
     const streamRes = await axios.get(transcoding.url, {
       params: { client_id: cid },
       headers: oauthToken ? { Authorization: `OAuth ${oauthToken}` } : {},
@@ -1320,20 +1325,32 @@ async function iaGetBestAudioFile(identifier) {
   const cached = await cacheGet(cacheKey);
   if (cached) return cached;
   try {
-    const res = await axios.get(`https://archive.org/metadata/${identifier}`, { timeout: 6000 });
+    const res = await axios.get(`https://archive.org/metadata/${identifier}`, { timeout: 8000 });
     const files = res.data?.files || [];
-    // Prefer mp3, then ogg, then flac
-    const ranked = ['mp3', 'ogg', 'flac', 'wav'];
-    for (const ext of ranked) {
-      const f = files.find(f => f.name?.toLowerCase().endsWith(`.${ext}`) && f.source !== 'metadata');
-      if (f) {
-        const url = `https://archive.org/download/${identifier}/${encodeURIComponent(f.name)}`;
-        await cacheSet(cacheKey, url, 3600);
-        return url;
-      }
+    const _audioFiles = files.filter(f => {
+      const n = (f.name || '').toLowerCase();
+      return (n.endsWith('.mp3') || n.endsWith('.flac') || n.endsWith('.ogg') || n.endsWith('.wav') || n.endsWith('.opus'))
+        && f.source !== 'metadata';
+    });
+    // Score: flac=4, mp3 (320/VBR)=3, mp3 (other)=2, ogg/opus=1, wav=0
+    const _score = f => {
+      const n = (f.name || '').toLowerCase();
+      const bitrate = parseInt(f.bitrate || '0', 10);
+      if (n.endsWith('.flac')) return 4;
+      if (n.endsWith('.mp3') && (bitrate >= 320 || f.name?.includes('320') || f.name?.includes('VBR'))) return 3;
+      if (n.endsWith('.mp3')) return 2;
+      if (n.endsWith('.ogg') || n.endsWith('.opus')) return 1;
+      return 0;
+    };
+    _audioFiles.sort((a, b) => _score(b) - _score(a));
+    const best = _audioFiles[0];
+    if (best) {
+      const url = `https://archive.org/download/${identifier}/${encodeURIComponent(best.name)}`;
+      await cacheSet(cacheKey, url, 3600);
+      return url;
     }
     return null;
-  } catch { return null; }
+  } catch(e) { console.warn('[IA getBestAudioFile]', e.message); return null; }
 }
 
 // ─── Internet Archive Audiobooks ──────────────────────────────────────────────
@@ -2243,7 +2260,7 @@ async function deezerSearch(query) {
   if (cached) return cached;
   try {
     const [trackRes, albumRes, artistRes, playlistRes] = await Promise.allSettled([
-      axios.get(`${DEEZER_API}/search`,          { params: { q: query, limit: 20 }, headers: { 'User-Agent': UA }, timeout: 8000 }),
+      axios.get(`${DEEZER_API}/search`,          { params: { q: query, limit: 25, output: 'json' }, headers: { 'User-Agent': UA }, timeout: 8000 }),
       axios.get(`${DEEZER_API}/search/album`,    { params: { q: query, limit: 8  }, headers: { 'User-Agent': UA }, timeout: 8000 }),
       axios.get(`${DEEZER_API}/search/artist`,   { params: { q: query, limit: 6  }, headers: { 'User-Agent': UA }, timeout: 8000 }),
       axios.get(`${DEEZER_API}/search/playlist`, { params: { q: query, limit: 4  }, headers: { 'User-Agent': UA }, timeout: 8000 }),
@@ -2252,7 +2269,7 @@ async function deezerSearch(query) {
     const rawAlbums    = albumRes.status    === 'fulfilled' ? (albumRes.value.data?.data    || []) : [];
     const rawArtists   = artistRes.status   === 'fulfilled' ? (artistRes.value.data?.data   || []) : [];
     const rawPlaylists = playlistRes.status === 'fulfilled' ? (playlistRes.value.data?.data || []) : [];
-    const tracks = rawTracks.slice(0, 20).map(t => ({
+    const tracks = rawTracks.slice(0, 25).map(t => ({
       id: `deezer:${t.id}`, title: t.title || 'Unknown', artist: t.artist?.name || 'Unknown',
       album: t.album?.title || '', duration: t.duration || undefined,
       artworkURL: t.album?.cover_xl || t.album?.cover_big || t.album?.cover || null,
@@ -3153,9 +3170,12 @@ async function handleSearch(c) {
 
   // Re-encode instB64 for tracks that came back with raw inst
   const hifiTracksNorm = hifiTrackList.map(t => {
-    if (t.id && t.id.startsWith('hifi_')) return t;
-    const instB64 = encodeBase64Url(t._inst || '');
-    return { ...t, id: `hifi_${instB64}_${t._origId || t.id}` };
+    const base = (t.id && t.id.startsWith('hifi_'))
+      ? t
+      : { ...t, id: `hifi_${encodeBase64Url(t._inst || '')}_${t._origId || t.id}` };
+    // Normalize ISRC so _canonKey dedup works cross-source
+    if (base.isrc) base.isrc = String(base.isrc).toUpperCase().replace(/[^A-Z0-9]/g, '');
+    return base;
   });
 
   // Dedupe podcast albums
@@ -3238,7 +3258,7 @@ async function handleSearch(c) {
     // with "First Love" from any other artist and get silently dropped.
     if (!t || !a) return null; // unknown title OR artist → never auto-dedup
     const dur = (item.duration && item.duration > 5) ? item.duration : 0;
-    const db  = dur ? '|d' + (Math.round(dur / 3) * 3) : '';
+    const db  = dur ? '|d' + (Math.round(dur / 5) * 5) : '';
     // Include BOTH title AND artist in key — different artists = different key = both shown
     return 'ta:' + t + '|' + a + db;
   };
@@ -3278,7 +3298,7 @@ async function handleSearch(c) {
           // Allow genuinely different track lengths (> 3s apart) through — e.g. radio edit vs album cut.
           const prevDur = seenKeyDur.get(ck) || 0;
           const curDur  = (item.duration && item.duration > 5) ? item.duration : 0;
-          if (prevDur > 10 && curDur > 10 && Math.abs(prevDur - curDur) > 3) {
+          if (prevDur > 10 && curDur > 10 && Math.abs(prevDur - curDur) > 10) {
             if (ik) seenIds.add(ik);
             result.push(item);
           }
@@ -3784,62 +3804,68 @@ async function handleStream(c) {
         ? _hifiStreamOrder.filter(s => s !== 'hifi')
         : ['qobuz', 'hifi', 'deezer', 'sc', 'ia'] // default: Qobuz→Tidal→Deezer→SC→IA
       );
-      console.log(`[stream fallback] HiFi failed for "${meta.title}", trying: ${_fbOrder.join(',')}`);
-      for (const _fb of _fbOrder) {
-        // ── Qobuz ────────────────────────────────────────────────────────
-        // FIX: _fbOrder already filtered by streamOrder, so these checks are safeguards only
-        if (_fb === 'qobuz' && !cfg.noQobuz && !_skipQobuz) continue; // already tried above
-        if (_fb === 'qobuz' && !cfg.noQobuz && _skipQobuz) {
-          try {
-            const qTrack = await qobuzFindBestTrack(meta.title, meta.artist, meta.isrc || null, c.env, meta.duration);
-            if (qTrack?.id) {
-              const _qd = (meta.duration && qTrack.duration) ? Math.abs(meta.duration - qTrack.duration) : 0;
-              if (_qd <= 20) {
-                const qs = await qobuzStream(qTrack.id, c.env, cfg.preferredQuality);
-                if (qs) { await cacheSet(streamCacheKey, { ...qs, fallback: 'qobuz' }, 280); return c.json({ ...qs, fallback: 'qobuz' }); }
-              }
-            }
-          } catch(e) { console.warn('[fb-qobuz]', e.message); }
-        }
-        // ── Deezer ───────────────────────────────────────────────────────
-        if (_fb === 'deezer' && !cfg.noDeezer) {
-          try {
-            const dRes = await deezerSearch(`${meta.artist} ${meta.title}`, 5);
-            for (const dt of (dRes?.tracks || [])) {
-              const _dd = (meta.duration && dt.duration) ? Math.abs(meta.duration - dt.duration) : 0;
-              if (_dd > 20) continue;
-              const ds = await deezerStream(String(dt.id), c.env, c.req);
-              if (ds) { await cacheSet(streamCacheKey, { ...ds, fallback: 'deezer' }, 280); return c.json({ ...ds, fallback: 'deezer' }); }
-            }
-          } catch(e) { console.warn('[fb-deezer]', e.message); }
-        }
-        // ── SoundCloud ───────────────────────────────────────────────────
-        if (_fb === 'sc' && !cfg.noSc) {
-          try {
-            const cid = await getSCClientId(cfg.scClientId);
-            if (cid) {
-              const scRes = await axios.get('https://api-v2.soundcloud.com/search/tracks', {
-                params: { q: `${meta.artist} ${meta.title}`, client_id: cid, limit: 8 },
-                headers: cfg.scOAuthToken ? { Authorization: `OAuth ${cfg.scOAuthToken}` } : {},
-                timeout: 5000,
-              });
-              const scTracks = scRes.data?.collection || [];
-              const scResults = await Promise.all(
-                scTracks.map(st => scStream(String(st.id), cid, cfg.scOAuthToken).then(r => ({ r, st })).catch(() => ({ r: null, st })))
-              );
-              for (const { r: scr, st } of scResults) {
-                if (!scr || scr._scSnipped) continue;
-                const _sd = (meta.duration && st.full_duration)
-                  ? Math.abs(meta.duration - st.full_duration / 1000) : 0;
-                if (_sd > 20) { console.log(`[fb-sc] dur mismatch ${_sd}s — skip`); continue; }
-                console.log(`[fb-sc] found: "${st.title}" by "${st.user?.username}"`);
-                const { _scSnipped, ...clean } = scr;
-                const fbr = { ...clean, fallback: 'sc' };
-                await cacheSet(streamCacheKey, fbr, 280);
-                return c.json(fbr);
-              }
-            }
-          } catch(e) { console.warn('[fb-sc]', e.message); }
+      console.log(`[stream fallback] HiFi failed for "${meta.title}", trying parallel: ${_fbOrder.join(',')}`);
+      // FIX: run ALL fallback sources in parallel (Promise.any) — cuts latency from ~7s to ~2s
+      const _hifiFbAttempts = [];
+
+      if (_fbOrder.includes('qobuz') && !cfg.noQobuz && _skipQobuz) {
+        _hifiFbAttempts.push((async () => {
+          const qTrack = await qobuzFindBestTrack(meta.title, meta.artist, meta.isrc || null, c.env, meta.duration);
+          if (!qTrack?.id) throw new Error('no qobuz track');
+          const _qd = (meta.duration && qTrack.duration) ? Math.abs(meta.duration - qTrack.duration) : 0;
+          if (_qd > 20) throw new Error(`qobuz dur mismatch ${_qd}s`);
+          const qs = await qobuzStream(qTrack.id, c.env, cfg.preferredQuality);
+          if (!qs) throw new Error('qobuz stream failed');
+          console.log(`[fb-qobuz] HIT "${meta.title}" -> ${qTrack.id}`);
+          return { ...qs, fallback: 'qobuz' };
+        })());
+      }
+
+      if (_fbOrder.includes('deezer') && !cfg.noDeezer) {
+        _hifiFbAttempts.push((async () => {
+          const dRes = await deezerSearch(`${meta.artist} ${meta.title}`);
+          for (const dt of (dRes?.tracks || []).slice(0, 5)) {
+            const _dd = (meta.duration && dt.duration) ? Math.abs(meta.duration - dt.duration) : 0;
+            if (_dd > 20) continue;
+            const ds = await deezerStream(String(dt.id).replace(/^deezer:/i,''), c.env, c.req);
+            if (ds) { console.log(`[fb-deezer] HIT "${meta.title}"`); return { ...ds, fallback: 'deezer' }; }
+          }
+          throw new Error('no deezer match');
+        })());
+      }
+
+      if (_fbOrder.includes('sc') && !cfg.noSc) {
+        _hifiFbAttempts.push((async () => {
+          const cid = await getSCClientId(cfg.scClientId);
+          if (!cid) throw new Error('no sc client_id');
+          const scRes = await axios.get('https://api-v2.soundcloud.com/search/tracks', {
+            params: { q: `${meta.artist} ${meta.title}`, client_id: cid, limit: 8 },
+            headers: cfg.scOAuthToken ? { Authorization: `OAuth ${cfg.scOAuthToken}` } : {},
+            timeout: 5000,
+          });
+          const scTracks = scRes.data?.collection || [];
+          for (const st of scTracks) {
+            const _sd = (meta.duration && st.full_duration)
+              ? Math.abs(meta.duration - st.full_duration / 1000) : 0;
+            if (_sd > 20) continue;
+            const scr = await scStream(String(st.id), cid, cfg.scOAuthToken);
+            if (!scr || scr._scSnipped) continue;
+            console.log(`[fb-sc] HIT "${st.title}" by "${st.user?.username}"`);
+            const { _scSnipped, ...clean } = scr;
+            return { ...clean, fallback: 'sc' };
+          }
+          throw new Error('no sc match');
+        })());
+      }
+
+      if (_hifiFbAttempts.length) {
+        try {
+          const _hWinner = await Promise.any(_hifiFbAttempts);
+          console.log(`[HiFi fallback winner] ${_hWinner.fallback} for "${meta.title}"`);
+          await cacheSet(streamCacheKey, _hWinner, 280);
+          return c.json(_hWinner);
+        } catch(e) {
+          console.warn(`[HiFi fallback] all sources failed for "${meta.title}"`);
         }
       }
     }
@@ -4072,59 +4098,75 @@ async function handleStream(c) {
         }
       } catch(e) { console.warn('[qobuz direct stream]', e.message); }
     }
-    // Qobuz failed or skipped — try fallback sources as ordered
+    // Qobuz failed or skipped — try fallback sources in parallel
     const _qMeta = await cacheGet(`qobuz:track:meta:${qobuzId}`);
     if (_qMeta?.title) {
-      // FIX: only fall back to sources in streamOrder when it's explicitly set
-    const _qFbOrder = (cfg.streamOrder?.length
+      const _qFbOrder = (cfg.streamOrder?.length
         ? cfg.streamOrder.filter(s => s !== 'qobuz')
         : ['hifi', 'deezer', 'sc']
       );
-      for (const _qfb of _qFbOrder) {
-        if (_qfb === 'hifi' && !cfg.noHifi && cfg.hifiInstances?.length) {
-          try {
-            const _hRes = await hifiSearch(`${_qMeta.artist} ${_qMeta.title}`, cfg.hifiInstances);
-            const _hTracks = Array.isArray(_hRes) ? _hRes : (_hRes?.tracks || []);
-            for (const _ht of _hTracks.slice(0, 3)) {
-              const _hd = (_qMeta.duration && _ht.duration) ? Math.abs(_qMeta.duration - _ht.duration) : 0;
-              if (_hd > 20) continue;
-              const _hs = await hifiStream(_ht.id, cfg.hifiInstances, cfg.preferredQuality);
-              if (_hs) { await cacheSet(sCacheKey, { ..._hs, fallback: 'hifi' }, 280); return c.json({ ..._hs, fallback: 'hifi' }); }
+      console.log(`[qobuz fallback] "${_qMeta.title}" trying parallel: ${_qFbOrder.join(',')}`);
+      const _qFbAttempts = [];
+
+      if (_qFbOrder.includes('hifi') && !cfg.noHifi) {
+        _qFbAttempts.push((async () => {
+          const _hRes = await hifiSearch(`${_qMeta.artist} ${_qMeta.title}`, cfg.hifiInstances);
+          const _hTracks = Array.isArray(_hRes) ? _hRes : (_hRes?.tracks || []);
+          for (const _ht of _hTracks.slice(0, 5)) {
+            const _hd = (_qMeta.duration && _ht.duration) ? Math.abs(_qMeta.duration - _ht.duration) : 0;
+            if (_hd > 20) continue;
+            const _hs = await hifiStream(_ht.id, cfg.hifiInstances, cfg.preferredQuality);
+            if (_hs) { console.log(`[qobuz fb-hifi] HIT "${_qMeta.title}"`); return { ..._hs, fallback: 'hifi' }; }
+          }
+          throw new Error('no hifi match');
+        })());
+      }
+
+      if (_qFbOrder.includes('deezer') && !cfg.noDeezer) {
+        _qFbAttempts.push((async () => {
+          const _dRes = await deezerSearch(`${_qMeta.artist} ${_qMeta.title}`);
+          for (const _dt of (_dRes?.tracks || []).slice(0, 5)) {
+            const _dd = (_qMeta.duration && _dt.duration) ? Math.abs(_qMeta.duration - _dt.duration) : 0;
+            if (_dd > 20) continue;
+            const _ds = await deezerStream(String(_dt.id).replace(/^deezer:/i,''), c.env, c.req);
+            if (_ds) { console.log(`[qobuz fb-deezer] HIT "${_qMeta.title}"`); return { ..._ds, fallback: 'deezer' }; }
+          }
+          throw new Error('no deezer match');
+        })());
+      }
+
+      if (_qFbOrder.includes('sc') && !cfg.noSc) {
+        _qFbAttempts.push((async () => {
+          const _cid = await getSCClientId(cfg.scClientId);
+          if (!_cid) throw new Error('no sc client_id');
+          const _scR = await axios.get('https://api-v2.soundcloud.com/search/tracks', {
+            params: { q: `${_qMeta.artist} ${_qMeta.title}`, client_id: _cid, limit: 8 },
+            headers: cfg.scOAuthToken ? { Authorization: `OAuth ${cfg.scOAuthToken}` } : {},
+            timeout: 5000,
+          });
+          for (const _st of (_scR.data?.collection || [])) {
+            const _sd = (_qMeta.duration && _st.full_duration)
+              ? Math.abs(_qMeta.duration - _st.full_duration / 1000) : 0;
+            if (_sd > 20) continue;
+            const _ss = await scStream(String(_st.id), _cid, cfg.scOAuthToken);
+            if (_ss && !_ss._scSnipped) {
+              console.log(`[qobuz fb-sc] HIT "${_st.title}"`);
+              const { _scSnipped, ...clean } = _ss;
+              return { ...clean, fallback: 'sc' };
             }
-          } catch(e) { console.warn('[qobuz fb-hifi]', e.message); }
-        }
-        if (_qfb === 'deezer' && !cfg.noDeezer) {
-          try {
-            const _dRes = await deezerSearch(`${_qMeta.artist} ${_qMeta.title}`, 5);
-            for (const _dt of (_dRes?.tracks || [])) {
-              const _dd = (_qMeta.duration && _dt.duration) ? Math.abs(_qMeta.duration - _dt.duration) : 0;
-              if (_dd > 20) continue;
-              const _ds = await deezerStream(String(_dt.id), c.env, c.req);
-              if (_ds) { await cacheSet(sCacheKey, { ..._ds, fallback: 'deezer' }, 280); return c.json({ ..._ds, fallback: 'deezer' }); }
-            }
-          } catch(e) { console.warn('[qobuz fb-deezer]', e.message); }
-        }
-        if (_qfb === 'sc' && !cfg.noSc) {
-          try {
-            const _cid = await getSCClientId(cfg.scClientId);
-            if (_cid) {
-              const _scR = await axios.get('https://api-v2.soundcloud.com/search/tracks', {
-                params: { q: `${_qMeta.artist} ${_qMeta.title}`, client_id: _cid, limit: 6 },
-                timeout: 5000,
-              });
-              for (const _st of (_scR.data?.collection || [])) {
-                const _sd = (_qMeta.duration && _st.full_duration)
-                  ? Math.abs(_qMeta.duration - _st.full_duration / 1000) : 0;
-                if (_sd > 20) continue;
-                const _ss = await scStream(String(_st.id), _cid, cfg.scOAuthToken);
-                if (_ss && !_ss._scSnipped) {
-                  const { _scSnipped, ...clean } = _ss;
-                  await cacheSet(sCacheKey, { ...clean, fallback: 'sc' }, 280);
-                  return c.json({ ...clean, fallback: 'sc' });
-                }
-              }
-            }
-          } catch(e) { console.warn('[qobuz fb-sc]', e.message); }
+          }
+          throw new Error('no sc match');
+        })());
+      }
+
+      if (_qFbAttempts.length) {
+        try {
+          const _qWinner = await Promise.any(_qFbAttempts);
+          console.log(`[Qobuz fallback winner] ${_qWinner.fallback} for "${_qMeta.title}"`);
+          await cacheSet(sCacheKey, _qWinner, 280);
+          return c.json(_qWinner);
+        } catch(e) {
+          console.warn(`[Qobuz fallback] all sources failed for "${_qMeta.title}"`);
         }
       }
     }
