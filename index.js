@@ -3059,15 +3059,19 @@ const RL_CFG = {
   global:   { window: 60_000, max: 80  },
 };
 
-// Prune stale windows every 2 minutes to keep memory flat
-setInterval(() => {
+// CF Workers: setInterval is not allowed in global scope.
+// Instead we do lazy pruning: every ~100 checkRateLimit calls we sweep expired windows.
+let _rlPruneCounter = 0;
+function _rlMaybePrune() {
+  if (++_rlPruneCounter < 100) return;
+  _rlPruneCounter = 0;
   const now = Date.now();
   for (const [key, entry] of _rlWindows) {
     const type = key.split(':').pop();
     const cfg  = RL_CFG[type] || RL_CFG.global;
     if (now - entry.windowStart > cfg.window * 2) _rlWindows.delete(key);
   }
-}, 120_000);
+}
 
 /**
  * checkRateLimit(env, ip, type)
@@ -3087,6 +3091,7 @@ async function checkRateLimit(env, ip, type = 'global') {
   }
   entry.count++;
   _rlWindows.set(key, entry);
+  _rlMaybePrune();
 
   const remaining  = Math.max(0, cfg.max - entry.count);
   const resetEpoch = Math.ceil((entry.windowStart + cfg.window) / 1000);
