@@ -634,7 +634,7 @@ async function qobuzSearch(query) {
         id:         `qobuz_artist_${a.id}`,
         name:       a.name || 'Unknown Artist',
         // Qobuz search: artist.image.large  or artist.picture (300x300 jpg path)
-        artworkURL: (() => { const u = a.picture ? `https://static.qobuz.com/images/artists/covers/${a.picture}_400.jpg` : (a.image?.large || a.image?.small || null); return u ? u.replace(/_\d+\.jpg$/, '_400.jpg') : null; })(),
+        artworkURL: a.image?.large || a.image?.thumbnail || a.image?.small || (a.picture ? `https://static.qobuz.com/images/artists/covers/${a.picture}_400.jpg` : null),
         source:     'qobuz',
       }));
 
@@ -5343,14 +5343,9 @@ async function handleArtist(c) {
         const arData = arRes.data || {};
         if (!arData?.id && !arData?.name) continue;
         const artistName = arData.name || '';
-        const _rawCover = arData.picture
-          ? `https://static.qobuz.com/images/artists/covers/${arData.picture}_400.jpg`
-          : (arData.image?.large || arData.image?.small || null);
-        // Replace e.g. _600.jpg with _400.jpg for a reliable square crop;
-        // fall back to the original URL if the pattern doesn't match.
-        const cover = _rawCover
-          ? (_rawCover.replace(/_\d+\.jpg$/, '_400.jpg') || _rawCover)
-          : (arData.image?.small || null);
+        // Mirror reference repo: large → thumbnail → small → picture → images[0]
+        let cover = arData.image?.large || arData.image?.thumbnail || arData.image?.small || arData.picture || null;
+        if (!cover && arData.images && arData.images.length) cover = arData.images[0];
 
         // Run search queries in parallel: general, EP/Single, compilation, live
         // to maximise album type coverage since proxy has no dedicated albums endpoint
