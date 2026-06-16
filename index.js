@@ -6273,7 +6273,7 @@ function buildConfigPage(baseUrl, env) {
   w('</body>');
   w('</html>');
 
-  return new Response(S.join('\n'), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
+  return S.join('\n');
 }
 
 function getBaseUrl(c) {
