@@ -6273,7 +6273,7 @@ function buildConfigPage(baseUrl, env) {
   w('</body>');
   w('</html>');
 
-  return S.join('\n');
+  return new Response(S.join('\n'), { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
 }
 
 function getBaseUrl(c) {
@@ -6355,11 +6355,11 @@ app.post('/refresh', async function(c) {
 
 // ─── GET / and /generator — serve config page ─────────────────────────────────
 app.get('/', async function(c) {
-  return c.html(buildConfigPage(getBaseUrl(c), c.env));
+  return buildConfigPage(getBaseUrl(c), c.env);
 });
 
 app.get('/generator', async function(c) {
-  return c.html(buildConfigPage(getBaseUrl(c), c.env));
+  return buildConfigPage(getBaseUrl(c), c.env);
 });
 
 // ─── 8SPINE Module Endpoints ──────────────────────────────────────────────────
