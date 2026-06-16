@@ -3566,6 +3566,8 @@ async function handlePodcastSearch(c) {
   const cached = await cacheGet(cacheKey);
   if (cached) return c.json(cached);
 
+  // Always search all podcast sources regardless of noPodcast flag —
+  // this is the podcast-specific manifest route, so podcasts are always wanted
   const [podcastData, taddyData, appleData] = await Promise.allSettled([
     piSearchEpisodes(query, cfg.piKey, cfg.piSecret),
     taddySearch(query, cfg.taddyKey, cfg.taddyUid),
@@ -6409,7 +6411,7 @@ function buildConfigPage(baseUrl, env) {
   w('  bigger:{search:[{s:"deezer",on:true},{s:"sc",on:true},{s:"qobuz",on:false},{s:"hifi",on:false},{s:"ia",on:false}],stream:[{s:"qobuz",on:true},{s:"hifi",on:true},{s:"deezer",on:true},{s:"sc",on:true},{s:"ia",on:true}]},');
   w('  custom:{search:[{s:"qobuz",on:false},{s:"hifi",on:false},{s:"deezer",on:false},{s:"sc",on:false},{s:"ia",on:false}],stream:[{s:"qobuz",on:false},{s:"hifi",on:false},{s:"deezer",on:false},{s:"sc",on:false},{s:"ia",on:false}]}');
   w('};');
-  w('var state={step:1,content:{podcast:false,audiobook:false,radio:false,explicit:true},qualityMode:"general",qobuzQuality:"HIRES_96",preset:"full",searchOrder:JSON.parse(JSON.stringify(PRESETS.full.search)),streamOrder:JSON.parse(JSON.stringify(PRESETS.full.stream)),started:false};');
+  w('var state={step:1,content:{podcast:true,audiobook:false,radio:false,explicit:true},qualityMode:"general",qobuzQuality:"HIRES_96",preset:"full",searchOrder:JSON.parse(JSON.stringify(PRESETS.full.search)),streamOrder:JSON.parse(JSON.stringify(PRESETS.full.stream)),started:false};');
   w('var isrcToggles={musicbrainz:true,theaudiodb:true,deezer_isrc:true,qobuz_isrc:true};');
 
   w('function startSetup(){state.started=true;document.getElementById("heroSection").style.display="none";document.getElementById("stepsBar").style.display="flex";goToStep(1)}');
