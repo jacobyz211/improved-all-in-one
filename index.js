@@ -623,7 +623,7 @@ async function qobuzSearch(query) {
         id:         `qobuzalbum_${a.id}`,
         title:      a.title || 'Unknown Album',
         artist:     a.artist?.name || 'Unknown',
-        artworkURL: a.image?.small || a.image?.back || a.image?.large || null,
+        artworkURL: a.image?.large || a.image?.small || null,
         year:       safeYear(a.release_date_original),
         source:     'qobuz',
       }));
@@ -634,7 +634,7 @@ async function qobuzSearch(query) {
         id:         `qobuz_artist_${a.id}`,
         name:       a.name || 'Unknown Artist',
         // Qobuz search: artist.image.large  or artist.picture (300x300 jpg path)
-        artworkURL: a.picture ? `https://static.qobuz.com/images/artists/covers/${a.picture}_400.jpg` : (a.image?.small || a.image?.thumbnail || a.image?.large || null),
+        artworkURL: (() => { const u = a.picture ? `https://static.qobuz.com/images/artists/covers/${a.picture}_400.jpg` : (a.image?.large || a.image?.small || null); return u ? u.replace(/_\d+\.jpg$/, '_400.jpg') : null; })(),
         source:     'qobuz',
       }));
 
@@ -3193,12 +3193,27 @@ async function handleSearch(c) {
     const rawId = String(dt.id).replace(/^deezer:/, '');
     cacheSet(`dz:track:meta:${rawId}`, { title: dt.title, artist: dt.artist, isrc: dt.isrc ? dt.isrc.toUpperCase().replace(/[^A-Z0-9]/g,'') : null }, 3600);
   }
+  // Score tracks by artist-name relevance to the query so that
+  // e.g. searching "drake" floats Drake tracks above Nick Drake tracks,
+  // while still allowing song-title matches to appear further down.
+  const _scoreTrack = (t, q) => {
+    if (!q) return 0;
+    const aName = (typeof t.artist === 'string' ? t.artist : (t.artist?.name || '')).toLowerCase();
+    const qLow = q.toLowerCase().trim();
+    if (aName === qLow) return 3;           // exact artist match
+    if (aName.startsWith(qLow)) return 2;   // artist starts with query
+    if (aName.includes(qLow)) return 1;     // artist contains query
+    return 0;                               // title/other match
+  };
+  const _sortByRelevance = (tracks, q) =>
+    [...tracks].sort((a, b) => _scoreTrack(b, q) - _scoreTrack(a, q));
+  const _q = query || '';
   const musicSourceMap = {
-    hifi:   effectiveMusicOrder.includes('hifi')   ? hifiTracksNorm : [],
-    qobuz:  effectiveMusicOrder.includes('qobuz')  ? qobuzTracks    : [],
-    sc:     effectiveMusicOrder.includes('sc')     ? sc             : [],
-    ia:     effectiveMusicOrder.includes('ia')     ? iaMusic        : [],
-    deezer: effectiveMusicOrder.includes('deezer') ? deezerTracks   : [],
+    hifi:   effectiveMusicOrder.includes('hifi')   ? _sortByRelevance(hifiTracksNorm, _q) : [],
+    qobuz:  effectiveMusicOrder.includes('qobuz')  ? _sortByRelevance(qobuzTracks, _q)    : [],
+    sc:     effectiveMusicOrder.includes('sc')     ? _sortByRelevance(sc, _q)             : [],
+    ia:     effectiveMusicOrder.includes('ia')     ? _sortByRelevance(iaMusic, _q)        : [],
+    deezer: effectiveMusicOrder.includes('deezer') ? _sortByRelevance(deezerTracks, _q)   : [],
   };
   const musicAlbumMap = {
     hifi:   effectiveMusicOrder.includes('hifi')   ? hifiAlbumList       : [],
@@ -3268,12 +3283,19 @@ async function handleSearch(c) {
   // track is NEVER shown if HiFi/Qobuz already has the same song.
   // Duration tolerance: ±3 seconds (strict — avoids deduping edit vs album cuts).
   const interleave = (sourceLists) => {
-    // Priority-first: drain ALL items from source[0] first, then source[1], etc.
-    // First-seen-wins dedup ensures highest-priority source always wins on duplicates.
-    // A Qobuz track is NEVER replaced by a Tidal/Deezer copy if Qobuz is ranked first.
+    // Round-robin with priority dedup:
+    // Same position across all sources interleaved, but higher-priority sources
+    // pre-claim their ISRC/title+artist keys so lower sources skip exact duplicates.
+    // This ensures: (a) all sources contribute unique tracks to results,
+    // (b) when the same song exists on multiple sources, the highest-priority version wins.
     const result = [], seenIds = new Set(), seenKeys = new Set();
-    for (const list of sourceLists) {
-      for (const item of list) {
+    // Pre-register keys from all sources in priority order so dedup is priority-aware
+    const allItems = [];
+    const maxLen = Math.max(0, ...sourceLists.map(l => l.length));
+    for (let i = 0; i < maxLen; i++) {
+      for (const list of sourceLists) {
+        if (i >= list.length) continue;
+        const item = list[i];
         if (!item) continue;
         const _rawIk = item.id;
         const ik = _rawIk
@@ -3294,10 +3316,13 @@ async function handleSearch(c) {
   };
 
   const interleaveAlbums = (sourceLists) => {
-    // Priority-first: drain source[0] completely before source[1], etc.
+    // Round-robin with priority dedup (same logic as interleave)
     const result = [], seenIds = new Set(), seenKeys = new Set();
-    for (const list of sourceLists) {
-      for (const item of list) {
+    const maxLen = Math.max(0, ...sourceLists.map(l => l.length));
+    for (let i = 0; i < maxLen; i++) {
+      for (const list of sourceLists) {
+        if (i >= list.length) continue;
+        const item = list[i];
         if (!item) continue;
         const ik = item.id;
         if (ik && seenIds.has(ik)) continue;
@@ -5318,9 +5343,14 @@ async function handleArtist(c) {
         const arData = arRes.data || {};
         if (!arData?.id && !arData?.name) continue;
         const artistName = arData.name || '';
-        const cover = arData.picture
+        const _rawCover = arData.picture
           ? `https://static.qobuz.com/images/artists/covers/${arData.picture}_400.jpg`
-          : (arData.image?.small || arData.image?.thumbnail || arData.image?.large || null);
+          : (arData.image?.large || arData.image?.small || null);
+        // Replace e.g. _600.jpg with _400.jpg for a reliable square crop;
+        // fall back to the original URL if the pattern doesn't match.
+        const cover = _rawCover
+          ? (_rawCover.replace(/_\d+\.jpg$/, '_400.jpg') || _rawCover)
+          : (arData.image?.small || null);
 
         // Run search queries in parallel: general, EP/Single, compilation, live
         // to maximise album type coverage since proxy has no dedicated albums endpoint
@@ -5333,6 +5363,7 @@ async function handleArtist(c) {
 
         // Collect tracks + albums from all search results, filter to this artist
         const albumMap = {};
+        const albumTitleYearSeen = new Set(); // dedup by title+year across parallel search results
         const topTracks = [];
         const seenTrackIds = new Set(); // FIX: dedup tracks across all parallel search results
         const wantId = String(arData.id);
@@ -5343,7 +5374,8 @@ async function handleArtist(c) {
           const aId = String(a.artist?.id || a.artists?.[0]?.id || '');
           if (aId && aId === wantId) return true;
           const aName = (a.artist?.name || a.artists?.[0]?.name || a.performer?.name || '').toLowerCase();
-          return aName === wantNameLow || aName.includes(wantNameLow) || wantNameLow.includes(aName);
+          // Exact match only - "drake" must not match "nick drake" or "drake bell"
+          return aName === wantNameLow;
         };
 
         for (const res of [s1, s2, s3, s4]) {
@@ -5360,6 +5392,9 @@ async function handleArtist(c) {
             const aArtistId = String(a.artist?.id || '');
             const aArtistName = (a.artist?.name || '').toLowerCase();
             if (aArtistId !== wantId && aArtistName !== wantNameLow) continue;
+            const _tyKey = (a.title || '').toLowerCase().replace(/[^a-z0-9]/g,'') + ':' + String((a.release_date_original || '').slice(0,4));
+            if (_tyKey.length > 1 && albumTitleYearSeen.has(_tyKey)) continue;
+            if (_tyKey.length > 1) albumTitleYearSeen.add(_tyKey);
             albumMap[key] = a;
           }
 
@@ -5377,7 +5412,7 @@ async function handleArtist(c) {
               artist:     t.performer?.name || t.artist?.name || artistName,
               album:      t.album?.title || '',
               duration:   t.duration || undefined,
-              artworkURL: t.album?.image?.small || t.album?.image?.back || t.album?.image?.large || cover,
+              artworkURL: t.album?.image?.large || t.album?.image?.small || cover,
               format:     'flac',
               source:     'qobuz',
             });
@@ -5399,7 +5434,7 @@ async function handleArtist(c) {
             id:         `qobuzalbum_${a.id}`,
             title:      a.title || 'Unknown Album',
             artist:     artistName,
-            artworkURL: a.image?.small || a.image?.back || a.image?.large || null,
+            artworkURL: a.image?.large || a.image?.small || null,
             year:       safeYear(a.release_date_original),
             source:     'qobuz',
           }));
@@ -5672,7 +5707,7 @@ async function handlePlaylist(c) {
               artist:     t.performer?.name || t.album?.artist?.name || 'Unknown',
               album:      t.album?.title || '',
               duration:   t.duration || undefined,
-              artworkURL: t.album?.image?.small || t.album?.image?.back || t.album?.image?.large || cover,
+              artworkURL: t.album?.image?.large || t.album?.image?.small || cover,
               format:     'flac',
               source:     'qobuz',
             };
