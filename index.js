@@ -623,7 +623,7 @@ async function qobuzSearch(query) {
         id:         `qobuzalbum_${a.id}`,
         title:      a.title || 'Unknown Album',
         artist:     a.artist?.name || 'Unknown',
-        artworkURL: a.image?.large || null,
+        artworkURL: a.image?.small || a.image?.back || a.image?.large || null,
         year:       safeYear(a.release_date_original),
         source:     'qobuz',
       }));
@@ -634,7 +634,7 @@ async function qobuzSearch(query) {
         id:         `qobuz_artist_${a.id}`,
         name:       a.name || 'Unknown Artist',
         // Qobuz search: artist.image.large  or artist.picture (300x300 jpg path)
-        artworkURL: a.image?.large || (a.picture ? `https://static.qobuz.com/images/artists/covers/${a.picture}_300.jpg` : null),
+        artworkURL: a.picture ? `https://static.qobuz.com/images/artists/covers/${a.picture}_400.jpg` : (a.image?.small || a.image?.thumbnail || a.image?.large || null),
         source:     'qobuz',
       }));
 
@@ -5318,7 +5318,9 @@ async function handleArtist(c) {
         const arData = arRes.data || {};
         if (!arData?.id && !arData?.name) continue;
         const artistName = arData.name || '';
-        const cover = arData.image?.large || arData.image?.extralarge || null;
+        const cover = arData.picture
+          ? `https://static.qobuz.com/images/artists/covers/${arData.picture}_400.jpg`
+          : (arData.image?.small || arData.image?.thumbnail || arData.image?.large || null);
 
         // Run search queries in parallel: general, EP/Single, compilation, live
         // to maximise album type coverage since proxy has no dedicated albums endpoint
@@ -5375,7 +5377,7 @@ async function handleArtist(c) {
               artist:     t.performer?.name || t.artist?.name || artistName,
               album:      t.album?.title || '',
               duration:   t.duration || undefined,
-              artworkURL: t.album?.image?.large || cover,
+              artworkURL: t.album?.image?.small || t.album?.image?.back || t.album?.image?.large || cover,
               format:     'flac',
               source:     'qobuz',
             });
@@ -5397,7 +5399,7 @@ async function handleArtist(c) {
             id:         `qobuzalbum_${a.id}`,
             title:      a.title || 'Unknown Album',
             artist:     artistName,
-            artworkURL: a.image?.large || null,
+            artworkURL: a.image?.small || a.image?.back || a.image?.large || null,
             year:       safeYear(a.release_date_original),
             source:     'qobuz',
           }));
@@ -5670,7 +5672,7 @@ async function handlePlaylist(c) {
               artist:     t.performer?.name || t.album?.artist?.name || 'Unknown',
               album:      t.album?.title || '',
               duration:   t.duration || undefined,
-              artworkURL: t.album?.image?.large || cover,
+              artworkURL: t.album?.image?.small || t.album?.image?.back || t.album?.image?.large || cover,
               format:     'flac',
               source:     'qobuz',
             };
