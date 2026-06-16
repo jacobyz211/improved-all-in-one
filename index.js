@@ -3186,6 +3186,9 @@ async function handleSearch(c) {
   const deezerTracks = (deezerRes?.tracks || []).map(t => ({
     ...t, id: t.id, title: t.title, artist: t.artist, album: t.album || '',
     artworkURL: t.artworkURL, duration: t.duration, format: t.format || 'mp3',
+    // Explicitly preserve isrc so _canonKey can use the ISRC-based dedup path
+    // (without this the spread may not carry isrc through to the interleave)
+    isrc: t.isrc ? String(t.isrc).toUpperCase().replace(/[^A-Z0-9]/g, '') : null,
   }));
   // Cache deezer track metadata so stream handler can cross-source fallback without query params
   for (const dt of deezerTracks) {
@@ -3208,20 +3211,29 @@ async function handleSearch(c) {
   };
 
   // ── Canonical dedup ─────────────────────────────────────────────────────────
-  // Key priority: ISRC (exact) → title+artist+year+duration-bucket (fuzzy, ±2 s)
+  // Dedup rules (in order of strictness):
+  //   1. ISRC match (exact, cross-source) → always dedup, higher priority wins
+  //   2. title + SAME artist + duration bucket (±3 s) → dedup same recording
+  //      "First Love" by Gulfateh Khan ≠ "First Love" by BTS — different artist,
+  //      so both are kept even though the title matches.
+  //   3. No ISRC + same title + different/missing artist → NOT deduped.
+  //      This is the key fix: generic title collisions across sources are allowed
+  //      through so niche artists don't get swallowed by popular same-title tracks.
   const _normStr = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 60);
 
   const _canonKey = item => {
+    // Path 1: ISRC available on this item — strongest dedup signal
     if (item.isrc) return 'isrc:' + item.isrc.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const t  = _normStr(item.title  || '');
-    const a  = _normStr((item.artist || '').split(/[,&]/)[0]);
-    const y  = item.year ? String(item.year).slice(0, 4) : '';
-    // 3-second buckets for strict dedup — same song from different sources
-    // must be within 3s of each other to be considered duplicates
+    const t   = _normStr(item.title  || '');
+    const a   = _normStr((item.artist || '').split(/[,&]/)[0]);
+    // CRITICAL: only build a ta: dedup key when the artist is known and non-empty.
+    // Without an artist component, "First Love" from Gulfateh Khan would collide
+    // with "First Love" from any other artist and get silently dropped.
+    if (!t || !a) return null; // unknown title OR artist → never auto-dedup
     const dur = (item.duration && item.duration > 5) ? item.duration : 0;
     const db  = dur ? '|d' + (Math.round(dur / 3) * 3) : '';
-    if (!t && !a) return null; // don't dedup unknown tracks against each other
-    return 'ta:' + t + '|' + a + '|' + y + db;
+    // Include BOTH title AND artist in key — different artists = different key = both shown
+    return 'ta:' + t + '|' + a + db;
   };
 
   const _canonAlbKey = item => {
