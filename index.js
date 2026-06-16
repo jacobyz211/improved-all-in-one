@@ -208,6 +208,10 @@ function getConfig(c) {
     // Ordered priority arrays for search/stream (empty = all enabled, default order)
     searchOrder: Array.isArray(cfg.search_order) ? cfg.search_order : [],
     streamOrder: Array.isArray(cfg.stream_order) ? cfg.stream_order : [],
+    // Blocked ISRCs — tracks matching these will be filtered from search results
+    blockedIsrcs: Array.isArray(cfg.blocked_isrcs)
+      ? cfg.blocked_isrcs.map(i => String(i).toUpperCase().replace(/[^A-Z0-9]/g, '')).filter(Boolean)
+      : [],
   };
 }
 
@@ -799,6 +803,7 @@ async function hifiSearch(query, instances) {
         : nonLabelArtists.length
           ? nonLabelArtists.map(a => a.name).join(', ')
           : (t.artist?.name || (t.artists || []).map(a => a.name).join(', ') || 'Unknown');
+      const hifiIsrc = t.isrc ? t.isrc.toUpperCase().replace(/[^A-Z0-9]/g,'') : null;
       tracks.push({
         id: `hifi_${instB64}_${origId}`,
         title: t.title || 'Unknown',
@@ -806,6 +811,7 @@ async function hifiSearch(query, instances) {
         album: t.album?.title || '',
         duration: t.duration ? Math.floor(t.duration) : undefined,
         artworkURL,
+        isrc: hifiIsrc || undefined,
         format: 'flac',
         _source: 'hifi',
         _inst: inst,
@@ -813,7 +819,7 @@ async function hifiSearch(query, instances) {
         _origId: origId,
       });
       // Cache track metadata so stream handler can fall back to SC if HiFi fails
-      cacheSet(`hifi:track:meta:${instB64}_${origId}`, { title: t.title || 'Unknown', artist: artistNames, isrc: t.isrc ? t.isrc.toUpperCase().replace(/[^A-Z0-9]/g,'') : null, duration: t.duration ? Math.floor(t.duration) : undefined }, 3600);
+      cacheSet(`hifi:track:meta:${instB64}_${origId}`, { title: t.title || 'Unknown', artist: artistNames, isrc: hifiIsrc, duration: t.duration ? Math.floor(t.duration) : undefined }, 3600);
       if (t.album?.id) {
         const aid = String(t.album.id);
         if (!albumMap[aid]) albumMap[aid] = {
@@ -3126,9 +3132,10 @@ async function handleSearch(c) {
     const t  = _normStr(item.title  || '');
     const a  = _normStr((item.artist || '').split(/[,&]/)[0]);
     const y  = item.year ? String(item.year).slice(0, 4) : '';
-    // 10-second buckets; interleave() adds a hard 15-second cross-check on top
+    // 3-second buckets for strict dedup — same song from different sources
+    // must be within 3s of each other to be considered duplicates
     const dur = (item.duration && item.duration > 5) ? item.duration : 0;
-    const db  = dur ? '|d' + (Math.round(dur / 10) * 10) : '';
+    const db  = dur ? '|d' + (Math.round(dur / 3) * 3) : '';
     if (!t && !a) return null; // don't dedup unknown tracks against each other
     return 'ta:' + t + '|' + a + '|' + y + db;
   };
@@ -3140,25 +3147,28 @@ async function handleSearch(c) {
     return 'alb:' + t + '|' + a + '|' + y;
   };
 
+  // ── Priority-first dedup interleave ────────────────────────────────────────
+  // Strategy: drain ALL items from source[0] first (highest priority), marking
+  // their ISRC/title+artist+duration keys as seen, THEN source[1], etc.
+  // This guarantees the first source in searchOrder wins on duplicates — a Deezer
+  // track is NEVER shown if HiFi/Qobuz already has the same song.
+  // Duration tolerance: ±3 seconds (strict — avoids deduping edit vs album cuts).
   const interleave = (sourceLists) => {
     const result = [], seenIds = new Set(), seenKeys = new Set();
-    // seenKeyDur: first-seen duration per canon key.
-    // Same title+artist but duration >15s apart = genuinely different track.
-    const seenKeyDur = new Map();
-    const maxLen = Math.max(0, ...sourceLists.map(l => l.length));
-    for (let i = 0; i < maxLen; i++) {
-      for (const list of sourceLists) {
-        if (i >= list.length) continue;
-        const item = list[i];
+    const seenKeyDur = new Map(); // first-seen duration per canon key
+    for (const list of sourceLists) {
+      for (const item of list) {
         if (!item) continue;
         const _rawIk = item.id;
         const ik = _rawIk ? String(_rawIk).toLowerCase().replace(/^(deezer|tidal|qobuz|sc|hifi):(?!album:|artist:|playlist:)/i, '').trim() : _rawIk;
         const ck = _canonKey(item);
         if (ik && seenIds.has(ik)) continue;
         if (ck && seenKeys.has(ck)) {
+          // Allow genuinely different track lengths (> 3s apart) through as a
+          // separate entry — e.g. radio edit (3:30) vs album version (4:15).
           const prevDur = seenKeyDur.get(ck) || 0;
           const curDur  = (item.duration && item.duration > 5) ? item.duration : 0;
-          if (prevDur > 10 && curDur > 10 && Math.abs(prevDur - curDur) > 15) {
+          if (prevDur > 10 && curDur > 10 && Math.abs(prevDur - curDur) > 3) {
             if (ik) seenIds.add(ik);
             result.push(item);
           }
@@ -3196,8 +3206,18 @@ async function handleSearch(c) {
 
   const orderedTrackLists = effectiveMusicOrder.map(k => musicSourceMap[k] || []);
   const orderedAlbumLists = effectiveMusicOrder.map(k => musicAlbumMap[k] || []);
-  const orderedMusicTracks = interleave(orderedTrackLists);
+  let orderedMusicTracks = interleave(orderedTrackLists);
   const orderedMusicAlbums = interleaveAlbums(orderedAlbumLists);
+
+  // ── Blocked ISRC filter ─────────────────────────────────────────────────────
+  if (cfg.blockedIsrcs && cfg.blockedIsrcs.length) {
+    const _blockedSet = new Set(cfg.blockedIsrcs);
+    orderedMusicTracks = orderedMusicTracks.filter(t => {
+      if (!t.isrc) return true;
+      const norm = String(t.isrc).toUpperCase().replace(/[^A-Z0-9]/g, '');
+      return !_blockedSet.has(norm);
+    });
+  }
 
   // Merge qobuz playlists into the playlists (allSeries) pool — dedupe by title
   for (const p of qobuzPlaylists) {
@@ -5609,6 +5629,16 @@ function buildConfigPage(baseUrl, env) {
   w('.sbtn .sn{font-size:.75rem;font-weight:700;line-height:1.3}');
   w('.sbtn .st{font-size:.6rem;opacity:.5;margin-top:2px}');
   w('.sbadge{position:absolute;top:-8px;left:50%;transform:translateX(-50%);background:var(--accent);color:#000;font-size:.55rem;font-weight:800;padding:1px 6px;border-radius:99px;white-space:nowrap}');
+  w('.isrc-row{display:flex;gap:8px;align-items:stretch;margin-bottom:8px}');
+  w('.isrc-row input{flex:1;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);color:var(--txt);padding:8px 11px;font-size:.8rem;font-family:"JetBrains Mono","SF Mono",ui-monospace,monospace;outline:none;transition:border-color var(--tr),box-shadow var(--tr)}');
+  w('.isrc-row input:focus{border-color:var(--accent-bdr);box-shadow:0 0 0 3px var(--accent-dim)}');
+  w('.isrc-add-btn{background:var(--accent-dim);border:1px solid var(--accent-bdr);border-radius:var(--rsm);color:var(--accent);font-size:.75rem;font-weight:700;padding:8px 14px;cursor:pointer;white-space:nowrap;transition:all var(--tr)}');
+  w('.isrc-add-btn:hover{background:var(--accent);color:#000}');
+  w('#isrcList{display:flex;flex-wrap:wrap;gap:6px;min-height:28px;align-items:center}');
+  w('.isrc-chip{display:inline-flex;align-items:center;gap:5px;background:var(--surf3);border:1px solid var(--bdr);border-radius:99px;padding:3px 10px 3px 12px;font-size:.7rem}');
+  w('.isrc-code{font-family:"JetBrains Mono","SF Mono",ui-monospace,monospace;color:var(--accent);font-weight:600;letter-spacing:.04em}');
+  w('.isrc-del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:.85rem;line-height:1;padding:0 2px;transition:color var(--tr)}');
+  w('.isrc-del:hover{color:var(--err)}');
   w('.shint{font-size:.68rem;color:var(--faint);margin-top:8px;line-height:1.65}');
   w('.ct-row{display:flex;flex-wrap:wrap;gap:8px}');
   w('.ct-btn{display:flex;align-items:center;gap:9px;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--r);padding:10px 14px;cursor:pointer;transition:all var(--tr);user-select:none;min-width:128px}');
@@ -5776,6 +5806,17 @@ function buildConfigPage(baseUrl, env) {
   w('  <div class="shint" id="streamHint"></div>');
   w('</div>');
 
+  w('<div class="sec-head">Blocked ISRCs <span class="sec-opt">optional</span></div>');
+  w('<div class="card">');
+  w('  <div class="hint" style="margin-bottom:12px">Tracks matching these ISRCs will be hidden from all search results &mdash; useful for excluding wrong versions, remasters, or explicit duplicates.</div>');
+  w('  <div class="isrc-row">');
+  w('    <input type="text" id="isrcInput" placeholder="e.g. USUM71400040" maxlength="12" autocomplete="off" autocorrect="off" spellcheck="false" onkeydown="if(event.key===\'Enter\'){addBlockedIsrc();event.preventDefault();}">');
+  w('    <button class="isrc-add-btn" onclick="addBlockedIsrc()">Add</button>');
+  w('  </div>');
+  w('  <div id="isrcList" style="margin-top:10px"></div>');
+  w('  <div id="isrcStatus" class="status" style="margin-top:8px;display:none"></div>');
+  w('</div>');
+
   w('<div class="sec-head">Generate</div>');
   w('<div class="card">');
   w('  <div class="card-title">Your Install URLs</div>');
@@ -5817,6 +5858,7 @@ function buildConfigPage(baseUrl, env) {
   w('var searchOrder = ["hifi","qobuz","deezer","sc","ia"];');
   w('var streamOrder = ["qobuz","hifi","deezer","sc","ia"];');
   w('var ctEnabled = { podcast: true, audiobook: true, radio: true };');
+  w('var blockedIsrcs = [];');
   w('var SRCLABELS = { hifi:"Tidal HiFi", qobuz:"Qobuz", sc:"SoundCloud", ia:"Internet Archive", deezer:"Deezer" };');
   w('var ALLSRCS = ["qobuz","hifi","deezer","sc","ia"];');
 
@@ -5907,6 +5949,7 @@ function buildConfigPage(baseUrl, env) {
   w('  if (!ctEnabled.radio)     body.no_radio     = true;');
   w('  if (searchOrder.length)  body.search_order  = searchOrder;');
   w('  if (streamOrder.length)  body.stream_order  = streamOrder;');
+  w('  if (blockedIsrcs.length) body.blocked_isrcs = blockedIsrcs.slice();');
   w('  fetch("/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })');
   w('    .then(function(r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })');
   w('    .then(function(data) {');
@@ -5941,6 +5984,30 @@ function buildConfigPage(baseUrl, env) {
 
   w('renderSRow("ss-", searchOrder); updateHint("searchHint", searchOrder);');
   w('renderSRow("st-", streamOrder); updateHint("streamHint", streamOrder);');
+
+  w('function addBlockedIsrc() {');
+  w('  var inp = document.getElementById("isrcInput");');
+  w('  var raw = (inp.value||"").toUpperCase().replace(/[^A-Z0-9]/g,"");');
+  w('  if (!raw||raw.length<10||raw.length>12){showStatus("isrcStatus","Invalid ISRC (10-12 alphanumeric chars)","err");return;}');
+  w('  if (blockedIsrcs.indexOf(raw)!==-1){showStatus("isrcStatus","Already blocked","err");return;}');
+  w('  blockedIsrcs.push(raw);');
+  w('  inp.value="";');
+  w('  renderIsrcList();');
+  w('  showStatus("isrcStatus","Blocked: "+raw,"ok");');
+  w('}');
+  w('function removeBlockedIsrc(isrc) {');
+  w('  var i=blockedIsrcs.indexOf(isrc); if(i!==-1) blockedIsrcs.splice(i,1);');
+  w('  renderIsrcList();');
+  w('}');
+  w('function renderIsrcList() {');
+  w('  var el=document.getElementById("isrcList"); if(!el) return;');
+  w('  if(!blockedIsrcs.length){el.innerHTML='<span style="color:var(--faint);font-size:.7rem">No ISRCs blocked yet.</span>';return;}');
+  w('  el.innerHTML=blockedIsrcs.map(function(c){');
+  w('    return '<span class="isrc-chip"><span class="isrc-code">'+c+'</span><button class="isrc-del" onclick="removeBlockedIsrc(\u0027'+c+'\u0027)" title="Remove">×</button></span>';');
+  w('  }).join("");');
+  w('}');
+  w('renderIsrcList();');
+
   w('<\/script>');
   w('<\/body>');
   w('<\/html>');
@@ -5984,6 +6051,8 @@ app.post('/generate', async function(c) {
   // Ordered search/stream priority arrays
   if (Array.isArray(b.search_order) && b.search_order.length) cfg.search_order = b.search_order;
   if (Array.isArray(b.stream_order) && b.stream_order.length) cfg.stream_order = b.stream_order;
+  // Blocked ISRCs
+  if (Array.isArray(b.blocked_isrcs) && b.blocked_isrcs.length) cfg.blocked_isrcs = b.blocked_isrcs;
   if (b.qobuz_user_token) cfg.qobuz_user_token = b.qobuz_user_token;
   if (b.qobuz_secret)     cfg.qobuz_secret     = b.qobuz_secret;
   if (b.qobuz_app_id)     cfg.qobuz_app_id     = b.qobuz_app_id;
