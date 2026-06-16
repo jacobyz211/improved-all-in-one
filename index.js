@@ -634,7 +634,11 @@ async function qobuzSearch(query) {
         id:         `qobuz_artist_${a.id}`,
         name:       a.name || 'Unknown Artist',
         // Qobuz search: artist.image.large  or artist.picture (300x300 jpg path)
-        artworkURL: a.image?.large || a.image?.thumbnail || a.image?.small || (a.picture ? `https://static.qobuz.com/images/artists/covers/${a.picture}_400.jpg` : null),
+        artworkURL: (() => {
+          const _u = a.image?.large || a.image?.thumbnail || a.image?.small || (a.picture ? `https://static.qobuz.com/images/artists/covers/${a.picture}_600.jpg` : null);
+          if (!_u || !_u.includes('/images/artists/covers/')) return _u;
+          return _u.replace(/(_org|_\d+)(\.jpg)$/i, '_600$2');
+        })(),
         source:     'qobuz',
       }));
 
@@ -5344,8 +5348,18 @@ async function handleArtist(c) {
         if (!arData?.id && !arData?.name) continue;
         const artistName = arData.name || '';
         // Mirror reference repo: large → thumbnail → small → picture → images[0]
+        // Then normalize Qobuz artist CDN URLs to _600.jpg (guaranteed square crop)
+        // image.large can be _org.jpg (landscape promo) on some Qobuz instances
         let cover = arData.image?.large || arData.image?.thumbnail || arData.image?.small || arData.picture || null;
         if (!cover && arData.images && arData.images.length) cover = arData.images[0];
+        if (cover && typeof cover === 'string' && cover.includes('/images/artists/covers/')) {
+          // Replace any size suffix (_org, _600, _230, etc.) with _600 for a consistent square crop
+          cover = cover.replace(/(_org|_\d+)(\.jpg)$/i, '_600$2');
+          // If URL has no size suffix at all, append _600 before .jpg
+          if (!/_\d+\.jpg$/i.test(cover) && !/_org\.jpg$/i.test(cover)) {
+            cover = cover.replace(/\.jpg$/i, '_600.jpg');
+          }
+        }
 
         // Run search queries in parallel: general, EP/Single, compilation, live
         // to maximise album type coverage since proxy has no dedicated albums endpoint
