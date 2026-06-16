@@ -2348,12 +2348,9 @@ async function deezerSearch(query) {
                 artworkURL: t._albumCover,
                 format: 'mp3',
                 source: 'deezer',
-                // Do NOT carry isrc on album-track-fallback entries — these are discovered
-                // via album search, not direct track search. Setting isrc here causes them
-                // to be ISRC-deduped against higher-priority HiFi/Qobuz entries for the
-                // same song, making the Deezer track silently vanish when a higher source
-                // already claimed that ISRC. Use ta: (title+artist+duration) dedup instead.
-                isrc: null,
+                // Carry ISRC so cross-source ISRC dedup fires — prevents same song
+                // from appearing as both a HiFi result AND a Deezer album-fallback result.
+                isrc: t.isrc ? String(t.isrc).toUpperCase().replace(/[^A-Z0-9]/g, '') : null,
               },
             });
             seenDzIds.add(String(t.id));
@@ -2373,6 +2370,28 @@ async function deezerSearch(query) {
           console.log(`[Deezer album-track fallback] +${albumTrackList.length} tracks for "${query}"`);
         }
       } catch(e) { console.warn('[Deezer album-track fallback]', e.message); }
+    }
+    // ── Deezer-internal dedup: same song can appear as both single & album version ──
+    // ISRC-first, then title+artist+duration-bucket (±5s) as fallback.
+    {
+      const _dzSeenIsrc = new Set();
+      const _dzSeenTa   = new Set();
+      finalTracks = finalTracks.filter(t => {
+        if (t.isrc) {
+          const n = String(t.isrc).toUpperCase().replace(/[^A-Z0-9]/g, '');
+          if (_dzSeenIsrc.has(n)) return false;
+          _dzSeenIsrc.add(n);
+          return true;
+        }
+        const _dt = (t.title  || '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 50);
+        const _da = (t.artist || '').toLowerCase().replace(/[^a-z0-9]/g, '').replace(/^(the|a|an)/, '').slice(0, 40);
+        const _dd = t.duration && t.duration > 5 ? '|d' + (Math.round(t.duration / 5) * 5) : '';
+        if (!_dt || !_da) return true;
+        const _dk = _dt + '|' + _da + _dd;
+        if (_dzSeenTa.has(_dk)) return false;
+        _dzSeenTa.add(_dk);
+        return true;
+      });
     }
     const result = { tracks: finalTracks, albums, artists, playlists };
     await cacheSet(cacheKey, result, 300);
@@ -3252,7 +3271,8 @@ async function handleSearch(c) {
     // Path 1: ISRC available on this item — strongest dedup signal
     if (item.isrc) return 'isrc:' + item.isrc.toUpperCase().replace(/[^A-Z0-9]/g, '');
     const t   = _normStr(item.title  || '');
-    const a   = _normStr((item.artist || '').split(/[,&]/)[0]);
+    const _rawA = _normStr((item.artist || '').split(/[,&]/)[0]);
+    const a   = _rawA.replace(/^(the|a|an)/, '').replace(/^0+/, '').trim() || _rawA;
     // CRITICAL: only build a ta: dedup key when the artist is known and non-empty.
     // Without an artist component, "First Love" from Gulfateh Khan would collide
     // with "First Love" from any other artist and get silently dropped.
@@ -3264,10 +3284,14 @@ async function handleSearch(c) {
   };
 
   const _canonAlbKey = item => {
-    const t = _normStr(item.title  || '');
-    const a = _normStr((item.artist || '').split(/[,&]/)[0]);
-    const y = item.year ? String(item.year).slice(0, 4) : '';
-    return 'alb:' + t + '|' + a + '|' + y;
+    const t  = _normStr(item.title  || '');
+    const _ra = _normStr((item.artist || '').split(/[,&]/)[0]);
+    const a  = _ra.replace(/^(the|a|an)/, '').replace(/^0+/, '').trim() || _ra;
+    // year-agnostic key: same album from different sources may have year missing on one
+    // so dedup by title+artist only (year only used as tiebreaker when both have it)
+    const y  = item.year ? String(item.year).slice(0, 4) : '';
+    const baseKey = 'alb:' + t + '|' + a;
+    return y ? baseKey + '|' + y : baseKey;
   };
 
   // ── Priority-first dedup interleave ────────────────────────────────────────
@@ -3364,11 +3388,18 @@ async function handleSearch(c) {
   });
   const _seenAlbumKeys = new Set();
   const _dedupeAlbums = list => list.filter(a => {
-    const y = a.year ? String(a.year).slice(0, 4) : '';
-    const k = _normStr(a.title || '') + '|' + _normStr((a.artist || '').split(/[,&]/)[0]) + '|' + y;
-    if (!k || k === '||') return true;
-    if (_seenAlbumKeys.has(k)) return false;
-    _seenAlbumKeys.add(k); return true;
+    const _at  = _normStr(a.title  || '');
+    const _raa = _normStr((a.artist || '').split(/[,&]/)[0]);
+    const _aa  = _raa.replace(/^(the|a|an)/, '').trim() || _raa;
+    const _ay  = a.year ? String(a.year).slice(0, 4) : '';
+    // Try exact key first, then year-agnostic key — catches same album missing year on one source
+    const k    = _at + '|' + _aa + (_ay ? '|' + _ay : '');
+    const kNoY = _at + '|' + _aa;
+    if (!_at || !_aa) return true;
+    if (_seenAlbumKeys.has(k) || _seenAlbumKeys.has(kNoY)) return false;
+    _seenAlbumKeys.add(k);
+    _seenAlbumKeys.add(kNoY);
+    return true;
   });
 
   let allTracks, allAlbums, allArtists;
