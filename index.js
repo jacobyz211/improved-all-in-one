@@ -1,1 +1,1 @@
-{code}
+CONTENT_PLACEHOLDER
