@@ -3268,18 +3268,12 @@ async function handleSearch(c) {
   // track is NEVER shown if HiFi/Qobuz already has the same song.
   // Duration tolerance: ±3 seconds (strict — avoids deduping edit vs album cuts).
   const interleave = (sourceLists) => {
-    // Round-robin interleave: take item[0] from each source, then item[1], etc.
-    // First-seen-wins dedup using _canonKeys (multi-key):
-    //   - isrc: key + ta:+dur key + ta:+nodur key are ALL checked and ALL marked on insert.
-    //   - This means: a HiFi track with ISRC blocks the same Deezer track even if
-    //     the Deezer copy has no ISRC (ta: keys match). And a Deezer track with
-    //     duration blocks the same SC track missing duration (nodur key matches).
+    // Priority-first: drain ALL items from source[0] first, then source[1], etc.
+    // First-seen-wins dedup ensures highest-priority source always wins on duplicates.
+    // A Qobuz track is NEVER replaced by a Tidal/Deezer copy if Qobuz is ranked first.
     const result = [], seenIds = new Set(), seenKeys = new Set();
-    const maxLen = Math.max(0, ...sourceLists.map(l => l.length));
-    for (let i = 0; i < maxLen; i++) {
-      for (const list of sourceLists) {
-        if (i >= list.length) continue;
-        const item = list[i];
+    for (const list of sourceLists) {
+      for (const item of list) {
         if (!item) continue;
         const _rawIk = item.id;
         const ik = _rawIk
@@ -3288,11 +3282,9 @@ async function handleSearch(c) {
               .trim()
           : _rawIk;
         if (ik && seenIds.has(ik)) continue;
-        // Multi-key dedup: check ALL keys for this item
         const cks = _canonKeys(item);
         const isDupe = cks.some(k => seenKeys.has(k));
         if (isDupe) continue;
-        // Not a dupe — admit and mark ALL keys
         if (ik) seenIds.add(ik);
         for (const k of cks) seenKeys.add(k);
         result.push(item);
@@ -3302,12 +3294,10 @@ async function handleSearch(c) {
   };
 
   const interleaveAlbums = (sourceLists) => {
+    // Priority-first: drain source[0] completely before source[1], etc.
     const result = [], seenIds = new Set(), seenKeys = new Set();
-    const maxLen = Math.max(0, ...sourceLists.map(l => l.length));
-    for (let i = 0; i < maxLen; i++) {
-      for (const list of sourceLists) {
-        if (i >= list.length) continue;
-        const item = list[i];
+    for (const list of sourceLists) {
+      for (const item of list) {
         if (!item) continue;
         const ik = item.id;
         if (ik && seenIds.has(ik)) continue;
@@ -3373,11 +3363,11 @@ async function handleSearch(c) {
   if (isPodcastQuery) {
     allTracks  = [...allEpisodes, ...orderedMusicTracks, ...radio];
     allAlbums  = [...podcastAlbums, ...allBooks, ...orderedMusicAlbums];
-    allArtists = [...hifiArtistList, ...qobuzArtists, ...(deezerRes?.artists || [])];
+    allArtists = effectiveMusicOrder.flatMap(k => ({ hifi: hifiArtistList, qobuz: qobuzArtists, deezer: deezerRes?.artists || [], sc: [], ia: [] })[k] || []);
   } else if (isRadioQuery) {
     allTracks  = [...radio, ...orderedMusicTracks, ...allEpisodes];
     allAlbums  = [...orderedMusicAlbums, ...allBooks, ...podcastAlbums];
-    allArtists = [...hifiArtistList, ...qobuzArtists, ...(deezerRes?.artists || [])];
+    allArtists = effectiveMusicOrder.flatMap(k => ({ hifi: hifiArtistList, qobuz: qobuzArtists, deezer: deezerRes?.artists || [], sc: [], ia: [] })[k] || []);
   } else if (isAudiobookQuery) {
     allTracks  = [...orderedMusicTracks, ...allEpisodes, ...radio];
     allAlbums  = [...allBooks, ...orderedMusicAlbums, ...podcastAlbums];
@@ -3385,7 +3375,7 @@ async function handleSearch(c) {
   } else {
     allTracks  = [...orderedMusicTracks, ...radio, ...allEpisodes];
     allAlbums  = [...orderedMusicAlbums, ...allBooks, ...podcastAlbums];
-    allArtists = [...hifiArtistList, ...qobuzArtists, ...(deezerRes?.artists || [])];
+    allArtists = effectiveMusicOrder.flatMap(k => ({ hifi: hifiArtistList, qobuz: qobuzArtists, deezer: deezerRes?.artists || [], sc: [], ia: [] })[k] || []);
   }
 
   allArtists = _dedupeArtists(allArtists);
