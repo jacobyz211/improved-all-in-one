@@ -192,6 +192,8 @@ function getConfig(c) {
     taddyKey: cfg.taddy_key || c.env.TADDY_KEY || null,
     taddyUid: cfg.taddy_uid || c.env.TADDY_UID || null,
     preferredQuality: VALID_QUALITIES.includes(cfg.q) ? cfg.q : null,
+    preferredHifiQuality: cfg.q_hifi || null,
+    preferredDeezerQuality: cfg.q_deezer || null,
     // Source flags — undefined/missing means "enabled" (backward-compatible)
     noHifi:      !!(cfg.no_hifi      === true || cfg.no_hifi      === 1 || cfg.no_hifi      === "true"),
     noSc:        !!(cfg.no_sc        === true || cfg.no_sc        === 1 || cfg.no_sc        === "true"),
@@ -3788,7 +3790,7 @@ async function handleStream(c) {
     }
     // ── HiFi direct stream (skipped if hifi not in streamOrder) ─────────────
     if (!_hifiSkipSelf) {
-      const data = await hifiStream(id, cfg.hifiInstances, cfg.preferredQuality);
+      const data = await hifiStream(id, cfg.hifiInstances, cfg.preferredHifiQuality || cfg.preferredQuality);
       if (data) {
         await cacheSet(streamCacheKey, data, 280);
         return c.json(data);
@@ -3927,7 +3929,7 @@ async function handleStream(c) {
           const _hDurDiff = (scMeta0.duration && ht.duration)
             ? Math.abs(scMeta0.duration - ht.duration) : 0;
           if (_hDurDiff > 5) { console.log(`[SC→HiFi] dur mismatch ${_hDurDiff}s — skip`); continue; }
-          const hs = await hifiStream(ht.id, cfg.hifiInstances, cfg.preferredQuality);
+          const hs = await hifiStream(ht.id, cfg.hifiInstances, cfg.preferredHifiQuality || cfg.preferredQuality);
           if (hs) {
             console.log(`[SC→HiFi priority] ISRC:${scMeta0.isrc} → ${ht.id}`);
             await cacheSet(scStreamCacheKey, hs, 280);
@@ -4027,7 +4029,7 @@ async function handleStream(c) {
               const _hd = Math.abs(_scDurSec - ht.duration);
               if (_hd > 15) { console.log(`[SC→HiFi] dur mismatch ${_hd}s — skip ${ht.id}`); continue; }
             }
-            const hs = await hifiStream(ht.id, cfg.hifiInstances, cfg.preferredQuality);
+            const hs = await hifiStream(ht.id, cfg.hifiInstances, cfg.preferredHifiQuality || cfg.preferredQuality);
             if (hs) { console.log(`[SC→HiFi] ${scMeta.title} → ${ht.id}`); return { ...hs, fallback: 'hifi' }; }
           }
           throw new Error('no hifi match');
@@ -4113,7 +4115,7 @@ async function handleStream(c) {
           for (const _ht of _hTracks.slice(0, 5)) {
             const _hd = (_qMeta.duration && _ht.duration) ? Math.abs(_qMeta.duration - _ht.duration) : 0;
             if (_hd > 20) continue;
-            const _hs = await hifiStream(_ht.id, cfg.hifiInstances, cfg.preferredQuality);
+            const _hs = await hifiStream(_ht.id, cfg.hifiInstances, cfg.preferredHifiQuality || cfg.preferredQuality);
             if (_hs) { console.log(`[qobuz fb-hifi] HIT "${_qMeta.title}"`); return { ..._hs, fallback: 'hifi' }; }
           }
           throw new Error('no hifi match');
@@ -4270,7 +4272,7 @@ async function handleStream(c) {
         for (const ht of _htList2.slice(0, 3)) {
           const _htIsrc2 = ht.isrc ? String(ht.isrc).toUpperCase().replace(/[^A-Z0-9]/g, '') : null;
           if (dzIsrc && _htIsrc2 && _htIsrc2 !== dzIsrc) continue;
-          const hs = await hifiStream(ht.id, cfg.hifiInstances, cfg.preferredQuality);
+          const hs = await hifiStream(ht.id, cfg.hifiInstances, cfg.preferredHifiQuality || cfg.preferredQuality);
           if (hs) {
             console.log(`[Deezer→HiFi priority] ${dzIsrc || dzTitle2}`);
             return c.json({ ...hs, fallbackSource: 'hifi' });
@@ -4291,7 +4293,7 @@ async function handleStream(c) {
         try {
           const hifiRes = await hifiSearch(`${dzArtist2} ${dzTitle2}`, cfg.hifiInstances);
           for (const ht of (Array.isArray(hifiRes) ? hifiRes : (hifiRes?.tracks || [])).slice(0, 3)) {
-            const hs = await hifiStream(ht.id, cfg.hifiInstances, cfg.preferredQuality);
+            const hs = await hifiStream(ht.id, cfg.hifiInstances, cfg.preferredHifiQuality || cfg.preferredQuality);
             if (hs) { console.log(`[Deezer→HiFi skip] ${dzTitle2}`); return c.json(hs); }
           }
         } catch(e) { console.warn('[Deezer→HiFi skip]', e.message); }
@@ -4353,7 +4355,7 @@ async function handleStream(c) {
             const hifiRes = await hifiSearch(`${dzArtist2} ${dzTitle2}`, cfg.hifiInstances);
             const hifiTracks = Array.isArray(hifiRes) ? hifiRes : (hifiRes?.tracks || []);
             for (const ht of hifiTracks.slice(0, 3)) {
-              const hs = await hifiStream(ht.id, cfg.hifiInstances, cfg.preferredQuality);
+              const hs = await hifiStream(ht.id, cfg.hifiInstances, cfg.preferredHifiQuality || cfg.preferredQuality);
               if (hs) { console.log(`[Deezer→HiFi fallback] ${dzTitle2}`); return c.json({ ...hs, fallback: 'hifi' }); }
             }
           } catch(e) { console.warn('[Deezer→HiFi fallback]', e.message); }
@@ -4425,7 +4427,7 @@ async function handleStream(c) {
       for (const _inst of _socialInstances) {
         const instB64 = encodeBase64Url(_inst);
         const syntheticHifiId = `hifi_${instB64}_${decodedId}`;
-        hifiDirectResult = await hifiStream(syntheticHifiId, cfg.hifiInstances, cfg.preferredQuality);
+        hifiDirectResult = await hifiStream(syntheticHifiId, cfg.hifiInstances, cfg.preferredHifiQuality || cfg.preferredQuality);
         if (hifiDirectResult) break;
       }
       if (hifiDirectResult) {
@@ -4441,7 +4443,7 @@ async function handleStream(c) {
         const hifiSearchResult = await hifiSearch(searchQuery, cfg.hifiInstances);
         const hifiTracks = Array.isArray(hifiSearchResult) ? hifiSearchResult : (hifiSearchResult?.tracks || []);
         for (const ht of hifiTracks.slice(0, 5)) {
-          const hifiStreamResult = await hifiStream(ht.id, cfg.hifiInstances, cfg.preferredQuality);
+          const hifiStreamResult = await hifiStream(ht.id, cfg.hifiInstances, cfg.preferredHifiQuality || cfg.preferredQuality);
           if (hifiStreamResult) {
             console.log(`[Social fallback] HiFi matched: "${ht.title}" by "${ht.artist}"`);
             return c.json({ ...hifiStreamResult, fallback: 'social_hifi_search' });
@@ -4482,7 +4484,7 @@ async function handleStream(c) {
           const hifiSearchResult2 = await hifiSearch(decodedId, cfg.hifiInstances);
           const hifiTracks2 = Array.isArray(hifiSearchResult2) ? hifiSearchResult2 : (hifiSearchResult2?.tracks || []);
           for (const ht of hifiTracks2.slice(0, 3)) {
-            const hifiStreamResult = await hifiStream(ht.id, cfg.hifiInstances, cfg.preferredQuality);
+            const hifiStreamResult = await hifiStream(ht.id, cfg.hifiInstances, cfg.preferredHifiQuality || cfg.preferredQuality);
             if (hifiStreamResult) {
               console.log(`[Social fallback] last resort HiFi matched: "${ht.title}"`);
               return c.json({ ...hifiStreamResult, fallback: 'social_hifi_lastresort' });
@@ -5753,517 +5755,11 @@ app.get('/health', async (c) => {
   });
 });
 
-// ─── Config / Generator Page ─────────────────────────────────────────────────
-
 function buildConfigPage(baseUrl, env) {
-  var S = [];
-  function w(s) { S.push(s); }
-
-  w('<!DOCTYPE html>');
-  w('<html lang="en">');
-  w('<head>');
-  w('<meta charset="UTF-8">');
-  w('<meta name="viewport" content="width=device-width,initial-scale=1">');
-  w('<title>Eclipse Universal Addon</title>');
-  w('<link rel="preconnect" href="https://fonts.googleapis.com">');
-  w('<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>');
-  w('<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">');
-  w('<style>');
-  w('*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}');
-  w(':root{');
-  w('--bg:#0a0a0b;--surf:#111113;--surf2:#18181b;--surf3:#1f1f23;');
-  w('--bdr:rgba(255,255,255,.07);--bdrh:rgba(255,255,255,.14);');
-  w('--txt:#e8e8f0;--muted:#8b8b9e;--faint:#3f3f52;');
-  w('--accent:#6ee7b7;--accent-dim:rgba(110,231,183,.10);--accent-bdr:rgba(110,231,183,.28);');
-  w('--ok:#6ee7b7;--err:#f87171;--warn:#fbbf24;');
-  w('--r:8px;--rsm:5px;--rlg:12px;');
-  w('--tr:150ms cubic-bezier(0.16,1,0.3,1);');
-  w('}');
-  w('html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;scroll-behavior:smooth}');
-  w('body{font-family:"Inter",system-ui,sans-serif;background:var(--bg);color:var(--txt);min-height:100dvh;line-height:1.55;font-size:14px}');
-  w('.page{max-width:600px;margin:0 auto;padding:44px 20px 80px}');
-  w('.hdr{display:flex;align-items:center;gap:14px;margin-bottom:36px;padding-bottom:24px;border-bottom:1px solid var(--bdr)}');
-  w('.hdr-logo{width:40px;height:40px;border-radius:10px;background:var(--accent-dim);border:1px solid var(--accent-bdr);display:flex;align-items:center;justify-content:center;flex-shrink:0}');
-  w('.hdr-logo svg{color:var(--accent)}');
-  w('.hdr-title{font-size:1rem;font-weight:700;letter-spacing:-.02em;color:#fff}');
-  w('.hdr-sub{font-size:.72rem;color:var(--muted);margin-top:2px}');
-  w('.hdr-badge{margin-left:auto;font-size:.6rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);background:var(--accent-dim);border:1px solid var(--accent-bdr);padding:3px 9px;border-radius:99px;flex-shrink:0}');
-  w('.sec-head{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--faint);margin:28px 0 8px;padding-left:2px;display:flex;align-items:center;gap:8px}');
-  w('.sec-opt{font-weight:400;text-transform:none;letter-spacing:0;color:var(--faint);font-size:.6rem}');
-  w('.card{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--rlg);padding:18px 20px;margin-bottom:8px}');
-  w('.card-title{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:14px;display:flex;align-items:center;gap:8px}');
-  w('.ctag{font-size:.58rem;font-weight:500;text-transform:none;letter-spacing:0;color:var(--faint);background:var(--surf3);padding:2px 8px;border-radius:99px;border:1px solid var(--bdr)}');
-  w('label.lbl{display:block;font-size:.63rem;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:5px;margin-top:14px}');
-  w('label.lbl:first-child{margin-top:0}');
-  w('input[type=text],input[type=password]{width:100%;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);color:var(--txt);padding:9px 11px;font-size:.875rem;font-family:"Inter",system-ui,sans-serif;transition:border-color var(--tr),box-shadow var(--tr);outline:none}');
-  w('input:focus{border-color:var(--accent-bdr);box-shadow:0 0 0 3px var(--accent-dim)}');
-  w('input::placeholder{color:var(--faint)}');
-  w('.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}');
-  w('@media(max-width:480px){.row2{grid-template-columns:1fr}}');
-  w('.hint{font-size:.7rem;color:var(--muted);line-height:1.65;margin-top:6px}');
-  w('.hint a,.tip a{color:var(--accent);text-decoration:none}.hint a:hover,.tip a:hover{text-decoration:underline}');
-  w('.tip{background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);padding:10px 13px;font-size:.74rem;color:var(--muted);line-height:1.65;margin-bottom:12px}');
-  w('.tip b{color:var(--txt)}');
-  w('.tip.warn{border-color:rgba(251,191,36,.18);background:rgba(251,191,36,.05);color:#a37a10}.tip.ok{border-color:rgba(251,191,36,.28);background:rgba(251,191,36,.08);color:var(--warn)}');
-  w('.tip.warn b{color:var(--warn)}');
-  w('code.inline{font-family:"JetBrains Mono","SF Mono",ui-monospace,monospace;font-size:.72rem;color:var(--accent);background:var(--surf3);padding:1px 5px;border-radius:3px}');
-  w('.qrow{display:flex;gap:7px;flex-wrap:wrap}');
-  w('.qbtn{background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);padding:9px 14px;cursor:pointer;color:var(--muted);font-size:.75rem;font-weight:600;transition:all var(--tr);display:flex;flex-direction:column;align-items:center;gap:3px;min-width:80px;user-select:none}');
-  w('.qbtn:hover{border-color:var(--bdrh);color:var(--txt)}');
-  w('.qbtn.on{background:var(--accent-dim);border-color:var(--accent-bdr);color:var(--accent)}');
-  w('.qbtn .qs{font-size:.6rem;opacity:.55;margin-top:1px;font-weight:400}');
-  w('.src-note{font-size:.7rem;color:var(--faint);margin-top:10px;line-height:1.8;border-top:1px solid var(--bdr);padding-top:10px}');
-  w('.src-note b{color:var(--muted)}');
-  w('.stitle{font-size:.63rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:7px;margin-top:16px}');
-  w('.stitle:first-child{margin-top:0}');
-  w('.srow{display:flex;flex-wrap:wrap;gap:7px}');
-  w('.sbtn{display:flex;flex-direction:column;align-items:center;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--r);padding:9px 12px;cursor:pointer;color:var(--muted);transition:all var(--tr);min-width:88px;position:relative;user-select:none}');
-  w('.sbtn:hover{background:var(--surf3);color:var(--txt);border-color:var(--bdrh)}');
-  w('.sbtn.on{background:var(--accent-dim);border-color:var(--accent-bdr);color:var(--accent)}');
-  w('.sbtn .sn{font-size:.75rem;font-weight:700;line-height:1.3}');
-  w('.sbtn .st{font-size:.6rem;opacity:.5;margin-top:2px}');
-  w('.sbadge{position:absolute;top:-8px;left:50%;transform:translateX(-50%);background:var(--accent);color:#000;font-size:.55rem;font-weight:800;padding:1px 6px;border-radius:99px;white-space:nowrap}');
-  w('.isrc-toggle-row{display:flex;flex-direction:column;gap:8px}');
-  w('.isrc-toggle-item{display:flex;align-items:flex-start;gap:12px;padding:10px 12px;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);transition:border-color var(--tr),background var(--tr)}');
-  w('.isrc-toggle-item.off{opacity:.65}');
-  w('.isrc-toggle-item .itlabel{flex:1;min-width:0}');
-  w('.isrc-toggle-item .itname{font-size:.8rem;font-weight:600;color:var(--txt);margin-bottom:2px}');
-  w('.isrc-toggle-item .itdesc{font-size:.7rem;color:var(--muted);line-height:1.4}');
-  w('.isrc-toggle-item .itwarn{font-size:.7rem;color:var(--warn,#c87941);margin-top:3px;display:none}');
-  w('.isrc-toggle-item.off .itwarn{display:none}');
-  w('.isrc-toggle-btn{flex-shrink:0;width:36px;height:20px;border-radius:99px;border:1px solid var(--bdr);background:var(--surf3);cursor:pointer;position:relative;transition:background var(--tr),border-color var(--tr);margin-top:1px}');
-  w('.isrc-toggle-btn::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--muted);transition:transform var(--tr),background var(--tr)}');
-  w('.isrc-toggle-btn.on{background:var(--accent-dim);border-color:var(--accent-bdr)}');
-  w('.isrc-toggle-btn.on::after{transform:translateX(16px);background:var(--accent)}');
-  w('.shint{font-size:.68rem;color:var(--faint);margin-top:8px;line-height:1.65}');
-  w('.ct-row{display:flex;flex-wrap:wrap;gap:8px}');
-  w('.ct-btn{display:flex;align-items:center;gap:9px;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--r);padding:10px 14px;cursor:pointer;transition:all var(--tr);user-select:none;min-width:128px}');
-  w('.ct-btn:hover{border-color:var(--bdrh);background:var(--surf3)}');
-  w('.ct-btn.on{background:var(--accent-dim);border-color:var(--accent-bdr)}');
-  w('.ct-dot{width:7px;height:7px;border-radius:50%;background:var(--faint);transition:all var(--tr);flex-shrink:0}');
-  w('.ct-btn.on .ct-dot{background:var(--accent);box-shadow:0 0 6px rgba(110,231,183,.45)}');
-  w('.ct-lbl{font-size:.78rem;font-weight:600;color:var(--muted);transition:color var(--tr)}');
-  w('.ct-btn.on .ct-lbl{color:var(--accent)}');
-  w('.ct-sub{font-size:.62rem;color:var(--faint);margin-top:1px}');
-  w('.ct-info{display:flex;flex-direction:column}');
-  w('.brow{display:flex;gap:10px;flex-wrap:wrap}');
-  w('.btn{padding:10px 22px;border-radius:var(--rsm);font-size:.875rem;font-weight:600;font-family:"Inter",system-ui,sans-serif;cursor:pointer;transition:all var(--tr);border:none;outline:none}');
-  w('.bprimary{background:var(--accent);color:#000;box-shadow:0 2px 14px rgba(110,231,183,.22)}');
-  w('.bprimary:hover{background:#86efac;box-shadow:0 4px 22px rgba(110,231,183,.32);transform:translateY(-1px)}');
-  w('.bprimary:active{transform:none;box-shadow:none}');
-  w('.bprimary:disabled{background:var(--surf3);color:var(--faint);box-shadow:none;cursor:not-allowed;transform:none}');
-  w('.bsec{background:var(--surf2);border:1px solid var(--bdr);color:var(--muted)}');
-  w('.bsec:hover{border-color:var(--bdrh);color:var(--txt)}');
-  w('.status{padding:10px 14px;border-radius:var(--rsm);font-size:.78rem;margin-top:10px;display:none;line-height:1.5}');
-  w('.s-ok{background:rgba(110,231,183,.07);border:1px solid rgba(110,231,183,.18);color:var(--ok)}');
-  w('.s-err{background:rgba(248,113,113,.07);border:1px solid rgba(248,113,113,.18);color:var(--err)}');
-  w('.outbox{display:none;margin-top:16px}');
-  w('.out-item{margin-bottom:12px}.out-item:last-child{margin-bottom:0}');
-  w('.olbl{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:5px}');
-  w('.orow{display:flex;gap:8px;align-items:stretch}');
-  w('.ourl{flex:1;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);padding:9px 12px;font-size:.68rem;font-family:"JetBrains Mono","SF Mono",ui-monospace,monospace;color:#86efac;word-break:break-all;line-height:1.55;min-height:38px;display:flex;align-items:center}');
-  w('.cbtn{background:var(--surf2);border:1px solid var(--bdr);color:var(--muted);padding:8px 14px;border-radius:var(--rsm);cursor:pointer;font-size:.74rem;font-family:"Inter",system-ui,sans-serif;white-space:nowrap;transition:all var(--tr);flex-shrink:0}');
-  w('.cbtn:hover{border-color:var(--accent-bdr);color:var(--accent)}');
-  w('.cbtn.cp{border-color:rgba(110,231,183,.38);color:var(--ok);background:rgba(110,231,183,.07)}');
-  w('.steps{display:flex;flex-direction:column;gap:10px}');
-  w('.step{display:flex;gap:12px;align-items:flex-start}');
-  w('.stepn{width:22px;height:22px;border-radius:50%;background:var(--accent-dim);border:1px solid var(--accent-bdr);color:var(--accent);font-size:.7rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px}');
-  w('.stept{font-size:.78rem;color:var(--muted);line-height:1.6}');
-  w('.stept b{color:var(--txt)}');
-  w('footer{margin-top:36px;text-align:center;font-size:.65rem;color:var(--faint);line-height:1.9}');
-  w('</style>');
-  w('</head>');
-  w('<body>');
-  w('<div class="page">');
-
-  w('<div class="hdr">');
-  w('  <div class="hdr-logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="3" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="21"/><line x1="3" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="21" y2="12"/></svg></div>');
-  w('  <div><div class="hdr-title">Eclipse Universal Addon</div><div class="hdr-sub">Qobuz &middot; Tidal HiFi &middot; Deezer &middot; SoundCloud &middot; Podcasts &middot; Radio</div></div>');
-  w('  <span class="hdr-badge">v1.4</span>');
-  w('</div>');
-
-  w('<div class="sec-head">Deployment</div>');
-  w('<div class="card">');
-  w('  <div class="card-title">Base URL <span class="ctag">pre-filled</span></div>');
-  w('  <label class="lbl" for="vercelUrl">Your addon base URL</label>');
-  var escaped = String(baseUrl).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-  w('  <input type="text" id="vercelUrl" value="' + escaped + '" placeholder="https://your-addon.vercel.app">');
-  w('  <p class="hint">Only change this if you are self-hosting on a different domain.</p>');
-  w('</div>');
-
-  w('<div class="sec-head">Streaming Credentials <span class="sec-opt">&mdash; all optional, encoded in your URL only</span></div>');
-
-  w('<div class="card">');
-  w('  <div class="card-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> Qobuz <span class="ctag">optional</span></div>');
-  w('  <div class="tip"><b>Use your own account for direct hi-res streaming.</b> Leave blank to use the built-in shared credentials. Your token is encoded in the URL only &mdash; never stored on the server.</div>');
-  w('  <label class="lbl" for="qobuzUserToken">User Auth Token</label>');
-  w('  <input type="password" id="qobuzUserToken" placeholder="Your user_auth_token from Qobuz">');
-  w('  <div class="row2" style="margin-top:2px">');
-  w('    <div><label class="lbl" for="qobuzSecret">App Secret</label><input type="password" id="qobuzSecret" placeholder="32-char hex secret"></div>');
-  w('    <div><label class="lbl" for="qobuzAppId">App ID <span class="ctag">optional</span></label><input type="text" id="qobuzAppId" placeholder="e.g. 312369995"></div>');
-  w('  </div>');
-  w('  <p class="hint">Get your token via <a href="https://github.com/nickcoutsos/qobuz-dl" target="_blank" rel="noopener">qobuz-dl</a> or by intercepting the Qobuz app network traffic. App ID &amp; Secret are only needed if you have custom Qobuz API credentials.</p>');
-  w('</div>');
-
-  w('<div class="card">');
-  w('  <div class="card-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg> Deezer ARL <span class="ctag">optional</span></div>');
-  (env && env.DEEZER_ARL
-    ? w('  <div class="tip ok"><b>Deezer ARL is optional.</b> &#x2705; An ARL is <b>already configured server-side</b> &mdash; you don\'t need to enter one. You can paste your own below to override it.</div>')
-    : w('  <div class="tip"><b>Deezer ARL is optional.</b> Without it, Deezer tracks appear in search but won\'t stream. Streams are FLAC (HiFi) or MP3 320 kbps when set.</div>'));
-  w('  <label class="lbl" for="deezerArl">ARL Cookie Value</label>');
-  w('  <input type="password" id="deezerArl" placeholder="Your deezer.com arl= cookie value (long hex string)">');
-  w('  <p class="hint">In your browser: open deezer.com &rarr; DevTools &rarr; Application &rarr; Cookies &rarr; copy the <code class="inline">arl</code> value. Valid for ~3 months.</p>');
-  w('</div>');
-
-  w('<div class="card">');
-  w('  <div class="card-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg> Tidal HiFi Instances <span class="ctag">optional</span></div>');
-  w('  <div class="tip">Tidal streams via HiFi proxy at AAC 320 kbps. Leave blank to use the built-in public instance pool.</div>');
-  w('  <label class="lbl" for="hifiInst">Custom instance URLs</label>');
-  w('  <input type="text" id="hifiInst" placeholder="https://hifi.yourdomain.com  (comma-separated)">');
-  w('  <p class="hint">Leave blank to use the built-in public instance pool. Only set this if you run your own HiFi proxy.</p>');
-  w('</div>');
-
-  w('<div class="card">');
-  w('  <div class="card-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 14.5A4.5 4.5 0 0 1 6.5 10c.28 0 .56.03.83.08A6 6 0 0 1 18 10.5a3.5 3.5 0 0 1 3 3.5"/><path d="M2 14.5v1a2.5 2.5 0 0 0 5 0v-1"/></svg> SoundCloud <span class="ctag">optional</span></div>');
-  w('  <div class="tip">SoundCloud streams at <b>320 kbps MP3</b> (or lower for older tracks). The client ID is auto-discovered &mdash; only set this if auto-discovery breaks.</div>');
-  w('  <label class="lbl" for="scId">Client ID</label>');
-  w('  <input type="text" id="scId" placeholder="Leave blank for auto-discovery">');
-  w('  <label class="lbl" for="scOAuth" style="margin-top:var(--sp)">OAuth Token <span class="ctag">optional &mdash; full tracks</span></label>');
-  w('  <input type="password" id="scOAuth" placeholder="Paste OAuth token to unlock full tracks (removes 30-sec preview limit)">');
-  w('  <p class="hint">Get it: open <a href="https://soundcloud.com" target="_blank" rel="noopener">soundcloud.com</a> &rarr; F12 &rarr; Application &rarr; Local Storage &rarr; soundcloud.com &rarr; copy <code>oauth_token</code>. Or Network tab &rarr; any api-v2 request &rarr; <code>Authorization: OAuth &hellip;</code></p>');
-  w('</div>');
-
-  w('<div class="card">');
-  w('  <div class="card-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="11" r="3"/><path d="M12 2a9 9 0 0 1 9 9c0 4.97-6 11-9 11S3 15.97 3 11a9 9 0 0 1 9-9z"/></svg> Podcast Index <span class="ctag">optional</span></div>');
-  w('  <div class="tip">Free keys from <a href="https://api.podcastindex.org/" target="_blank" rel="noopener">api.podcastindex.org</a>. Without keys, the addon falls back to Apple Podcasts search only.</div>');
-  w('  <div class="row2">');
-  w('    <div><label class="lbl" for="piKey">API Key</label><input type="text" id="piKey" placeholder="PI key"></div>');
-  w('    <div><label class="lbl" for="piSecret">API Secret</label><input type="password" id="piSecret" placeholder="PI secret"></div>');
-  w('  </div>');
-  w('</div>');
-
-  w('<div class="card">');
-  w('  <div class="card-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg> Taddy <span class="ctag">optional</span></div>');
-  w('  <div class="tip">Enhanced podcast metadata and series search. Free plan at <a href="https://taddy.org" target="_blank" rel="noopener">taddy.org</a>.</div>');
-  w('  <div class="row2">');
-  w('    <div><label class="lbl" for="taddyKey">API Key</label><input type="text" id="taddyKey" placeholder="Taddy key"></div>');
-  w('    <div><label class="lbl" for="taddyUid">User ID</label><input type="text" id="taddyUid" placeholder="Taddy UID"></div>');
-  w('  </div>');
-  w('</div>');
-
-  w('<div class="sec-head">Audio Quality</div>');
-  w('<div class="card">');
-  w('  <div class="card-title">Qobuz Quality Target <span class="ctag">optional</span></div>');
-  w('  <div class="tip"><b>This only affects Qobuz streams.</b> The addon always falls back gracefully if the selected tier is unavailable for a track.</div>');
-  w('  <div class="qrow">');
-  w('    <div class="qbtn on" id="q-auto"     onclick="setQuality(null)">        <span>Auto</span>    <span class="qs">Best available</span></div>');
-  w('    <div class="qbtn"    id="q-hires192"    onclick="setQuality(\'HIRES_192\')">   <span>Hi-Res 192</span>  <span class="qs">24-bit 192kHz</span></div>');
-  w('    <div class="qbtn"    id="q-hires96"    onclick="setQuality(\'HIRES_96\')">   <span>Hi-Res 96</span>  <span class="qs">24-bit 96kHz</span></div>');
-  w('    <div class="qbtn"    id="q-lossless" onclick="setQuality(\'LOSSLESS\')"><span>Lossless</span><span class="qs">CD 44.1 kHz</span></div>');
-  w('    <div class="qbtn"    id="q-high"     onclick="setQuality(\'HIGH\')">    <span>High</span>    <span class="qs">320 kbps MP3</span></div>');
-  w('  </div>');
-  w('  <div class="src-note">');
-  w('    <b>Tidal HiFi</b> &mdash; AAC 320 kbps only (proxy limitation) &nbsp;&bull;&nbsp; <b>Deezer</b> &mdash; FLAC (HiFi accounts) or MP3 320 kbps &nbsp;&bull;&nbsp; <b>SoundCloud</b> &mdash; 320 kbps MP3 or lower');
-  w('  </div>');
-  w('</div>');
-
-  w('<div class="sec-head">Content Types</div>');
-  w('<div class="card">');
-  w('  <div class="card-title">Enabled Types</div>');
-  w('  <div class="tip"><b>Each enabled type gets its own install URL.</b> Disable anything you don\'t want &mdash; it will be excluded from search results.</div>');
-  w('  <div class="ct-row">');
-  w('    <div class="ct-btn on" id="ct-podcast"   onclick="toggleCT(\'podcast\')">  <div class="ct-dot"></div><div class="ct-info"><div class="ct-lbl">Podcasts</div>  <div class="ct-sub">PI &middot; Taddy &middot; Apple</div></div></div>');
-  w('    <div class="ct-btn on" id="ct-audiobook" onclick="toggleCT(\'audiobook\')"><div class="ct-dot"></div><div class="ct-info"><div class="ct-lbl">Audiobooks</div><div class="ct-sub">LibriVox &middot; Archive</div></div></div>');
-  w('    <div class="ct-btn on" id="ct-radio"     onclick="toggleCT(\'radio\')">    <div class="ct-dot"></div><div class="ct-info"><div class="ct-lbl">Radio</div>      <div class="ct-sub">Browser &middot; SomaFM</div></div></div>');
-  w('  </div>');
-  w('  <p class="hint" style="margin-top:10px">Music is always included and cannot be disabled.</p>');
-  w('</div>');
-
-  w('<div class="sec-head">Source Priority <span class="sec-opt">&mdash; optional, click to set order</span></div>');
-  w('<div class="card">');
-  w('  <div class="tip">Click a source to set priority &mdash; first clicked = highest priority. Numbers show rank. Click an active source again to remove it from the custom order (it will still be used, just at default priority).</div>');
-  w('  <div class="stitle">Search Priority</div>');
-  w('  <div class="srow" id="searchRow">');
-  w('    <div class="sbtn" id="ss-qobuz"  onclick="toggleSearch(\'qobuz\')"> <span class="sn">Qobuz</span>     <span class="st">Hi-Res FLAC</span></div>');
-  w('    <div class="sbtn" id="ss-hifi"   onclick="toggleSearch(\'hifi\')">  <span class="sn">Tidal HiFi</span><span class="st">AAC 320</span></div>');
-  w('    <div class="sbtn" id="ss-deezer" onclick="toggleSearch(\'deezer\')"><span class="sn">Deezer</span>    <span class="st">FLAC / MP3</span></div>');
-  w('    <div class="sbtn" id="ss-sc"     onclick="toggleSearch(\'sc\')">    <span class="sn">SoundCloud</span><span class="st">MP3 320</span></div>');
-  w('    <div class="sbtn" id="ss-ia"     onclick="toggleSearch(\'ia\')">    <span class="sn">Archive</span>   <span class="st">Various</span></div>');
-  w('  </div>');
-  w('  <div class="shint" id="searchHint"></div>');
-  w('  <div class="stitle" style="margin-top:18px">Stream Priority</div>');
-  w('  <div class="srow" id="streamRow">');
-  w('    <div class="sbtn" id="st-qobuz"  onclick="toggleStream(\'qobuz\')"> <span class="sn">Qobuz</span>     <span class="st">Hi-Res FLAC</span></div>');
-  w('    <div class="sbtn" id="st-hifi"   onclick="toggleStream(\'hifi\')">  <span class="sn">Tidal HiFi</span><span class="st">AAC 320</span></div>');
-  w('    <div class="sbtn" id="st-deezer" onclick="toggleStream(\'deezer\')"><span class="sn">Deezer</span>    <span class="st">FLAC / MP3</span></div>');
-  w('    <div class="sbtn" id="st-sc"     onclick="toggleStream(\'sc\')">    <span class="sn">SoundCloud</span><span class="st">MP3 320</span></div>');
-  w('    <div class="sbtn" id="st-ia"     onclick="toggleStream(\'ia\')">    <span class="sn">Archive</span>   <span class="st">Various</span></div>');
-  w('  </div>');
-  w('  <div class="shint" id="streamHint"></div>');
-  w('</div>');
-
-  w('<div class="sec-head">ISRC Enrichment Sources <span class="ctag">optional</span></div>');
-  w('<div class="card">');
-  w('  <div class="hint" style="margin-bottom:12px">Controls which external databases are used to look up ISRCs when a track is missing one. Disabling speeds up resolution but may reduce match accuracy.</div>');
-  w('  <div class="isrc-toggle-row">');
-  w('    <div class="isrc-toggle-item on" id="itm-musicbrainz">');
-  w('      <div class="itlabel">');
-  w('        <div class="itname">MusicBrainz</div>');
-  w('        <div class="itdesc">Open metadata database — used to enrich missing ISRCs before Qobuz/Tidal matching.</div>');
-  w('      </div>');
-  w('      <button class="isrc-toggle-btn on" id="btn-musicbrainz" onclick="toggleIsrcSource(\'musicbrainz\')" aria-label="Toggle MusicBrainz"></button>');
-  w('    </div>');
-  w('    <div class="isrc-toggle-item on" id="itm-theaudiodb">');
-  w('      <div class="itlabel">');
-  w('        <div class="itname">TheAudioDB</div>');
-  w('        <div class="itdesc">Secondary ISRC enrichment fallback — consulted when MusicBrainz has no result.</div>');
-  w('      </div>');
-  w('      <button class="isrc-toggle-btn on" id="btn-theaudiodb" onclick="toggleIsrcSource(\'theaudiodb\')" aria-label="Toggle TheAudioDB"></button>');
-  w('    </div>');
-  w('    <div class="isrc-toggle-item on" id="itm-deezer_isrc">');
-  w('      <div class="itlabel">');
-  w('        <div class="itname">Deezer ISRC Matching</div>');
-  w('        <div class="itdesc">Uses ISRC to find the exact track on Deezer during stream resolution.</div>');
-  w('        <div class="itwarn">&#9888; Disabling this while Deezer is active as a stream source may cause incorrect tracks or broken streams.</div>');
-  w('      </div>');
-  w('      <button class="isrc-toggle-btn on" id="btn-deezer_isrc" onclick="toggleIsrcSource(\'deezer_isrc\')" aria-label="Toggle Deezer ISRC"></button>');
-  w('    </div>');
-  w('    <div class="isrc-toggle-item on" id="itm-qobuz_isrc">');
-  w('      <div class="itlabel">');
-  w('        <div class="itname">Qobuz ISRC Matching</div>');
-  w('        <div class="itdesc">Uses ISRC for direct Qobuz track lookup — faster and more accurate than title search.</div>');
-  w('      </div>');
-  w('      <button class="isrc-toggle-btn on" id="btn-qobuz_isrc" onclick="toggleIsrcSource(\'qobuz_isrc\')" aria-label="Toggle Qobuz ISRC"></button>');
-  w('    </div>');
-  w('  </div>');
-  w('</div>');
-
-  w('<div class="sec-head">Generate</div>');
-  w('<div class="card">');
-  w('  <div class="card-title">Your Install URLs</div>');
-  w('  <div class="brow"><button class="btn bprimary" id="genBtn" onclick="doGenerate()">Generate My Addon URLs</button></div>');
-  w('  <div class="status" id="genStatus"></div>');
-  w('  <div class="outbox" id="genBox">');
-  w('    <div class="out-item" id="out-music"><div class="olbl">&#9834; Music</div><div class="orow"><div class="ourl" id="urlMusic"></div><button class="cbtn" id="cpMusic" onclick="copyIt(\'urlMusic\',\'cpMusic\')">Copy</button></div></div>');
-  w('    <div class="out-item" id="out-podcast"><div class="olbl">&#127897; Podcasts</div><div class="orow"><div class="ourl" id="urlPodcast"></div><button class="cbtn" id="cpPodcast" onclick="copyIt(\'urlPodcast\',\'cpPodcast\')">Copy</button></div></div>');
-  w('    <div class="out-item" id="out-audiobook"><div class="olbl">&#128214; Audiobooks</div><div class="orow"><div class="ourl" id="urlAudiobook"></div><button class="cbtn" id="cpAudiobook" onclick="copyIt(\'urlAudiobook\',\'cpAudiobook\')">Copy</button></div></div>');
-  w('    <div class="out-item" id="out-radio"><div class="olbl">&#128251; Radio</div><div class="orow"><div class="ourl" id="urlRadio"></div><button class="cbtn" id="cpRadio" onclick="copyIt(\'urlRadio\',\'cpRadio\')">Copy</button></div></div>');
-  w('  </div>');
-  w('</div>');
-
-  w('<div class="sec-head">Refresh Existing URL <span class="sec-opt">&mdash; optional</span></div>');
-  w('<div class="card">');
-  w('  <label class="lbl" for="existingUrl">Paste your current manifest URL</label>');
-  w('  <input type="text" id="existingUrl" placeholder="https://your-addon.vercel.app/abc123.../manifest.json">');
-  w('  <div class="brow" style="margin-top:10px"><button class="btn bsec" onclick="doRefresh()">Refresh URL</button></div>');
-  w('  <div class="status" id="refStatus"></div>');
-  w('  <div class="outbox" id="refBox">');
-  w('    <div class="olbl">Refreshed URL</div><div class="orow"><div class="ourl" id="urlRef"></div><button class="cbtn" id="cpRef" onclick="copyIt(\'urlRef\',\'cpRef\')">Copy</button></div>');
-  w('  </div>');
-  w('</div>');
-
-  w('<div class="sec-head">How to Install</div>');
-  w('<div class="card">');
-  w('  <div class="steps">');
-  w('    <div class="step"><div class="stepn">1</div><div class="stept">Fill in any credentials above, then click <b>Generate My Addon URLs</b>.</div></div>');
-  w('    <div class="step"><div class="stepn">2</div><div class="stept">Open <b>Eclipse</b> &rarr; Settings &rarr; Connections &rarr; Add Connection &rarr; Addon.</div></div>');
-  w('    <div class="step"><div class="stepn">3</div><div class="stept">Paste a Manifest URL and tap <b>Install</b>. Install each content type separately &mdash; Music, Podcasts, Audiobooks, and Radio each get their own dedicated URL.</div></div>');
-  w('  </div>');
-  w('</div>');
-
-
-  w('<div class="card">');
-  w('  <div class="card-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> HiFi Instance Health <span class="ctag">live</span></div>');
-  w('  <div class="tip">Live status of the HiFi proxy instances used for TIDAL streaming. Green = online, Red = unreachable.</div>');
-  w('  <div id="hifiInstList" style="display:flex;flex-direction:column;gap:5px;margin-top:4px"><div style="color:var(--muted);font-size:.75rem">Checking...</div></div>');
-  w('  <button class="btn-gen" style="margin-top:10px;padding:8px 0;font-size:.75rem" onclick="checkHifiHealth()">Refresh Status</button>');
-  w('</div>');
-
-  w('<footer>Eclipse Universal Addon &bull; Credentials encoded in URL only &bull; Never stored server-side<br>Qobuz &bull; Tidal HiFi &bull; Deezer &bull; SoundCloud &bull; Internet Archive &bull; Podcasts &bull; Radio</footer>');
-  w('</div>');
-
-  w('<script>');
-  w('var selectedQuality = null;');
-  w('var searchOrder = ["hifi","qobuz","deezer","sc","ia"];');
-  w('var streamOrder = ["qobuz","hifi","deezer","sc","ia"];');
-  w('var ctEnabled = { podcast: true, audiobook: true, radio: true };');
-  w('var isrcToggles = { musicbrainz: true, theaudiodb: true, deezer_isrc: true, qobuz_isrc: true };');
-  w('var SRCLABELS = { hifi:"Tidal HiFi", qobuz:"Qobuz", sc:"SoundCloud", ia:"Internet Archive", deezer:"Deezer" };');
-  w('var ALLSRCS = ["qobuz","hifi","deezer","sc","ia"];');
-
-  w('function setQuality(q) {');
-  w('  selectedQuality = q;');
-    w('  var _qMap = {"HIRES_192":"q-hires192","HIRES_96":"q-hires96","LOSSLESS":"q-lossless","HIGH":"q-high"};');
-  w('  Object.keys(_qMap).forEach(function(k){ var el=document.getElementById(_qMap[k]); if(el) el.classList.remove("on"); });');
-  w('  var _autoEl = document.getElementById("q-auto"); if(_autoEl) _autoEl.classList.toggle("on", q===null);');
-  w('  if(q && _qMap[q]){ var el2=document.getElementById(_qMap[q]); if(el2) el2.classList.add("on"); }');
-  w('}');
-  w('setQuality(null);');
-
-  w('function toggleCT(t) {');
-  w('  ctEnabled[t] = !ctEnabled[t];');
-  w('  var b = document.getElementById("ct-" + t);');
-  w('  ctEnabled[t] ? b.classList.add("on") : b.classList.remove("on");');
-  w('}');
-
-  w('function toggleSearch(src) {');
-  w('  var i = searchOrder.indexOf(src);');
-  w('  if (i === -1) searchOrder.push(src); else searchOrder.splice(i, 1);');
-  w('  renderSRow("ss-", searchOrder); updateHint("searchHint", searchOrder);');
-  w('}');
-  w('function toggleStream(src) {');
-  w('  var i = streamOrder.indexOf(src);');
-  w('  if (i === -1) streamOrder.push(src); else streamOrder.splice(i, 1);');
-  w('  renderSRow("st-", streamOrder); updateHint("streamHint", streamOrder);');
-  w('}');
-
-  w('function renderSRow(pfx, order) {');
-  w('  ALLSRCS.forEach(function(src) {');
-  w('    var el = document.getElementById(pfx + src); if (!el) return;');
-  w('    var pos = order.indexOf(src);');
-  w('    var badge = el.querySelector(".sbadge");');
-  w('    if (pos === -1) { el.classList.remove("on"); if (badge) badge.remove(); }');
-  w('    else { el.classList.add("on"); if (!badge) { badge = document.createElement("span"); badge.className = "sbadge"; el.appendChild(badge); } badge.textContent = pos + 1; }');
-  w('  });');
-  w('}');
-
-  w('function updateHint(id, order) {');
-  w('  var el = document.getElementById(id); if (!el) return;');
-  w('  if (!order.length) { el.textContent = "All sources used with default priority."; return; }');
-  w('  var names = order.map(function(s) { return SRCLABELS[s]; });');
-  w('  var off = ALLSRCS.filter(function(s) { return order.indexOf(s) === -1; });');
-  w('  var msg = "Priority: " + names.join(" \u2192 ");');
-  w('  if (off.length) msg += " \u2022 not in custom order (use default): " + off.map(function(s) { return SRCLABELS[s]; }).join(", ");');
-  w('  el.textContent = msg;');
-  w('}');
-
-  w('function showStatus(id, msg, type) {');
-  w('  var el = document.getElementById(id);');
-  w('  el.textContent = msg; el.className = "status " + (type === "ok" ? "s-ok" : "s-err"); el.style.display = "block";');
-  w('}');
-
-  w('function copyIt(urlId, btnId) {');
-  w('  var text = document.getElementById(urlId).textContent.trim(); if (!text) return;');
-  w('  navigator.clipboard.writeText(text).then(function() {');
-  w('    var btn = document.getElementById(btnId);');
-  w('    btn.textContent = "Copied!"; btn.classList.add("cp");');
-  w('    setTimeout(function() { btn.textContent = "Copy"; btn.classList.remove("cp"); }, 2000);');
-  w('  });');
-  w('}');
-
-  w('function v(id) { return (document.getElementById(id) || {}).value || ""; }');
-
-  w('function doGenerate() {');
-  w('  var btn = document.getElementById("genBtn");');
-  w('  var vercel = v("vercelUrl").replace(/\\/+$/, "");');
-  w('  if (!vercel) vercel = window.location.origin;');
-  w('  if (vercel.indexOf("http") !== 0) vercel = "https://" + vercel;');
-  w('  btn.disabled = true; btn.textContent = "Generating...";');
-  w('  document.getElementById("genStatus").style.display = "none";');
-  w('  var body = { vercelUrl: vercel };');
-  w('  if (v("hifiInst"))       body.hifi             = v("hifiInst");');
-  w('  if (v("scId"))           body.sc               = v("scId");');
-  w('  if (v("scOAuth"))        body.sc_oauth         = v("scOAuth");');
-  w('  if (v("piKey"))          body.pi_key           = v("piKey");');
-  w('  if (v("piSecret"))       body.pi_secret        = v("piSecret");');
-  w('  if (v("taddyKey"))       body.taddy_key        = v("taddyKey");');
-  w('  if (v("taddyUid"))       body.taddy_uid        = v("taddyUid");');
-  w('  if (v("qobuzUserToken")) body.qobuz_user_token = v("qobuzUserToken");');
-  w('  if (v("qobuzSecret"))    body.qobuz_secret     = v("qobuzSecret");');
-  w('  if (v("qobuzAppId"))     body.qobuz_app_id     = v("qobuzAppId");');
-  w('  if (v("deezerArl"))      body.deezer_arl       = v("deezerArl");');
-  w('  if (selectedQuality)     body.q                = selectedQuality;');
-  w('  if (!ctEnabled.podcast)   body.no_podcast   = true;');
-  w('  if (!ctEnabled.audiobook) body.no_audiobook = true;');
-  w('  if (!ctEnabled.radio)     body.no_radio     = true;');
-  w('  if (searchOrder.length)  body.search_order  = searchOrder;');
-  w('  if (streamOrder.length)  body.stream_order  = streamOrder;');
-  w('  if (!isrcToggles.musicbrainz) body.no_musicbrainz = true;');
-  w('  if (!isrcToggles.theaudiodb)  body.no_theaudiodb  = true;');
-  w('  if (!isrcToggles.deezer_isrc) body.no_deezer_isrc = true;');
-  w('  if (!isrcToggles.qobuz_isrc)  body.no_qobuz_isrc  = true;');
-  w('  fetch("/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })');
-  w('    .then(function(r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })');
-  w('    .then(function(data) {');
-  w('      if (data.error) throw new Error(data.error);');
-  w('      document.getElementById("urlMusic").textContent = data.manifestUrl;');
-  w('      var sp = data.podcastManifestUrl, sa = data.audiobookManifestUrl, sr = data.radioManifestUrl;');
-  w('      document.getElementById("out-podcast").style.display   = (ctEnabled.podcast   && sp) ? "" : "none";');
-  w('      document.getElementById("out-audiobook").style.display = (ctEnabled.audiobook && sa) ? "" : "none";');
-  w('      document.getElementById("out-radio").style.display     = (ctEnabled.radio     && sr) ? "" : "none";');
-  w('      if (sp) document.getElementById("urlPodcast").textContent   = sp;');
-  w('      if (sa) document.getElementById("urlAudiobook").textContent = sa;');
-  w('      if (sr) document.getElementById("urlRadio").textContent     = sr;');
-  w('      document.getElementById("genBox").style.display = "block";');
-  w('      showStatus("genStatus", "Done! Copy your install URLs below.", "ok");');
-  w('    })');
-  w('    .catch(function(e) { showStatus("genStatus", "Error: " + e.message, "err"); })');
-  w('    .finally(function() { btn.disabled = false; btn.textContent = "Generate My Addon URLs"; });');
-  w('}');
-
-  w('function doRefresh() {');
-  w('  var raw = v("existingUrl"); if (!raw) { showStatus("refStatus", "Paste your existing URL first.", "err"); return; }');
-  w('  fetch("/refresh", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ existingUrl: raw }) })');
-  w('    .then(function(r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })');
-  w('    .then(function(data) {');
-  w('      if (data.error) throw new Error(data.error);');
-  w('      document.getElementById("urlRef").textContent = data.manifestUrl;');
-  w('      document.getElementById("refBox").style.display = "block";');
-  w('      showStatus("refStatus", "Refreshed!", "ok");');
-  w('    })');
-  w('    .catch(function(e) { showStatus("refStatus", "Error: " + e.message, "err"); });');
-  w('}');
-
-  w('renderSRow("ss-", searchOrder); updateHint("searchHint", searchOrder);');
-  w('renderSRow("st-", streamOrder); updateHint("streamHint", streamOrder);');
-
-  w('function toggleIsrcSource(key) {');
-  w('  isrcToggles[key] = !isrcToggles[key];');
-  w('  var btn = document.getElementById("btn-" + key);');
-  w('  var itm = document.getElementById("itm-" + key);');
-  w('  var on = isrcToggles[key];');
-  w('  if (btn) { on ? btn.classList.add("on") : btn.classList.remove("on"); }');
-  w('  if (itm) { on ? itm.classList.add("on") : itm.classList.remove("on"); }');
-  w('  var warn = itm ? itm.querySelector(".itwarn") : null;');
-  w('  if (warn) warn.style.display = (!on) ? "block" : "none";');
-  w('}');
-
-
-
-  w('function checkHifiHealth(){');
-  w('  var list=document.getElementById("hifiInstList");');
-  w('  if(!list)return;');
-  w('  list.innerHTML=\'<div style="color:var(--muted);font-size:.75rem">Checking\u2026</div>\';');
-  w('  fetch("/instances").then(function(r){return r.json();}).then(function(data){');
-  w('    list.innerHTML="";');
-  w('    if(!data.instances||!data.instances.length){list.innerHTML=\'<div style="color:var(--muted);font-size:.75rem">No instances configured.</div>\';return;}');
-  w('    data.instances.forEach(function(inst){');
-  w('      var row=document.createElement("div");');
-  w('      row.style.cssText="display:flex;align-items:center;gap:8px;font-size:.72rem;padding:7px 10px;background:var(--bg);border:1px solid var(--bdr);border-radius:8px";');
-  w('      var dot=document.createElement("span");');
-  w('      dot.style.cssText="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:"+(inst.online?"#4a9a4a":"#c04040");');
-  w('      var urlSpan=document.createElement("span");');
-  w('      urlSpan.style.cssText="flex:1;color:var(--muted);font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";');
-  w('      var raw=(inst.inst||inst.url||"").replace(/^https?:\\/\\//,"").replace(/\\/$/,"");');
-  w('      var dashIdx=raw.indexOf("-");');
-  w('      var dotIdx=raw.lastIndexOf(".");');
-  w('      var masked;');
-  w('      if(dashIdx>0&&dotIdx>dashIdx){masked=raw.slice(0,dashIdx+5)+"\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"+raw.slice(dotIdx);}');
-  w('      else{masked=raw.slice(0,4)+"\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"+raw.slice(dotIdx>0?dotIdx:"");}');
-  w('      urlSpan.textContent=masked;');
-  w('      row.appendChild(dot);row.appendChild(urlSpan);');
-  w('      if(inst.online){var ms=document.createElement("span");ms.style.cssText="color:var(--faint);margin-left:auto;font-size:.65rem";ms.textContent=(inst.latency||inst.ms||0)+"ms";row.appendChild(ms);}');
-  w('      list.appendChild(row);');
-  w('    });');
-  w('  }).catch(function(){list.innerHTML=\'<div style="color:#c04040;font-size:.72rem">Could not reach server</div>\';});');
-  w('}');
-  w('checkHifiHealth();');
-
-  w('<\/script>');
-  w('<\/body>');
-  w('<\/html>');
-
-  return S.join('\n');
+  return "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\">\n<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0, maximum-scale=5.0\">\n<title>All In Eclipse — Setup</title>\n<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">\n<link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>\n<link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap\" rel=\"stylesheet\">\n<style>\n*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}\n:root{\n  --glass-bg:rgba(255,255,255,.04);\n  --glass-bg-hover:rgba(255,255,255,.06);\n  --glass-bg-active:rgba(255,255,255,.08);\n  --glass-border:rgba(255,255,255,.09);\n  --glass-border-h:rgba(255,255,255,.16);\n  --glass-blur:blur(24px);\n  --text:#f0f0f5;\n  --muted:#9a9ab0;\n  --faint:#5a5a70;\n  --accent:#6ee7b7;\n  --accent-dim:rgba(110,231,183,.12);\n  --accent-bdr:rgba(110,231,183,.3);\n  --warn:#fbbf24;\n  --err:#f87171;\n  --r-sm:8px;\n  --r:12px;\n  --r-lg:16px;\n  --r-xl:22px;\n  --t:200ms cubic-bezier(.16,1,.3,1);\n}\nhtml{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;-webkit-tap-highlight-color:transparent}\nbody{\n  font-family:'Inter',system-ui,-apple-system,sans-serif;\n  background:#0a0a0c;\n  color:var(--text);\n  min-height:100dvh;\n  line-height:1.5;\n  font-size:14px;\n  overflow-x:hidden;\n  position:relative;\n}\nbody::before{\n  content:'';position:fixed;inset:0;\n  background:\n    radial-gradient(ellipse 900px 500px at 15% 0%, rgba(110,231,183,.08), transparent 60%),\n    radial-gradient(ellipse 700px 500px at 85% 15%, rgba(96,165,250,.06), transparent 60%),\n    radial-gradient(ellipse 800px 600px at 50% 100%, rgba(192,132,252,.05), transparent 60%);\n  pointer-events:none;z-index:0;\n}\n.app{position:relative;z-index:1;max-width:720px;margin:0 auto;padding:20px 16px 100px}\n@media(max-width:640px){.app{padding:12px 12px 90px}}\n\n.glass{\n  background:var(--glass-bg);\n  backdrop-filter:var(--glass-blur);\n  -webkit-backdrop-filter:var(--glass-blur);\n  border:1px solid var(--glass-border);\n  border-radius:var(--r-lg);\n  position:relative;overflow:hidden;\n}\n.glass::before{\n  content:'';position:absolute;inset:0;\n  background:linear-gradient(135deg, rgba(255,255,255,.03) 0%, transparent 50%, rgba(255,255,255,.01) 100%);\n  pointer-events:none;\n}\n\n.header{display:flex;align-items:center;gap:12px;margin-bottom:16px}\n.header-text{flex:1;min-width:0}\n.header-title{font-size:.95rem;font-weight:700;letter-spacing:-.02em;color:#fff}\n.header-sub{font-size:.66rem;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}\n\n.hero{\n  position:relative;overflow:hidden;\n  margin-bottom:16px;\n  min-height:calc(100dvh - 100px);\n  display:flex;flex-direction:column;\n  border-radius:var(--r-xl);\n}\n@media(max-width:640px){.hero{min-height:calc(100dvh - 80px);border-radius:var(--r)}}\n.hero-bg{\n  position:absolute;inset:0;\n  background:\n    radial-gradient(ellipse 800px 500px at 50% 0%, rgba(110,231,183,.15), transparent 70%),\n    radial-gradient(ellipse 600px 400px at 20% 80%, rgba(96,165,250,.1), transparent 70%),\n    radial-gradient(ellipse 500px 300px at 80% 60%, rgba(192,132,252,.08), transparent 70%);\n  pointer-events:none;\n}\n.hero-bg::after{\n  content:'';position:absolute;inset:0;\n  background:linear-gradient(180deg, rgba(255,255,255,.04) 0%, rgba(255,255,255,.01) 50%, transparent 100%);\n}\n.hero-content{\n  position:relative;z-index:1;\n  flex:1;\n  display:flex;flex-direction:column;\n  align-items:center;justify-content:center;\n  padding:80px 40px 60px;\n  text-align:center;\n}\n@media(max-width:640px){.hero-content{padding:60px 24px 50px}}\n\n.hero-badge{\n  display:inline-flex;align-items:center;gap:8px;\n  padding:8px 16px;\n  background:var(--accent-dim);\n  border:1px solid var(--accent-bdr);\n  border-radius:99px;\n  font-size:.75rem;font-weight:600;\n  color:var(--accent);\n  margin-bottom:28px;\n  letter-spacing:.02em;\n  animation:fadeInDown .6s ease;\n}\n@keyframes fadeInDown{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}\n.hero-badge-dot{\n  width:6px;height:6px;border-radius:50%;\n  background:var(--accent);\n  box-shadow:0 0 8px var(--accent);\n  animation:pulse 2s ease-in-out infinite;\n}\n@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}\n\n.hero h1{\n  font-size:4.5rem;font-weight:900;letter-spacing:-.05em;\n  margin-bottom:24px;\n  background:linear-gradient(180deg,#fff 0%,#e0e0ea 40%,#a0a0b0 100%);\n  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;\n  line-height:1;\n  max-width:700px;\n  animation:fadeInUp .8s ease;\n}\n@media(max-width:640px){.hero h1{font-size:3rem;margin-bottom:20px;letter-spacing:-.04em}}\n\n.hero-subtitle{\n  font-size:1.5rem;\n  font-weight:600;\n  color:var(--text);\n  margin-bottom:20px;\n  letter-spacing:-.02em;\n  animation:fadeInUp .8s ease .1s both;\n}\n@media(max-width:640px){.hero-subtitle{font-size:1.2rem}}\n\n.hero p{\n  font-size:1.1rem;color:var(--muted);\n  max-width:520px;margin:0 auto 40px;\n  line-height:1.6;\n  animation:fadeInUp .8s ease .2s both;\n}\n@media(max-width:640px){.hero p{font-size:1rem;margin-bottom:32px}}\n\n.hero-cta{\n  display:flex;gap:12px;justify-content:center;flex-wrap:wrap;\n  width:100%;max-width:480px;\n  animation:fadeInUp .8s ease .3s both;\n}\n.hero-cta .btn{flex:1;min-width:180px}\n@media(max-width:640px){.hero-cta{flex-direction:column;align-items:stretch;max-width:100%}.hero-cta .btn{min-width:auto}}\n\n@keyframes fadeInUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}\n\n.btn{\n  padding:14px 24px;border-radius:var(--r);\n  font-size:.9rem;font-weight:600;font-family:inherit;\n  cursor:pointer;transition:all var(--t);\n  border:none;outline:none;\n  display:inline-flex;align-items:center;justify-content:center;gap:8px;\n  white-space:nowrap;min-height:48px;\n  -webkit-tap-highlight-color:transparent;\n  position:relative;overflow:hidden;\n}\n.btn-primary{\n  background:linear-gradient(135deg, var(--accent), #86efac);\n  color:#000;\n  box-shadow:0 4px 20px rgba(110,231,183,.25), inset 0 1px 0 rgba(255,255,255,.3);\n}\n.btn-primary:hover{box-shadow:0 6px 28px rgba(110,231,183,.4), inset 0 1px 0 rgba(255,255,255,.3);transform:translateY(-1px)}\n.btn-primary:active{transform:none}\n.btn-primary:disabled{background:var(--glass-bg-active);color:var(--faint);box-shadow:none;cursor:not-allowed;transform:none}\n.btn-ghost{background:var(--glass-bg);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);color:var(--muted);border:1px solid var(--glass-border)}\n.btn-ghost:hover{border-color:var(--glass-border-h);color:var(--text);background:var(--glass-bg-hover)}\n\n.steps-bar{display:flex;align-items:center;gap:4px;padding:10px;margin-bottom:12px}\n.step-item{\n  flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;\n  position:relative;cursor:pointer;\n  -webkit-tap-highlight-color:transparent;\n  padding:4px 0;\n  transition:opacity var(--t);\n}\n.step-item:hover{opacity:.85}\n.step-item:not(:last-child)::after{\n  content:'';position:absolute;top:12px;\n  left:calc(50% + 14px);right:calc(-50% + 14px);\n  height:2px;background:var(--glass-border);transition:background var(--t);\n}\n.step-item.done:not(:last-child)::after{background:var(--accent)}\n.step-num{\n  width:24px;height:24px;border-radius:50%;\n  background:var(--glass-bg-active);border:1.5px solid var(--glass-border);\n  display:flex;align-items:center;justify-content:center;\n  font-size:.7rem;font-weight:700;color:var(--faint);transition:all var(--t);\n}\n.step-item.active .step-num{background:var(--accent-dim);border-color:var(--accent-bdr);color:var(--accent);box-shadow:0 0 0 3px rgba(110,231,183,.08)}\n.step-item.done .step-num{background:var(--accent);border-color:var(--accent);color:#000}\n.step-label{font-size:.58rem;font-weight:600;color:var(--faint);text-transform:uppercase;letter-spacing:.05em;transition:color var(--t)}\n.step-item.active .step-label{color:var(--text)}\n.step-item.done .step-label{color:var(--muted)}\n@media(max-width:640px){\n  .steps-bar{padding:8px}\n  .step-num{width:22px;height:22px;font-size:.66rem}\n  .step-label{font-size:.54rem}\n  .step-item:not(:last-child)::after{left:calc(50% + 12px);right:calc(-50% + 12px);top:11px}\n}\n\n.panel{padding:18px;margin-bottom:10px;display:none;animation:fadeIn .3s ease}\n.panel.active{display:block}\n@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}\n.panel-head{display:flex;align-items:center;gap:10px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--glass-border)}\n.panel-title{font-size:.95rem;font-weight:700;letter-spacing:-.01em;line-height:1.3}\n.panel-desc{font-size:.74rem;color:var(--muted);margin-top:3px;line-height:1.45}\n@media(max-width:640px){.panel{padding:14px;border-radius:var(--r)}.panel-title{font-size:.88rem}.panel-desc{font-size:.72rem}}\n\n.section{margin-bottom:16px}\n.section:last-child{margin-bottom:0}\n.section-title{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}\n.section-title .opt{font-weight:500;color:var(--faint);text-transform:none;letter-spacing:0;font-size:.64rem}\n\n.content-grid{display:grid;grid-template-columns:1fr;gap:6px}\n.content-card{\n  display:flex;align-items:center;gap:12px;\n  padding:12px 14px;background:var(--glass-bg);\n  border:1px solid var(--glass-border);border-radius:var(--r);\n  cursor:pointer;transition:all var(--t);\n  user-select:none;-webkit-tap-highlight-color:transparent;min-height:56px;\n  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);\n}\n.content-card:hover{border-color:var(--glass-border-h);background:var(--glass-bg-hover)}\n.content-card.on{background:var(--accent-dim);border-color:var(--accent-bdr);box-shadow:0 0 0 1px var(--accent-bdr), inset 0 1px 0 rgba(255,255,255,.05)}\n.content-meta{flex:1;min-width:0}\n.content-name{font-size:.88rem;font-weight:600;color:var(--text)}\n.content-desc{font-size:.68rem;color:var(--muted);margin-top:2px}\n.switch{width:42px;height:24px;background:var(--glass-bg-active);border:1px solid var(--glass-border);border-radius:12px;position:relative;transition:all var(--t);flex-shrink:0}\n.switch::after{content:'';position:absolute;width:18px;height:18px;background:#fff;border-radius:50%;top:2px;left:2px;transition:transform var(--t);box-shadow:0 1px 3px rgba(0,0,0,.3)}\n.content-card.on .switch{background:var(--accent);border-color:var(--accent)}\n.content-card.on .switch::after{transform:translateX(18px)}\n.music-card{display:flex;align-items:center;gap:12px;padding:12px 14px;background:linear-gradient(135deg, rgba(110,231,183,.1), rgba(96,165,250,.06));border:1px solid var(--accent-bdr);border-radius:var(--r);box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}\n.music-card .content-name{color:var(--accent)}\n.always-badge{font-size:.62rem;font-weight:700;letter-spacing:.05em;padding:3px 8px;border-radius:99px;background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent-bdr);flex-shrink:0;white-space:nowrap}\n\n.svc-card{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:var(--r);overflow:hidden;margin-bottom:6px;transition:all var(--t);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}\n.svc-card.connected{border-color:var(--accent-bdr);box-shadow:0 0 0 1px var(--accent-bdr)}\n.svc-head{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;transition:background var(--t);-webkit-tap-highlight-color:transparent;min-height:54px}\n.svc-head:hover{background:var(--glass-bg-hover)}\n.svc-info{flex:1;min-width:0}\n.svc-name{font-size:.88rem;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap}\n.svc-perk{font-size:.68rem;color:var(--muted);margin-top:2px}\n.svc-opt{font-size:.58rem;font-weight:500;color:var(--faint);background:var(--glass-bg-active);padding:2px 7px;border-radius:99px;border:1px solid var(--glass-border);letter-spacing:.03em;text-transform:uppercase}\n.svc-status{font-size:.62rem;font-weight:700;letter-spacing:.05em;padding:3px 8px;border-radius:99px;flex-shrink:0;white-space:nowrap}\n.svc-status.off{background:var(--glass-bg-active);color:var(--faint);border:1px solid var(--glass-border)}\n.svc-status.on{background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent-bdr)}\n.svc-chevron{color:var(--faint);transition:transform var(--t);flex-shrink:0}\n.svc-card.open .svc-chevron{transform:rotate(180deg)}\n.svc-body{max-height:0;overflow:hidden;transition:max-height .3s ease}\n.svc-card.open .svc-body{max-height:800px}\n.svc-body-inner{padding:12px 14px 14px;border-top:1px solid var(--glass-border)}\n\n.field{margin-top:12px}\n.field:first-child{margin-top:0}\n.field-label{display:block;font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px}\n.field-input{\n  width:100%;background:rgba(0,0,0,.25);\n  border:1px solid var(--glass-border);border-radius:var(--r-sm);\n  color:var(--text);padding:11px 13px;font-size:.875rem;font-family:inherit;\n  transition:all var(--t);outline:none;appearance:none;-webkit-appearance:none;min-height:46px;\n  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);\n}\n.field-input:focus{border-color:var(--accent-bdr);box-shadow:0 0 0 3px var(--accent-dim)}\n.field-input::placeholder{color:var(--faint)}\n.field-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}\n@media(max-width:640px){.field-r ow{grid-template-columns:1fr}}\n.hint{font-size:.72rem;color:var(--muted);line-height:1.55;margin-top:8px}\n.hint a{color:var(--accent);text-decoration:none}\n.hint a:hover{text-decoration:underline}\n.hint code{font-family:'JetBrains Mono',monospace;font-size:.7rem;color:var(--accent);background:var(--glass-bg-active);padding:1px 6px;border-radius:3px}\n.warn{background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.2);border-radius:var(--r-sm);padding:10px 12px;font-size:.76rem;color:#c89a2f;line-height:1.5;margin-bottom:10px}\n.warn strong{color:var(--warn)}\n.info{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:var(--r-sm);padding:10px 12px;font-size:.76rem;color:var(--muted);line-height:1.5;margin-bottom:10px;backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}\n.info strong{color:var(--text)}\n\n.adv-toggle{display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:7px 11px;background:transparent;border:none;color:var(--faint);font-size:.72rem;font-family:inherit;cursor:pointer;transition:color var(--t);-webkit-tap-highlight-color:transparent;min-height:38px}\n.adv-toggle:hover{color:var(--muted)}\n.adv-toggle svg{transition:transform var(--t)}\n.adv-toggle.open svg{transform:rotate(90deg)}\n.adv-box{max-height:0;overflow:hidden;transition:max-height .3s ease}\n.adv-box.open{max-height:1200px}\n\n.mode-toggle{\n  display:grid;grid-template-columns:1fr 1fr;gap:6px;\n  background:rgba(0,0,0,.2);border:1px solid var(--glass-border);\n  border-radius:var(--r);padding:4px;margin-bottom:14px;\n}\n.mode-btn{\n  padding:12px 14px;background:transparent;border:none;\n  border-radius:var(--r-sm);color:var(--muted);\n  font-size:.82rem;font-weight:600;font-family:inherit;\n  cursor:pointer;transition:all var(--t);\n  display:flex;flex-direction:column;align-items:center;gap:4px;\n  -webkit-tap-highlight-color:transparent;min-height:56px;\n  position:relative;\n}\n.mode-btn:hover{color:var(--text)}\n.mode-btn.on{\n  background:var(--accent-dim);color:var(--accent);\n  box-shadow:inset 0 0 0 1px var(--accent-bdr), 0 0 12px rgba(110,231,183,.08);\n}\n.mode-btn-sub{font-size:.64rem;color:var(--faint);font-weight:400}\n.mode-btn.on .mode-btn-sub{color:var(--accent);opacity:.7}\n.mode-btn-soon{\n  position:absolute;top:6px;right:6px;\n  font-size:.52rem;font-weight:700;\n  color:var(--faint);\n  background:var(--glass-bg-active);\n  padding:1px 5px;border-radius:99px;\n  border:1px solid var(--glass-border);\n  letter-spacing:.03em;\n}\n\n.quality-pills{\n  display:flex;\n  gap:6px;\n  overflow-x:auto;\n  overflow-y:hidden;\n  padding:4px;\n  scroll-snap-type:x mandatory;\n  -webkit-overflow-scrolling:touch;\n  scrollbar-width:none;\n  background:rgba(0,0,0,.2);\n  border:1px solid var(--glass-border);\n  border-radius:var(--r);\n}\n.quality-pills::-webkit-scrollbar{display:none}\n.quality-pill{\n  flex:0 0 auto;\n  min-width:110px;\n  padding:14px 16px;\n  background:transparent;\n  border:1px solid transparent;\n  border-radius:var(--r-sm);\n  cursor:pointer;\n  transition:all var(--t);\n  display:flex;\n  flex-direction:column;\n  align-items:center;\n  gap:4px;\n  scroll-snap-align:start;\n  -webkit-tap-highlight-color:transparent;\n  font-family:inherit;\n}\n.quality-pill:hover{\n  background:var(--glass-bg-hover);\n  border-color:var(--glass-border);\n}\n.quality-pill.on{\n  background:var(--accent-dim);\n  border-color:var(--accent-bdr);\n  box-shadow:0 0 0 1px var(--accent-bdr), 0 0 16px rgba(110,231,183,.1);\n}\n.quality-pill-name{\n  font-size:.82rem;\n  font-weight:700;\n  color:var(--muted);\n  transition:color var(--t);\n  letter-spacing:-.01em;\n}\n.quality-pill.on .quality-pill-name{color:var(--accent)}\n.quality-pill-desc{\n  font-size:.64rem;\n  color:var(--faint);\n  font-weight:400;\n  transition:color var(--t);\n}\n.quality-pill.on .quality-pill-desc{color:var(--accent);opacity:.7}\n\n.quality-current{\n  margin-top:12px;\n  padding:12px 16px;\n  background:var(--accent-dim);\n  border:1px solid var(--accent-bdr);\n  border-radius:var(--r-sm);\n  display:flex;\n  align-items:center;\n  justify-content:space-between;\n  gap:12px;\n  box-shadow:inset 0 1px 0 rgba(255,255,255,.05);\n}\n.quality-current-label{\n  font-size:.68rem;\n  color:var(--muted);\n  font-weight:500;\n}\n.quality-current-value{\n  font-size:.82rem;\n  color:var(--accent);\n  font-weight:700;\n  letter-spacing:-.01em;\n}\n\n.preset-grid{display:grid;grid-template-columns:1fr;gap:6px;margin-bottom:12px}\n.preset-card{\n  padding:14px;background:var(--glass-bg);\n  border:1px solid var(--glass-border);border-radius:var(--r);\n  cursor:pointer;transition:all var(--t);user-select:none;\n  position:relative;-webkit-tap-highlight-color:transparent;\n  min-height:72px;backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);\n}\n.preset-card:hover{border-color:var(--glass-border-h);background:var(--glass-bg-hover)}\n.preset-card.on{background:var(--accent-dim);border-color:var(--accent-bdr);box-shadow:0 0 0 1px var(--accent-bdr), inset 0 1px 0 rgba(255,255,255,.05)}\n.preset-check{\n  position:absolute;top:12px;right:12px;\n  width:20px;height:20px;border-radius:50%;\n  background:var(--glass-bg-active);border:1.5px solid var(--glass-border);\n  display:flex;align-items:center;justify-content:center;\n  color:transparent;transition:all var(--t);\n}\n.preset-card.on .preset-check{background:var(--accent);border-color:var(--accent);color:#000;box-shadow:0 0 8px rgba(110,231,183,.4)}\n.preset-name{font-size:.88rem;font-weight:700;color:var(--text);margin-bottom:4px;padding-right:28px}\n.preset-card.on .preset-name{color:var(--accent)}\n.preset-desc{font-size:.72rem;color:var(--muted);line-height:1.45}\n\n.drag-list{display:flex;flex-direction:column;gap:5px}\n.drag-item{\n  display:flex;align-items:center;gap:8px;\n  padding:10px 12px;background:var(--glass-bg);\n  border:1px solid var(--glass-border);border-radius:var(--r-sm);\n  transition:all var(--t);user-select:none;position:relative;\n  -webkit-tap-highlight-color:transparent;min-height:52px;\n  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);\n}\n.drag-item:hover{border-color:var(--glass-border-h);background:var(--glass-bg-hover)}\n.drag-item.inactive{opacity:.45}\n.drag-item.inactive .drag-rank{background:var(--glass-bg-active);border-color:var(--glass-border);color:var(--faint)}\n.drag-item.dragging{opacity:.35;border-color:var(--accent-bdr)}\n.drag-item.drag-over{border-color:var(--accent);transform:scale(1.01);box-shadow:0 0 0 2px var(--accent-dim)}\n.drag-item[draggable=\"true\"]{cursor:grab}\n.drag-item[draggable=\"true\"]:active{cursor:grabbing}\n.drag-handle{color:var(--faint);flex-shrink:0;cursor:grab;padding:3px;touch-action:none}\n.drag-handle:active{cursor:grabbing}\n.drag-rank{width:24px;height:24px;background:var(--accent-dim);border:1px solid var(--accent-bdr);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:700;color:var(--accent);flex-shrink:0}\n.drag-body{flex:1;min-width:0}\n.drag-name{font-size:.82rem;font-weight:600}\n.drag-sub{font-size:.66rem;color:var(--muted);margin-top:1px}\n.drag-toggle{width:40px;height:24px;background:var(--accent);border-radius:12px;position:relative;transition:background var(--t);flex-shrink:0;cursor:pointer;border:none;padding:0;-webkit-tap-highlight-color:transparent;box-shadow:inset 0 1px 0 rgba(255,255,255,.2)}\n.drag-toggle::after{content:'';position:absolute;width:18px;height:18px;background:#fff;border-radius:50%;top:3px;left:19px;transition:transform var(--t);box-shadow:0 1px 3px rgba(0,0,0,.3)}\n.drag-toggle.off{background:var(--glass-bg-active);border:1px solid var(--glass-border);box-shadow:none}\n.drag-toggle.off::after{left:3px}\n.drag-arrows{display:flex;flex-direction:column;gap:2px;flex-shrink:0}\n.arrow-btn{width:28px;height:22px;background:var(--glass-bg-active);border:1px solid var(--glass-border);border-radius:4px;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all var(--t);padding:0;-webkit-tap-highlight-color:transparent}\n.arrow-btn:hover{background:var(--accent-dim);border-color:var(--accent-bdr);color:var(--accent)}\n.arrow-btn:active{transform:scale(.95)}\n.arrow-btn:disabled{opacity:.3;cursor:not-allowed}\n\n.summary-grid{display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:14px}\n.sum-card{\n  background:var(--glass-bg);border:1px solid var(--glass-border);\n  border-radius:var(--r);padding:14px 16px;\n  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);\n  position:relative;overflow:hidden;\n}\n.sum-card::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg, rgba(255,255,255,.02) 0%, transparent 50%);pointer-events:none}\n.sum-label{font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--faint);margin-bottom:8px;display:block}\n.sum-value{font-size:.88rem;font-weight:600;color:var(--text);line-height:1.45;word-break:break-word}\n.sum-value.accent{color:var(--accent);text-shadow:0 0 20px rgba(110,231,183,.2)}\n.sum-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--glass-border)}\n.sum-row:last-child{border-bottom:none}\n.sum-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px rgba(110,231,183,.4);flex-shrink:0}\n.sum-dot.off{background:var(--faint);box-shadow:none}\n.sum-source-name{font-size:.82rem;font-weight:600;color:var(--text);flex:1}\n.sum-source-name.off{color:var(--faint);font-weight:500}\n\n.url-card{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:var(--r);padding:12px;margin-bottom:8px;backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}\n.url-label{font-size:.7rem;font-weight:600;color:var(--muted);margin-bottom:8px}\n.url-row{display:flex;gap:8px;align-items:stretch}\n.url-box{flex:1;background:rgba(0,0,0,.3);border:1px solid var(--glass-border);border-radius:var(--r-sm);padding:10px 12px;font-family:'JetBrains Mono',monospace;font-size:.68rem;color:var(--accent);word-break:break-all;line-height:1.5;min-height:42px;display:flex;align-items:center}\n.copy-btn{background:var(--glass-bg);border:1px solid var(--glass-border);color:var(--text);padding:0 14px;border-radius:var(--r-sm);cursor:pointer;font-size:.74rem;font-weight:600;font-family:inherit;transition:all var(--t);flex-shrink:0;display:flex;align-items:center;gap:6px;-webkit-tap-highlight-color:transparent;min-height:42px;backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}\n.copy-btn:hover{border-color:var(--accent-bdr);color:var(--accent)}\n.copy-btn:active{transform:scale(.95)}\n.copy-btn.copied{background:var(--accent-dim);border-color:var(--accent-bdr);color:var(--accent)}\n\n.install-steps{display:flex;flex-direction:column;gap:12px;margin-top:14px}\n.i-step{display:flex;gap:10px;align-items:flex-start}\n.i-num{width:26px;height:26px;border-radius:50%;background:var(--accent-dim);border:1px solid var(--accent-bdr);color:var(--accent);font-size:.76rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}\n.i-body{font-size:.8rem;color:var(--muted);line-height:1.55}\n.i-body strong{color:var(--text)}\n\n.nav-row{display:flex;gap:8px;margin-top:18px;padding-top:16px;border-top:1px solid var(--glass-border)}\n.nav-row .btn{flex:1}\n@media(max-width:640px){.nav-row{flex-direction:column-reverse}.nav-row .btn{width:100%}}\n\n.toast{position:fixed;bottom:20px;left:16px;right:16px;transform:translateY(120px);background:rgba(20,20,24,.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--accent-bdr);color:var(--text);padding:13px 20px;border-radius:99px;font-size:.84rem;font-weight:500;box-shadow:0 8px 32px rgba(0,0,0,.5);transition:transform .3s cubic-bezier(.16,1,.3,1);z-index:100;display:flex;align-items:center;justify-content:center;gap:8px}\n.toast.show{transform:translateY(0)}\n.toast-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);flex-shrink:0}\n@media(min-width:641px){.toast{left:50%;right:auto;transform:translateX(-50%) translateY(120px);max-width:400px}.toast.show{transform:translateX(-50%) translateY(0)}}\n\nfooter{margin-top:28px;text-align:center;font-size:.66rem;color:var(--faint);line-height:1.7}\n\n.spinner{width:14px;height:14px;border:2px solid transparent;border-top-color:currentColor;border-radius:50%;animation:spin .6s linear infinite}\n@keyframes spin{to{transform:rotate(360deg)}}\n</style>\n</head>\n<body>\n<div class=\"app\">\n\n  <header class=\"header\">\n    <div class=\"header-text\">\n      <div class=\"header-title\">All In Eclipse</div>\n      <div class=\"header-sub\">Music · Podcasts · Audiobooks · Radio</div>\n    </div>\n  </header>\n\n  <section class=\"hero glass\" id=\"heroSection\">\n    <div class=\"hero-bg\"></div>\n    <div class=\"hero-content\">\n      <div class=\"hero-badge\">\n        <span class=\"hero-badge-dot\"></span>\n        <span>Universal Addon for Eclipse</span>\n      </div>\n      <h1>All In Eclipse</h1>\n      <div class=\"hero-subtitle\">One addon. Every source.</div>\n      <p>Stream from Qobuz, Tidal, Deezer, SoundCloud and more — all in one place. Set up in under a minute.</p>\n      <div class=\"hero-cta\">\n        <button class=\"btn btn-primary\" onclick=\"startSetup()\">Get started</button>\n        <button class=\"btn btn-ghost\" onclick=\"openRefresh()\">I have an existing URL</button>\n      </div>\n    </div>\n  </section>\n\n  <div class=\"steps-bar glass\" id=\"stepsBar\" style=\"display:none\">\n    <div class=\"step-item active\" data-step=\"1\" onclick=\"handleStepClick(1)\"><div class=\"step-num\">1</div><div class=\"step-label\">Content</div></div>\n    <div class=\"step-item\" data-step=\"2\" onclick=\"handleStepClick(2)\"><div class=\"step-num\">2</div><div class=\"step-label\">Accounts</div></div>\n    <div class=\"step-item\" data-step=\"3\" onclick=\"handleStepClick(3)\"><div class=\"step-num\">3</div><div class=\"step-label\">Priority</div></div>\n    <div class=\"step-item\" data-step=\"4\" onclick=\"handleStepClick(4)\"><div class=\"step-num\">4</div><div class=\"step-label\">Quality</div></div>\n    <div class=\"step-item\" data-step=\"5\" onclick=\"handleStepClick(5)\"><div class=\"step-num\">5</div><div class=\"step-label\">Install</div></div>\n  </div>\n\n  <div class=\"panel glass\" data-panel=\"1\">\n    <div class=\"panel-head\">\n      <div><div class=\"panel-title\">What do you want to listen to?</div><div class=\"panel-desc\">Music is always included. Toggle anything else you want.</div></div>\n    </div>\n    <div class=\"section\"><div class=\"music-card\"><div class=\"content-meta\"><div class=\"content-name\">Music</div><div class=\"content-desc\">Qobuz · Tidal · Deezer · SoundCloud · Archive</div></div><span class=\"always-badge\">Always on</span></div></div>\n    <div class=\"section\">\n      <div class=\"section-title\">Additional content <span class=\"opt\">— optional</span></div>\n      <div class=\"content-grid\">\n        <div class=\"content-card\" data-type=\"podcast\"><div class=\"content-meta\"><div class=\"content-name\">Podcasts</div><div class=\"content-desc\">Apple Podcasts</div></div><div class=\"switch\"></div></div>\n        <div class=\"content-card\" data-type=\"audiobook\"><div class=\"content-meta\"><div class=\"content-name\">Audiobooks</div><div class=\"content-desc\">LibriVox · Internet Archive</div></div><div class=\"switch\"></div></div>\n        <div class=\"content-card\" data-type=\"radio\"><div class=\"content-meta\"><div class=\"content-name\">Radio</div><div class=\"content-desc\">Radio Browser · SomaFM</div></div><div class=\"switch\"></div></div>\n      </div>\n    </div>\n    <div class=\"nav-row\"><button class=\"btn btn-primary\" onclick=\"goToStep(2)\">Continue</button></div>\n  </div>\n\n  <div class=\"panel glass\" data-panel=\"2\">\n    <div class=\"panel-head\">\n      <div><div class=\"panel-title\">Connect your accounts <span class=\"svc-opt\" style=\"margin-left:6px\">OPTIONAL</span></div><div class=\"panel-desc\">Skip this to use the default shared credentials. Add your own for direct access.</div></div>\n    </div>\n    <div class=\"info\" style=\"margin-bottom:14px\"><strong>Everything below is optional.</strong> The addon works without any accounts. Connect yours only if you want direct access to your personal library or higher quality streams. Credentials are encoded in your URL only — never stored on any server.</div>\n    <div class=\"svc-card\" data-svc=\"qobuz\">\n      <div class=\"svc-head\"><div class=\"svc-info\"><div class=\"svc-name\">Qobuz <span class=\"svc-opt\">OPTIONAL</span></div><div class=\"svc-perk\">Hi-Res FLAC up to 24-bit/192kHz</div></div><span class=\"svc-status off\" id=\"status-qobuz\">Not connected</span><svg class=\"svc-chevron\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"><polyline points=\"6 9 12 15 18 9\"/></svg></div>\n      <div class=\"svc-body\"><div class=\"svc-body-inner\">\n        <div class=\"field\"><label class=\"field-label\">User Auth Token</label><input type=\"password\" id=\"qobuzUserToken\" class=\"field-input\" placeholder=\"From your Qobuz account\"></div>\n        <button class=\"adv-toggle\" data-adv=\"qobuz\"><svg width=\"12\" height=\"12\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2.5\" stroke-linecap=\"round\"><polyline points=\"9 18 15 12 9 6\"/></svg>Custom API credentials (rarely needed)</button>\n        <div class=\"adv-box\" data-adv-box=\"qobuz\"><div class=\"field-row\" style=\"margin-top:12px\"><div class=\"field\" style=\"margin:0\"><label class=\"field-label\">App Secret</label><input type=\"password\" id=\"qobuzSecret\" class=\"field-input\" placeholder=\"32-char hex\"></div><div class=\"field\" style=\"margin:0\"><label class=\"field-label\">App ID</label><input type=\"text\" id=\"qobuzAppId\" class=\"field-input\" placeholder=\"e.g. 312369995\"></div></div><div class=\"hint\" style=\"margin-top:10px\">Get your token via <a href=\"https://github.com/nickcoutsos/qobuz-dl\" target=\"_blank\" rel=\"noopener\">qobuz-dl</a> or by inspecting Qobuz app traffic.</div></div>\n      </div></div>\n    </div>\n    <div class=\"svc-card\" data-svc=\"deezer\">\n      <div class=\"svc-head\"><div class=\"svc-info\"><div class=\"svc-name\">Deezer <span class=\"svc-opt\">OPTIONAL</span></div><div class=\"svc-perk\">FLAC or MP3 320 kbps</div></div><span class=\"svc-status off\" id=\"status-deezer\">Not connected</span><svg class=\"svc-chevron\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"><polyline points=\"6 9 12 15 18 9\"/></svg></div>\n      <div class=\"svc-body\"><div class=\"svc-body-inner\">\n        <div class=\"warn\"><strong>Required for Deezer playback.</strong> Without an ARL cookie, Deezer tracks appear in results but won't play.</div>\n        <div class=\"field\"><label class=\"field-label\">ARL Cookie</label><input type=\"password\" id=\"deezerArl\" class=\"field-input\" placeholder=\"Long hex string from deezer.com\"></div>\n        <div class=\"hint\">Open deezer.com → DevTools → Application → Cookies → copy the <code>arl</code> value. Valid for ~3 months.</div>\n      </div></div>\n    </div>\n    <div class=\"svc-card\" data-svc=\"tidal\">\n      <div class=\"svc-head\"><div class=\"svc-info\"><div class=\"svc-name\">Tidal HiFi <span class=\"svc-opt\">OPTIONAL</span></div><div class=\"svc-perk\">AAC 320 kbps via proxy</div></div><span class=\"svc-status off\" id=\"status-tidal\">Using public pool</span><svg class=\"svc-chevron\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"><polyline points=\"6 9 12 15 18 9\"/></svg></div>\n      <div class=\"svc-body\"><div class=\"svc-body-inner\">\n        <div class=\"hint\" style=\"margin-top:0\">Only needed if you run your own HiFi proxy. Leave blank to use the public pool.</div>\n        <div class=\"field\"><label class=\"field-label\">Custom instance URLs</label><input type=\"text\" id=\"hifiInst\" class=\"field-input\" placeholder=\"comma-separated\"></div>\n      </div></div>\n    </div>\n    <div class=\"svc-card\" data-svc=\"sc\">\n      <div class=\"svc-head\"><div class=\"svc-info\"><div class=\"svc-name\">SoundCloud <span class=\"svc-opt\">OPTIONAL</span></div><div class=\"svc-perk\">MP3 up to 320 kbps</div></div><span class=\"svc-status off\" id=\"status-sc\">Auto-discovered</span><svg class=\"svc-chevron\" width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\"><polyline points=\"6 9 12 15 18 9\"/></svg></div>\n      <div class=\"svc-body\"><div class=\"svc-body-inner\">\n        <div class=\"field\"><label class=\"field-label\">Client ID</label><input type=\"text\" id=\"scId\" class=\"field-input\" placeholder=\"Leave blank for auto-discovery\"></div>\n        <div class=\"hint\">Only set this if auto-discovery stops working.</div>\n      </div></div>\n    </div>\n    <div class=\"nav-row\"><button class=\"btn btn-ghost\" onclick=\"goToStep(1)\">Back</button><button class=\"btn btn-primary\" onclick=\"goToStep(3)\">Continue</button></div>\n  </div>\n\n  <div class=\"panel glass\" data-panel=\"3\">\n    <div class=\"panel-head\">\n      <div><div class=\"panel-title\">Choose a priority preset</div><div class=\"panel-desc\">Pick a preset, then fine-tune below. You can always reorder or disable sources.</div></div>\n    </div>\n    <div class=\"section\">\n      <div class=\"section-title\">Preset <span class=\"opt\">— pick one</span></div>\n      <div class=\"preset-grid\" id=\"presetGrid\">\n        <div class=\"preset-card on\" data-preset=\"full\"><div class=\"preset-check\"><svg width=\"10\" height=\"10\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\"><polyline points=\"20 6 9 17 4 12\"/></svg></div><div class=\"preset-name\">Full</div><div class=\"preset-desc\">Every source enabled. Best coverage.</div></div>\n        <div class=\"preset-card\" data-preset=\"recommended\"><div class=\"preset-check\"><svg width=\"10\" height=\"10\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\"><polyline points=\"20 6 9 17 4 12\"/></svg></div><div class=\"preset-name\">Recommended</div><div class=\"preset-desc\">Fast searches via Tidal, all streams for playback.</div></div>\n        <div class=\"preset-card\" data-preset=\"bigger\"><div class=\"preset-check\"><svg width=\"10\" height=\"10\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\"><polyline points=\"20 6 9 17 4 12\"/></svg></div><div class=\"preset-name\">Bigger catalog</div><div class=\"preset-desc\">Deezer & SoundCloud for search, all streams for playback.</div></div>\n        <div class=\"preset-card\" data-preset=\"custom\"><div class=\"preset-check\"><svg width=\"10\" height=\"10\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\"><polyline points=\"20 6 9 17 4 12\"/></svg></div><div class=\"preset-name\">Custom</div><div class=\"preset-desc\">Start from scratch. Enable what you want.</div></div>\n      </div>\n    </div>\n    <div class=\"section\">\n      <div class=\"section-title\">Search priority <span class=\"opt\">— drag to reorder, toggle to enable/disable</span></div>\n      <div class=\"info\">These sources are queried when you search. Disabled sources won't appear in search results.</div>\n      <div class=\"drag-list\" id=\"searchList\" style=\"margin-top:10px\"></div>\n    </div>\n    <div class=\"section\">\n      <div class=\"section-title\">Stream priority <span class=\"opt\">— drag to reorder, toggle to enable/disable</span></div>\n      <div class=\"info\">When a track matches multiple sources, these are tried in order.</div>\n      <div class=\"drag-list\" id=\"streamList\" style=\"margin-top:10px\"></div>\n    </div>\n    <div class=\"nav-row\"><button class=\"btn btn-ghost\" onclick=\"goToStep(2)\">Back</button><button class=\"btn btn-primary\" onclick=\"goToStep(4)\">Continue</button></div>\n  </div>\n\n  <div class=\"panel glass\" data-panel=\"4\">\n    <div class=\"panel-head\">\n      <div><div class=\"panel-title\">Audio quality</div><div class=\"panel-desc\">Set preferred quality for each source individually.</div></div>\n    </div>\n    <div class=\"info\" style=\"margin-bottom:14px\"><strong>Per-source quality.</strong> Each source supports different quality tiers. The addon falls back gracefully if your preferred tier is unavailable for a track.</div>\n    <div class=\"section\">\n      <div class=\"section-title\">Qobuz <span class=\"opt\">— Hi-Res FLAC up to 24-bit/192kHz</span></div>\n      <div class=\"quality-pills\" id=\"qobuzQualityPills\">\n        <button class=\"quality-pill\" data-source=\"qobuz\" data-q=\"HIGH\" type=\"button\">\n          <span class=\"quality-pill-name\">High</span>\n          <span class=\"quality-pill-desc\">320 kbps</span>\n        </button>\n        <button class=\"quality-pill\" data-source=\"qobuz\" data-q=\"LOSSLESS\" type=\"button\">\n          <span class=\"quality-pill-name\">Lossless</span>\n          <span class=\"quality-pill-desc\">CD 44.1 kHz</span>\n        </button>\n        <button class=\"quality-pill on\" data-source=\"qobuz\" data-q=\"HIRES_96\" type=\"button\">\n          <span class=\"quality-pill-name\">Hi-Res 96</span>\n          <span class=\"quality-pill-desc\">24-bit / 96 kHz</span>\n        </button>\n        <button class=\"quality-pill\" data-source=\"qobuz\" data-q=\"HIRES_192\" type=\"button\">\n          <span class=\"quality-pill-name\">Hi-Res 192</span>\n          <span class=\"quality-pill-desc\">24-bit / 192 kHz</span>\n        </button>\n      </div>\n    </div>\n    <div class=\"section\">\n      <div class=\"section-title\">Deezer <span class=\"opt\">— FLAC or MP3</span></div>\n      <div class=\"quality-pills\" id=\"deezerQualityPills\">\n        <button class=\"quality-pill\" data-source=\"deezer\" data-q=\"128kbps\" type=\"button\">\n          <span class=\"quality-pill-name\">Standard</span>\n          <span class=\"quality-pill-desc\">128 kbps</span>\n        </button>\n        <button class=\"quality-pill on\" data-source=\"deezer\" data-q=\"320kbps\" type=\"button\">\n          <span class=\"quality-pill-name\">High</span>\n          <span class=\"quality-pill-desc\">320 kbps</span>\n        </button>\n        <button class=\"quality-pill\" data-source=\"deezer\" data-q=\"FLAC\" type=\"button\">\n          <span class=\"quality-pill-name\">Lossless</span>\n          <span class=\"quality-pill-desc\">FLAC CD</span>\n        </button>\n      </div>\n    </div>\n    <div class=\"section\">\n      <div class=\"section-title\">Tidal HiFi <span class=\"opt\">— AAC via proxy</span></div>\n      <div class=\"quality-pills\" id=\"hifiQualityPills\">\n        <button class=\"quality-pill\" data-source=\"hifi\" data-q=\"LOW\" type=\"button\">\n          <span class=\"quality-pill-name\">Low</span>\n          <span class=\"quality-pill-desc\">AAC 96 kbps</span>\n        </button>\n        <button class=\"quality-pill\" data-source=\"hifi\" data-q=\"HIGH\" type=\"button\">\n          <span class=\"quality-pill-name\">High</span>\n          <span class=\"quality-pill-desc\">AAC 320 kbps</span>\n        </button>\n        <button class=\"quality-pill on\" data-source=\"hifi\" data-q=\"LOSSLESS\" type=\"button\">\n          <span class=\"quality-pill-name\">Lossless</span>\n          <span class=\"quality-pill-desc\">FLAC CD</span>\n        </button>\n      </div>\n    </div>\n    <div class=\"section\">\n      <div class=\"section-title\">Other sources</div>\n      <div class=\"info\"><strong>SoundCloud</strong> streams at 128 kbps MP3 — no quality selection available.<br><strong>Internet Archive &amp; Radio</strong> use whatever quality the source provides.</div>\n    </div>\n    <div class=\"nav-row\"><button class=\"btn btn-ghost\" onclick=\"goToStep(3)\">Back</button><button class=\"btn btn-primary\" onclick=\"goToStep(5)\">Continue</button></div>\n  </div>\n\n  <div class=\"panel glass\" data-panel=\"5\">\n    <div class=\"panel-head\">\n      <div><div class=\"panel-title\">You're all set</div><div class=\"panel-desc\">Review your configuration and generate install URLs.</div></div>\n    </div>\n    <div class=\"summary-grid\" id=\"summaryGrid\"></div>\n    <div class=\"section\">\n      <div class=\"field-label\" style=\"margin-bottom:8px\">Addon base URL <span class=\"svc-opt\" style=\"margin-left:6px\">OPTIONAL</span></div>\n      <input type=\"text\" id=\"vercelUrl\" class=\"field-input\" placeholder=\"https://your-addon.vercel.app\">\n      <div class=\"hint\">Only change if you're self-hosting.</div>\n    </div>\n    <button class=\"btn btn-primary\" id=\"genBtn\" style=\"width:100%\" onclick=\"doGenerate()\">Generate my install URLs</button>\n    <div id=\"outputBox\" style=\"display:none;margin-top:16px\">\n      <div id=\"urlCards\"></div>\n      <div class=\"section\" style=\"margin-top:22px\">\n        <div class=\"section-title\">How to install in Eclipse</div>\n        <div class=\"install-steps\">\n          <div class=\"i-step\"><div class=\"i-num\">1</div><div class=\"i-body\">Open Eclipse → <strong>Settings</strong> → <strong>Connections</strong></div></div>\n          <div class=\"i-step\"><div class=\"i-num\">2</div><div class=\"i-body\">Tap <strong>Add Connection</strong> → <strong>Addon</strong></div></div>\n          <div class=\"i-step\"><div class=\"i-num\">3</div><div class=\"i-body\">Paste a manifest URL from above and tap <strong>Install</strong>. Install each type separately.</div></div>\n        </div>\n      </div>\n    </div>\n    <div class=\"nav-row\"><button class=\"btn btn-ghost\" onclick=\"goToStep(4)\">Back</button><button class=\"btn btn-ghost\" onclick=\"goToWelcome()\">Start over</button></div>\n  </div>\n\n  <div class=\"panel glass\" data-panel=\"refresh\">\n    <div class=\"panel-head\">\n      <div><div class=\"panel-title\">Refresh existing URL</div><div class=\"panel-desc\">Paste your current manifest URL to refresh it.</div></div>\n    </div>\n    <div class=\"field\"><label class=\"field-label\">Current manifest URL</label><input type=\"text\" id=\"existingUrl\" class=\"field-input\" placeholder=\"https://your-addon.vercel.app/abc123.../manifest.json\"></div>\n    <button class=\"btn btn-primary\" style=\"width:100%;margin-top:14px\" onclick=\"doRefresh()\">Refresh URL</button>\n    <div id=\"refreshOutput\" style=\"display:none;margin-top:14px\"></div>\n    <div class=\"nav-row\"><button class=\"btn btn-ghost\" onclick=\"closeRefresh()\">Back to setup</button></div>\n  </div>\n\n  <footer>Credentials are encoded in your URL only — never stored server-side<br>All In Eclipse · Qobuz · Tidal · Deezer · SoundCloud · Internet Archive · Podcasts · Radio</footer>\n</div>\n\n<div class=\"toast\" id=\"toast\"><span class=\"toast-dot\"></span><span id=\"toastMsg\">Copied</span></div>\n\n<script>\nconst SOURCES={\n  qobuz:{name:'Qobuz',sub:'Hi-Res FLAC'},\n  hifi:{name:'Tidal HiFi',sub:'AAC 320'},\n  deezer:{name:'Deezer',sub:'FLAC / MP3'},\n  sc:{name:'SoundCloud',sub:'MP3 320'},\n  ia:{name:'Internet Archive',sub:'Various'}\n};\nconst QOBUZ_TIERS=['HIGH','LOSSLESS','HIRES_96','HIRES_192'];\nconst QOBUZ_TIER_LABELS={HIGH:'High — 320 kbps MP3',LOSSLESS:'Lossless — CD 44.1 kHz FLAC',HIRES_96:'Hi-Res 96 — 24-bit / 96 kHz',HIRES_192:'Hi-Res 192 — 24-bit / 192 kHz'};\nconst QOBUZ_TIER_SHORT={HIGH:'High — 320 kbps',LOSSLESS:'Lossless — CD 44.1 kHz',HIRES_96:'Hi-Res 96 — 24-bit',HIRES_192:'Hi-Res 192 — 24-bit'};\nconst DEEZER_TIERS=['128kbps','320kbps','FLAC'];\nconst DEEZER_TIER_LABELS={'128kbps':'Standard — 128 kbps','320kbps':'High — 320 kbps MP3',FLAC:'Lossless — FLAC CD'};\nconst HIFI_TIERS=['LOW','HIGH','LOSSLESS'];\nconst HIFI_TIER_LABELS={LOW:'Low — AAC 96 kbps',HIGH:'High — AAC 320 kbps',LOSSLESS:'Lossless — FLAC CD'};\n\nconst PRESETS={\n  full:{search:[{s:'hifi',on:true},{s:'qobuz',on:true},{s:'deezer',on:true},{s:'sc',on:true},{s:'ia',on:true}],stream:[{s:'qobuz',on:true},{s:'hifi',on:true},{s:'deezer',on:true},{s:'sc',on:true},{s:'ia',on:true}]},\n  recommended:{search:[{s:'hifi',on:true},{s:'qobuz',on:false},{s:'deezer',on:false},{s:'sc',on:false},{s:'ia',on:false}],stream:[{s:'qobuz',on:true},{s:'hifi',on:true},{s:'deezer',on:true},{s:'sc',on:true}]},\n  bigger:{search:[{s:'deezer',on:true},{s:'sc',on:true},{s:'qobuz',on:false},{s:'hifi',on:false},{s:'ia',on:false}],stream:[{s:'qobuz',on:true},{s:'hifi',on:true},{s:'deezer',on:true},{s:'sc',on:true},{s:'ia',on:true}]},\n  custom:{search:[{s:'qobuz',on:false},{s:'hifi',on:false},{s:'deezer',on:false},{s:'sc',on:false},{s:'ia',on:false}],stream:[{s:'qobuz',on:false},{s:'hifi',on:false},{s:'deezer',on:false},{s:'sc',on:false},{s:'ia',on:false}]}\n};\n\nconst state={\n  step:1,\n  content:{podcast:false,audiobook:false,radio:false},\n  qualityMode:'general',\n  qobuzQuality:'HIRES_96',\n  deezerQuality:'320kbps',\n  hifiQuality:'LOSSLESS',\n  preset:'full',\n  searchOrder:JSON.parse(JSON.stringify(PRESETS.full.search)),\n  streamOrder:JSON.parse(JSON.stringify(PRESETS.full.stream)),\n  started:false\n};\n\nfunction startSetup(){\n  state.started=true;\n  document.getElementById('heroSection').style.display='none';\n  document.getElementById('stepsBar').style.display='flex';\n  goToStep(1);\n}\n\nfunction goToWelcome(){\n  state.started=false;\n  state.step=1;\n  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));\n  document.getElementById('heroSection').style.display='flex';\n  document.getElementById('stepsBar').style.display='none';\n  document.querySelectorAll('.step-item').forEach(s=>{s.classList.remove('active','done')});\n  document.querySelector('[data-step=\"1\"]').classList.add('active');\n  window.scrollTo({top:0,behavior:'smooth'});\n}\n\nfunction handleStepClick(n){\n  if(!state.started) return;\n  if(n===state.step) return;\n  if(n>state.step+1) return;\n  goToStep(n);\n}\n\nfunction goToStep(n){\n  state.step=n;\n  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));\n  const target=document.querySelector(`[data-panel=\"${n}\"]`);\n  if(target)target.classList.add('active');\n  document.querySelectorAll('.step-item').forEach(s=>{\n    const sn=+s.dataset.step;s.classList.remove('active','done');\n    if(sn<n)s.classList.add('done');else if(sn===n)s.classList.add('active');\n  });\n  if(n===3)renderDragLists();\n  if(n===4)renderQualityStep();\n  if(n===5)renderSummary();\n  window.scrollTo({top:0,behavior:'smooth'});\n}\nfunction openRefresh(){document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelector('[data-panel=\"refresh\"]').classList.add('active');document.getElementById('heroSection').style.display='none';document.getElementById('stepsBar').style.display='none'}\nfunction closeRefresh(){\n  if(state.started){goToStep(state.step);document.getElementById('stepsBar').style.display='flex'}\n  else{goToWelcome()}\n}\n\ndocument.querySelectorAll('.content-card').forEach(c=>{c.addEventListener('click',()=>{const t=c.dataset.type;state.content[t]=!state.content[t];c.classList.toggle('on',state.content[t])})});\n\n\n\ndocument.querySelectorAll('.quality-pills .quality-pill').forEach(pill=>{\n  pill.addEventListener('click',()=>{\n    const src=pill.dataset.source;\n    pill.parentElement.querySelectorAll('.quality-pill').forEach(p=>p.classList.remove('on'));\n    pill.classList.add('on');\n    if(src==='qobuz')state.qobuzQuality=pill.dataset.q;\n    else if(src==='deezer')state.deezerQuality=pill.dataset.q;\n    else if(src==='hifi')state.hifiQuality=pill.dataset.q;\n  });\n});\n\nfunction renderQualityStep(){\n  document.querySelectorAll('#qobuzQualityPills .quality-pill').forEach(p=>p.classList.toggle('on',p.dataset.q===state.qobuzQuality));\n  document.querySelectorAll('#deezerQualityPills .quality-pill').forEach(p=>p.classList.toggle('on',p.dataset.q===state.deezerQuality));\n  document.querySelectorAll('#hifiQualityPills .quality-pill').forEach(p=>p.classList.toggle('on',p.dataset.q===state.hifiQuality));\n}\n\nconst STATUS_FIELDS={qobuz:['qobuzUserToken','qobuzSecret','qobuzAppId'],deezer:['deezerArl'],tidal:['hifiInst'],sc:['scId']};\nconst STATUS_DEFAULT={qobuz:'Not connected',deezer:'Not connected',tidal:'Using public pool',sc:'Auto-discovered'};\ndocument.querySelectorAll('.svc-card').forEach(card=>{card.querySelector('.svc-head').addEventListener('click',()=>card.classList.toggle('open'))});\n\nfunction updateStatuses(){\n  Object.keys(STATUS_FIELDS).forEach(svc=>{\n    const hasValue=STATUS_FIELDS[svc].some(id=>{const el=document.getElementById(id);return el&&el.value.trim()});\n    const statusEl=document.getElementById('status-'+svc);\n    const card=document.querySelector(`[data-svc=\"${svc}\"]`);\n    if(hasValue){statusEl.textContent='Connected';statusEl.className='svc-status on';if(card)card.classList.add('connected')}\n    else{statusEl.textContent=STATUS_DEFAULT[svc];statusEl.className='svc-status off';if(card)card.classList.remove('connected')}\n  });\n}\ndocument.querySelectorAll('.field-input').forEach(i=>i.addEventListener('input',updateStatuses));\ndocument.querySelectorAll('.adv-toggle').forEach(t=>{t.addEventListener('click',()=>{const key=t.dataset.adv;const box=document.querySelector(`[data-adv-box=\"${key}\"]`);t.classList.toggle('open');box.classList.toggle('open')})});\ndocument.querySelectorAll('.preset-card').forEach(card=>{card.addEventListener('click',()=>{const preset=card.dataset.preset;document.querySelectorAll('.preset-card').forEach(c=>c.classList.remove('on'));card.classList.add('on');state.preset=preset;state.searchOrder=JSON.parse(JSON.stringify(PRESETS[preset].search));state.streamOrder=JSON.parse(JSON.stringify(PRESETS[preset].stream));renderDragLists();toast('Applied \"'+card.querySelector('.preset-name').textContent+'\" preset')})});\n\nfunction buildDragItem(src,isOn,rank){\n  const item=document.createElement('div');\n  item.className='drag-item'+(isOn?'':' inactive');\n  item.draggable=true;item.dataset.source=src;item.dataset.on=isOn?'1':'0';\n  item.innerHTML='<svg class=\"drag-handle\" width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"currentColor\"><circle cx=\"9\" cy=\"6\" r=\"1.5\"/><circle cx=\"9\" cy=\"12\" r=\"1.5\"/><circle cx=\"9\" cy=\"18\" r=\"1.5\"/><circle cx=\"15\" cy=\"6\" r=\"1.5\"/><circle cx=\"15\" cy=\"12\" r=\"1.5\"/><circle cx=\"15\" cy=\"18\" r=\"1.5\"/></svg><div class=\"drag-rank\">'+(isOn?rank:'—')+'</div><div class=\"drag-body\"><div class=\"drag-name\">'+SOURCES[src].name+'</div><div class=\"drag-sub\">'+SOURCES[src].sub+'</div></div><button class=\"drag-toggle'+(isOn?'':' off')+'\" type=\"button\" aria-label=\"Toggle\"></button><div class=\"drag-arrows\"><button class=\"arrow-btn up\" aria-label=\"Move up\" type=\"button\"><svg width=\"10\" height=\"10\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\"><polyline points=\"18 15 12 9 6 15\"/></svg></button><button class=\"arrow-btn down\" aria-label=\"Move down\" type=\"button\"><svg width=\"10\" height=\"10\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"3\" stroke-linecap=\"round\"><polyline points=\"6 9 12 15 18 9\"/></svg></button></div>';\n  return item;\n}\n\nfunction renderDragLists(){renderDragList('searchList',state.searchOrder);renderDragList('streamList',state.streamOrder)}\nfunction renderDragList(containerId,order){\n  const container=document.getElementById(containerId);container.innerHTML='';\n  let rankCounter=1;\n  order.forEach(entry=>{const rank=entry.on?rankCounter++:0;container.appendChild(buildDragItem(entry.s,entry.on,rank))});\n  updateRanks(container);\n}\nfunction updateRanks(container){\n  let rank=1;\n  container.querySelectorAll('.drag-item').forEach(it=>{\n    const isOn=it.dataset.on==='1';\n    it.querySelector('.drag-rank').textContent=isOn?rank++:'—';\n    const upBtn=it.querySelector('.arrow-btn.up');const downBtn=it.querySelector('.arrow-btn.down');\n    if(upBtn)upBtn.disabled=it===container.firstChild;\n    if(downBtn)downBtn.disabled=it===container.lastChild;\n  });\n}\nfunction syncState(container,orderKey){state[orderKey]=[...container.querySelectorAll('.drag-item')].map(it=>({s:it.dataset.source,on:it.dataset.on==='1'}));detectPreset()}\nfunction detectPreset(){\n  const sStr=JSON.stringify(state.searchOrder);const stStr=JSON.stringify(state.streamOrder);\n  let matched=null;\n  for(const key of Object.keys(PRESETS)){if(JSON.stringify(PRESETS[key].search)===sStr&&JSON.stringify(PRESETS[key].stream)===stStr){matched=key;break}}\n  state.preset=matched||'custom';\n  document.querySelectorAll('.preset-card').forEach(c=>c.classList.toggle('on',c.dataset.preset===state.preset));\n}\nfunction moveItem(container,orderKey,source,direction){\n  const items=[...container.querySelectorAll('.drag-item')];const idx=items.findIndex(i=>i.dataset.source===source);\n  if(idx<0)return;const newIdx=idx+direction;if(newIdx<0||newIdx>=items.length)return;\n  const item=items[idx];\n  if(direction>0)container.insertBefore(items[newIdx],item);else container.insertBefore(item,items[newIdx]);\n  updateRanks(container);syncState(container,orderKey);\n}\nfunction toggleItem(container,orderKey,source){\n  const item=container.querySelector('[data-source=\"'+source+'\"]');if(!item)return;\n  const isOn=item.dataset.on==='1';item.dataset.on=isOn?'0':'1';\n  item.classList.toggle('inactive',isOn);item.querySelector('.drag-toggle').classList.toggle('off',isOn);\n  updateRanks(container);syncState(container,orderKey);\n}\nfunction initDrag(container,orderKey){\n  let dragged=null;\n  container.addEventListener('click',function(e){\n    const toggle=e.target.closest('.drag-toggle');\n    if(toggle){e.stopPropagation();const item=toggle.closest('.drag-item');if(item)toggleItem(container,orderKey,item.dataset.source);return}\n    const btn=e.target.closest('.arrow-btn');\n    if(btn){e.stopPropagation();const item=btn.closest('.drag-item');if(item){const dir=btn.classList.contains('up')?-1:1;moveItem(container,orderKey,item.dataset.source,dir)}}\n  });\n  container.addEventListener('dragstart',function(e){const item=e.target.closest('.drag-item');if(!item)return;dragged=item;e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',item.dataset.source)}catch(err){}requestAnimationFrame(()=>item.classList.add('dragging'))});\n  container.addEventListener('dragend',function(){if(!dragged)return;dragged.classList.remove('dragging');container.querySelectorAll('.drag-item').forEach(i=>i.classList.remove('drag-over'));syncState(container,orderKey);dragged=null});\n  container.addEventListener('dragover',function(e){e.preventDefault();e.dataTransfer.dropEffect='move';if(!dragged)return;const after=getAfter(container,e.clientY);container.querySelectorAll('.drag-item').forEach(i=>i.classList.remove('drag-over'));if(after&&after!==dragged){after.classList.add('drag-over');const rect=after.getBoundingClientRect();const mid=rect.top+rect.height/2;if(e.clientY<mid)container.insertBefore(dragged,after);else container.insertBefore(dragged,after.nextSibling)}else if(!after)container.appendChild(dragged);updateRanks(container)});\n  container.addEventListener('drop',function(e){e.preventDefault();container.querySelectorAll('.drag-item').forEach(i=>i.classList.remove('drag-over'));syncState(container,orderKey)});\n  let touchDragItem=null,touchClone=null,touchStartY=0,touchStartX=0,isDragging=false;\n  container.addEventListener('touchstart',function(e){const handle=e.target.closest('.drag-handle');if(!handle)return;const item=handle.closest('.drag-item');if(!item)return;touchStartX=e.touches[0].clientX;touchStartY=e.touches[0].clientY;touchDragItem=item;isDragging=false},{passive:true});\n  container.addEventListener('touchmove',function(e){if(!touchDragItem)return;const touch=e.touches[0];const deltaX=Math.abs(touch.clientX-touchStartX);const deltaY=Math.abs(touch.clientY-touchStartY);if(!isDragging&&(deltaX>10||deltaY>10)){isDragging=true;const rect=touchDragItem.getBoundingClientRect();touchClone=touchDragItem.cloneNode(true);touchClone.style.cssText='position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;width:'+rect.width+'px;z-index:9999;opacity:.8;pointer-events:none;box-shadow:0 8px 24px rgba(0,0,0,.4);border:1px solid var(--accent-bdr)';document.body.appendChild(touchClone);touchDragItem.classList.add('dragging')}if(!isDragging)return;e.preventDefault();touchClone.style.top=(touch.clientY-25)+'px';const after=getAfter(container,touch.clientY);container.querySelectorAll('.drag-item').forEach(i=>i.classList.remove('drag-over'));if(after&&after!==touchDragItem){after.classList.add('drag-over');const rect=after.getBoundingClientRect();const mid=rect.top+rect.height/2;if(touch.clientY<mid)container.insertBefore(touchDragItem,after);else container.insertBefore(touchDragItem,after.nextSibling)}updateRanks(container)},{passive:false});\n  container.addEventListener('touchend',function(){if(!touchDragItem)return;if(isDragging){touchDragItem.classList.remove('dragging');container.querySelectorAll('.drag-item').forEach(i=>i.classList.remove('drag-over'));if(touchClone&&touchClone.parentNode)touchClone.parentNode.removeChild(touchClone);syncState(container,orderKey)}touchDragItem=null;touchClone=null;isDragging=false});\n}\nfunction getAfter(container,y){const els=[...container.querySelectorAll('.drag-item:not(.dragging)')];return els.reduce(function(closest,child){const box=child.getBoundingClientRect();const offset=y-box.top-box.height/2;if(offset<0&&offset>closest.offset)return{offset:offset,element:child};return closest},{offset:Number.NEGATIVE_INFINITY}).element}\n\nrenderDragLists();\ninitDrag(document.getElementById('searchList'),'searchOrder');\ninitDrag(document.getElementById('streamList'),'streamOrder');\n\nfunction renderSummary(){\n  const grid=document.getElementById('summaryGrid');\n  const types=['Music',state.content.podcast?'Podcasts':null,state.content.audiobook?'Audiobooks':null,state.content.radio?'Radio':null].filter(Boolean).join(' · ');\n  const connected=Object.keys(STATUS_FIELDS).filter(function(s){return STATUS_FIELDS[s].some(function(id){const el=document.getElementById(id);return el&&el.value.trim()})}).map(function(s){if(s==='tidal')return'Tidal';if(s==='sc')return'SoundCloud';return s.charAt(0).toUpperCase()+s.slice(1)}).join(', ')||'None (using defaults)';\n  const presetName=document.querySelector('[data-preset=\"'+state.preset+'\"] .preset-name');\n  const presetText=presetName?presetName.textContent:'Custom';\n  const qLabel='Qobuz: '+(QOBUZ_TIER_SHORT[state.qobuzQuality]||'—')+' · Deezer: '+(DEEZER_TIER_LABELS[state.deezerQuality]||'—')+' · HiFi: '+(HIFI_TIER_LABELS[state.hifiQuality]||'—');\n\n  const searchOn=state.searchOrder.filter(function(e){return e.on});\n  const streamOn=state.streamOrder.filter(function(e){return e.on});\n\n  let sourcesHTML='';\n  streamOn.forEach(function(e){\n    sourcesHTML+='<div class=\"sum-row\"><div class=\"sum-dot\"></div><div class=\"sum-source-name\">'+SOURCES[e.s].name+'</div></div>';\n  });\n  if(streamOn.length===0){\n    sourcesHTML='<div class=\"sum-row\"><div class=\"sum-source-name off\">No streams enabled</div></div>';\n  }\n\n  let searchHTML='';\n  searchOn.forEach(function(e){\n    searchHTML+='<div class=\"sum-row\"><div class=\"sum-dot\"></div><div class=\"sum-source-name\">'+SOURCES[e.s].name+'</div></div>';\n  });\n  if(searchOn.length===0){\n    searchHTML='<div class=\"sum-row\"><div class=\"sum-source-name off\">None</div></div>';\n  }\n\n  grid.innerHTML='<div class=\"sum-card\"><span class=\"sum-label\">Content</span><div class=\"sum-value\">'+types+'</div></div>'+\n    '<div class=\"sum-card\"><span class=\"sum-label\">Preset</span><div class=\"sum-value accent\">'+presetText+'</div></div>'+\n    '<div class=\"sum-card\"><span class=\"sum-label\">Quality</span><div class=\"sum-value accent\">'+qLabel+'</div></div>'+\n    '<div class=\"sum-card\"><span class=\"sum-label\">Accounts</span><div class=\"sum-value\">'+connected+'</div></div>'+\n    '<div class=\"sum-card\"><span class=\"sum-label\">Search Sources ('+searchOn.length+')</span><div style=\"margin-top:4px\">'+searchHTML+'</div></div>'+\n    '<div class=\"sum-card\"><span class=\"sum-label\">Stream Sources ('+streamOn.length+')</span><div style=\"margin-top:4px\">'+sourcesHTML+'</div></div>';\n}\n\nfunction toast(msg){const t=document.getElementById('toast');document.getElementById('toastMsg').textContent=msg;t.classList.add('show');clearTimeout(window._toastTimer);window._toastTimer=setTimeout(function(){t.classList.remove('show')},2200)}\nasync function copyUrl(urlId,btn){const text=document.getElementById(urlId).textContent.trim();if(!text)return;try{await navigator.clipboard.writeText(text);btn.classList.add('copied');btn.textContent='Copied';toast('URL copied to clipboard');setTimeout(function(){btn.classList.remove('copied');btn.textContent='Copy'},2000)}catch(e){toast('Copy failed')}}\nfunction v(id){return(document.getElementById(id)||{}).value||''}\n\nasync function doGenerate(){\n  const btn=document.getElementById('genBtn');\n  let vercel=v('vercelUrl').replace(/\\/+$/,'');\n  if(!vercel)vercel=window.location.origin;\n  if(vercel.indexOf('http')!==0)vercel='https://'+vercel;\n  btn.disabled=true;btn.innerHTML='<span class=\"spinner\"></span> Generating...';\n  const body={vercelUrl:vercel};\n  if(v('hifiInst'))body.hifi=v('hifiInst');if(v('scId'))body.sc=v('scId');\n  if(v('qobuzUserToken'))body.qobuz_user_token=v('qobuzUserToken');\n  if(v('qobuzSecret'))body.qobuz_secret=v('qobuzSecret');\n  if(v('qobuzAppId'))body.qobuz_app_id=v('qobuzAppId');\n  if(v('deezerArl'))body.deezer_arl=v('deezerArl');\n  if(state.qobuzQuality)body.q_qobuz=state.qobuzQuality;\n  if(state.deezerQuality)body.q_deezer=state.deezerQuality;\n  if(state.hifiQuality)body.q_hifi=state.hifiQuality;\n  if(!state.content.podcast)body.no_podcast=true;\n  if(!state.content.audiobook)body.no_audiobook=true;\n  if(!state.content.radio)body.no_radio=true;\n  body.search_order=state.searchOrder.filter(function(e){return e.on}).map(function(e){return e.s});\n  body.stream_order=state.streamOrder.filter(function(e){return e.on}).map(function(e){return e.s});\n  body.preset=state.preset;\n  try{const r=await fetch('/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok)throw new Error('HTTP '+r.status);const data=await r.json();if(data.error)throw new Error(data.error);renderOutput(data)}\n  catch(e){toast('Error: '+e.message)}\n  finally{btn.disabled=false;btn.textContent='Generate my install URLs'}\n}\n\nfunction renderOutput(data){\n  const cards=document.getElementById('urlCards');cards.innerHTML='';\n  const items=[{id:'music',label:'Music',url:data.manifestUrl,always:true},{id:'podcast',label:'Podcasts',url:data.podcastManifestUrl,show:state.content.podcast},{id:'audiobook',label:'Audiobooks',url:data.audiobookManifestUrl,show:state.content.audiobook},{id:'radio',label:'Radio',url:data.radioManifestUrl,show:state.content.radio}].filter(function(i){return i.always||i.show});\n  items.forEach(function(i){if(!i.url)return;const card=document.createElement('div');card.className='url-card';card.innerHTML='<div class=\"url-label\">'+i.label+'</div><div class=\"url-row\"><div class=\"url-box\" id=\"url-'+i.id+'\">'+i.url+'</div><button class=\"copy-btn\" onclick=\"copyUrl(\\'url-'+i.id+'\\',this)\">Copy</button></div>';cards.appendChild(card)});\n  document.getElementById('outputBox').style.display='block';\n  toast('URLs generated successfully');\n  setTimeout(function(){document.getElementById('outputBox').scrollIntoView({behavior:'smooth',block:'start'})},200);\n}\n\nasync function doRefresh(){\n  const raw=v('existingUrl');if(!raw){toast('Paste your URL first');return}\n  try{const r=await fetch('/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({existingUrl:raw})});if(!r.ok)throw new Error('HTTP '+r.status);const data=await r.json();if(data.error)throw new Error(data.error);const box=document.getElementById('refreshOutput');box.style.display='block';box.innerHTML='<div class=\"url-card\"><div class=\"url-label\">Refreshed URL</div><div class=\"url-row\"><div class=\"url-box\" id=\"url-ref\">'+data.manifestUrl+'</div><button class=\"copy-btn\" onclick=\"copyUrl(\\'url-ref\\',this)\">Copy</button></div></div>';toast('URL refreshed')}\n  catch(e){toast('Error: '+e.message)}\n}\n</script>\n</body>\n</html>\n\n";
+}
+// ─── GET / and /generator — serve config page ─────────────────────────────────
+app.get('/', async function(c) {
 }
 
 function getBaseUrl(c) {
@@ -6273,7 +5769,7 @@ function getBaseUrl(c) {
 // ─── POST /generate — server-side token builder ───────────────────────────────
 app.post('/generate', async function(c) {
   var b = await c.req.json().catch(() => ({}));
-  var vercel = (b.vercelUrl || '').trim().replace(/\/+$/, '');
+  var vercel                    = (b.vercelUrl || '').trim().replace(/\/+$/, '');
   if (!vercel) {
     var proto = c.req.header('x-forwarded-proto') || 'https';
     vercel = proto + '://' + c.req.header('host');
@@ -6290,7 +5786,14 @@ app.post('/generate', async function(c) {
   if (b.pi_secret) cfg.pi_secret = b.pi_secret;
   if (b.taddy_key) cfg.taddy_key = b.taddy_key;
   if (b.taddy_uid) cfg.taddy_uid = b.taddy_uid;
-  if (b.q && VALID_QUALITIES.includes(b.q)) cfg.q = b.q;
+  // Per-source quality from setup page
+  if (b.q_qobuz && VALID_QUALITIES.includes(b.q_qobuz)) cfg.q = b.q_qobuz;
+  else if (b.q && VALID_QUALITIES.includes(b.q)) cfg.q = b.q;
+  else if (b.qobuz_quality && VALID_QUALITIES.includes(b.qobuz_quality)) cfg.q = b.qobuz_quality;
+  const VALID_DZ_QUALITY = ["128kbps", "320kbps", "FLAC"];
+  if (b.q_deezer && VALID_DZ_QUALITY.includes(b.q_deezer)) cfg.q_deezer = b.q_deezer;
+  const VALID_HIFI_QUALITY = ["LOW", "HIGH", "LOSSLESS"];
+  if (b.q_hifi && VALID_HIFI_QUALITY.includes(b.q_hifi)) cfg.q_hifi = b.q_hifi;
   // Source disable flags
   if (b.no_hifi)      cfg.no_hifi      = true;
   if (b.no_sc)        cfg.no_sc        = true;

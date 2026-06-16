@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0">
+<title>All In Eclipse — Setup</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --glass-bg:rgba(255,255,255,.04);
+  --glass-bg-hover:rgba(255,255,255,.06);
+  --glass-bg-active:rgba(255,255,255,.08);
+  --glass-border:rgba(255,255,255,.09);
+  --glass-border-h:rgba(255,255,255,.16);
+  --glass-blur:blur(24px);
+  --text:#f0f0f5;
+  --muted:#9a9ab0;
+  --faint:#5a5a70;
+  --accent:#6ee7b7;
+  --accent-dim:rgba(110,231,183,.12);
+  --accent-bdr:rgba(110,231,183,.3);
+  --warn:#fbbf24;
+  --err:#f87171;
+  --r-sm:8px;
+  --r:12px;
+  --r-lg:16px;
+  --r-xl:22px;
+  --t:200ms cubic-bezier(.16,1,.3,1);
+}
+html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;-webkit-tap-highlight-color:transparent}
+body{
+  font-family:'Inter',system-ui,-apple-system,sans-serif;
+  background:#0a0a0c;
+  color:var(--text);
+  min-height:100dvh;
+  line-height:1.5;
+  font-size:14px;
+  overflow-x:hidden;
+  position:relative;
+}
+body::before{
+  content:'';position:fixed;inset:0;
+  background:
+    radial-gradient(ellipse 900px 500px at 15% 0%, rgba(110,231,183,.08), transparent 60%),
+    radial-gradient(ellipse 700px 500px at 85% 15%, rgba(96,165,250,.06), transparent 60%),
+    radial-gradient(ellipse 800px 600px at 50% 100%, rgba(192,132,252,.05), transparent 60%);
+  pointer-events:none;z-index:0;
+}
+.app{position:relative;z-index:1;max-width:720px;margin:0 auto;padding:20px 16px 100px}
+@media(max-width:640px){.app{padding:12px 12px 90px}}
+
+.glass{
+  background:var(--glass-bg);
+  backdrop-filter:var(--glass-blur);
+  -webkit-backdrop-filter:var(--glass-blur);
+  border:1px solid var(--glass-border);
+  border-radius:var(--r-lg);
+  position:relative;overflow:hidden;
+}
+.glass::before{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(135deg, rgba(255,255,255,.03) 0%, transparent 50%, rgba(255,255,255,.01) 100%);
+  pointer-events:none;
+}
+
+.header{display:flex;align-items:center;gap:12px;margin-bottom:16px}
+.header-text{flex:1;min-width:0}
+.header-title{font-size:.95rem;font-weight:700;letter-spacing:-.02em;color:#fff}
+.header-sub{font-size:.66rem;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.hero{
+  position:relative;overflow:hidden;
+  margin-bottom:16px;
+  min-height:calc(100dvh - 100px);
+  display:flex;flex-direction:column;
+  border-radius:var(--r-xl);
+}
+@media(max-width:640px){.hero{min-height:calc(100dvh - 80px);border-radius:var(--r)}}
+.hero-bg{
+  position:absolute;inset:0;
+  background:
+    radial-gradient(ellipse 800px 500px at 50% 0%, rgba(110,231,183,.15), transparent 70%),
+    radial-gradient(ellipse 600px 400px at 20% 80%, rgba(96,165,250,.1), transparent 70%),
+    radial-gradient(ellipse 500px 300px at 80% 60%, rgba(192,132,252,.08), transparent 70%);
+  pointer-events:none;
+}
+.hero-bg::after{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(180deg, rgba(255,255,255,.04) 0%, rgba(255,255,255,.01) 50%, transparent 100%);
+}
+.hero-content{
+  position:relative;z-index:1;
+  flex:1;
+  display:flex;flex-direction:column;
+  align-items:center;justify-content:center;
+  padding:80px 40px 60px;
+  text-align:center;
+}
+@media(max-width:640px){.hero-content{padding:60px 24px 50px}}
+
+.hero-badge{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:8px 16px;
+  background:var(--accent-dim);
+  border:1px solid var(--accent-bdr);
+  border-radius:99px;
+  font-size:.75rem;font-weight:600;
+  color:var(--accent);
+  margin-bottom:28px;
+  letter-spacing:.02em;
+  animation:fadeInDown .6s ease;
+}
+@keyframes fadeInDown{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}
+.hero-badge-dot{
+  width:6px;height:6px;border-radius:50%;
+  background:var(--accent);
+  box-shadow:0 0 8px var(--accent);
+  animation:pulse 2s ease-in-out infinite;
+}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.5}}
+
+.hero h1{
+  font-size:4.5rem;font-weight:900;letter-spacing:-.05em;
+  margin-bottom:24px;
+  background:linear-gradient(180deg,#fff 0%,#e0e0ea 40%,#a0a0b0 100%);
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  line-height:1;
+  max-width:700px;
+  animation:fadeInUp .8s ease;
+}
+@media(max-width:640px){.hero h1{font-size:3rem;margin-bottom:20px;letter-spacing:-.04em}}
+
+.hero-subtitle{
+  font-size:1.5rem;
+  font-weight:600;
+  color:var(--text);
+  margin-bottom:20px;
+  letter-spacing:-.02em;
+  animation:fadeInUp .8s ease .1s both;
+}
+@media(max-width:640px){.hero-subtitle{font-size:1.2rem}}
+
+.hero p{
+  font-size:1.1rem;color:var(--muted);
+  max-width:520px;margin:0 auto 40px;
+  line-height:1.6;
+  animation:fadeInUp .8s ease .2s both;
+}
+@media(max-width:640px){.hero p{font-size:1rem;margin-bottom:32px}}
+
+.hero-cta{
+  display:flex;gap:12px;justify-content:center;flex-wrap:wrap;
+  width:100%;max-width:480px;
+  animation:fadeInUp .8s ease .3s both;
+}
+.hero-cta .btn{flex:1;min-width:180px}
+@media(max-width:640px){.hero-cta{flex-direction:column;align-items:stretch;max-width:100%}.hero-cta .btn{min-width:auto}}
+
+@keyframes fadeInUp{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+
+.btn{
+  padding:14px 24px;border-radius:var(--r);
+  font-size:.9rem;font-weight:600;font-family:inherit;
+  cursor:pointer;transition:all var(--t);
+  border:none;outline:none;
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  white-space:nowrap;min-height:48px;
+  -webkit-tap-highlight-color:transparent;
+  position:relative;overflow:hidden;
+}
+.btn-primary{
+  background:linear-gradient(135deg, var(--accent), #86efac);
+  color:#000;
+  box-shadow:0 4px 20px rgba(110,231,183,.25), inset 0 1px 0 rgba(255,255,255,.3);
+}
+.btn-primary:hover{box-shadow:0 6px 28px rgba(110,231,183,.4), inset 0 1px 0 rgba(255,255,255,.3);transform:translateY(-1px)}
+.btn-primary:active{transform:none}
+.btn-primary:disabled{background:var(--glass-bg-active);color:var(--faint);box-shadow:none;cursor:not-allowed;transform:none}
+.btn-ghost{background:var(--glass-bg);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);color:var(--muted);border:1px solid var(--glass-border)}
+.btn-ghost:hover{border-color:var(--glass-border-h);color:var(--text);background:var(--glass-bg-hover)}
+
+.steps-bar{display:flex;align-items:center;gap:4px;padding:10px;margin-bottom:12px}
+.step-item{
+  flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;
+  position:relative;cursor:pointer;
+  -webkit-tap-highlight-color:transparent;
+  padding:4px 0;
+  transition:opacity var(--t);
+}
+.step-item:hover{opacity:.85}
+.step-item:not(:last-child)::after{
+  content:'';position:absolute;top:12px;
+  left:calc(50% + 14px);right:calc(-50% + 14px);
+  height:2px;background:var(--glass-border);transition:background var(--t);
+}
+.step-item.done:not(:last-child)::after{background:var(--accent)}
+.step-num{
+  width:24px;height:24px;border-radius:50%;
+  background:var(--glass-bg-active);border:1.5px solid var(--glass-border);
+  display:flex;align-items:center;justify-content:center;
+  font-size:.7rem;font-weight:700;color:var(--faint);transition:all var(--t);
+}
+.step-item.active .step-num{background:var(--accent-dim);border-color:var(--accent-bdr);color:var(--accent);box-shadow:0 0 0 3px rgba(110,231,183,.08)}
+.step-item.done .step-num{background:var(--accent);border-color:var(--accent);color:#000}
+.step-label{font-size:.58rem;font-weight:600;color:var(--faint);text-transform:uppercase;letter-spacing:.05em;transition:color var(--t)}
+.step-item.active .step-label{color:var(--text)}
+.step-item.done .step-label{color:var(--muted)}
+@media(max-width:640px){
+  .steps-bar{padding:8px}
+  .step-num{width:22px;height:22px;font-size:.66rem}
+  .step-label{font-size:.54rem}
+  .step-item:not(:last-child)::after{left:calc(50% + 12px);right:calc(-50% + 12px);top:11px}
+}
+
+.panel{padding:18px;margin-bottom:10px;display:none;animation:fadeIn .3s ease}
+.panel.active{display:block}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.panel-head{display:flex;align-items:center;gap:10px;margin-bottom:14px;padding-bottom:12px;border-bottom:1px solid var(--glass-border)}
+.panel-title{font-size:.95rem;font-weight:700;letter-spacing:-.01em;line-height:1.3}
+.panel-desc{font-size:.74rem;color:var(--muted);margin-top:3px;line-height:1.45}
+@media(max-width:640px){.panel{padding:14px;border-radius:var(--r)}.panel-title{font-size:.88rem}.panel-desc{font-size:.72rem}}
+
+.section{margin-bottom:16px}
+.section:last-child{margin-bottom:0}
+.section-title{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.section-title .opt{font-weight:500;color:var(--faint);text-transform:none;letter-spacing:0;font-size:.64rem}
+
+.content-grid{display:grid;grid-template-columns:1fr;gap:6px}
+.content-card{
+  display:flex;align-items:center;gap:12px;
+  padding:12px 14px;background:var(--glass-bg);
+  border:1px solid var(--glass-border);border-radius:var(--r);
+  cursor:pointer;transition:all var(--t);
+  user-select:none;-webkit-tap-highlight-color:transparent;min-height:56px;
+  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
+}
+.content-card:hover{border-color:var(--glass-border-h);background:var(--glass-bg-hover)}
+.content-card.on{background:var(--accent-dim);border-color:var(--accent-bdr);box-shadow:0 0 0 1px var(--accent-bdr), inset 0 1px 0 rgba(255,255,255,.05)}
+.content-meta{flex:1;min-width:0}
+.content-name{font-size:.88rem;font-weight:600;color:var(--text)}
+.content-desc{font-size:.68rem;color:var(--muted);margin-top:2px}
+.switch{width:42px;height:24px;background:var(--glass-bg-active);border:1px solid var(--glass-border);border-radius:12px;position:relative;transition:all var(--t);flex-shrink:0}
+.switch::after{content:'';position:absolute;width:18px;height:18px;background:#fff;border-radius:50%;top:2px;left:2px;transition:transform var(--t);box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.content-card.on .switch{background:var(--accent);border-color:var(--accent)}
+.content-card.on .switch::after{transform:translateX(18px)}
+.music-card{display:flex;align-items:center;gap:12px;padding:12px 14px;background:linear-gradient(135deg, rgba(110,231,183,.1), rgba(96,165,250,.06));border:1px solid var(--accent-bdr);border-radius:var(--r);box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}
+.music-card .content-name{color:var(--accent)}
+.always-badge{font-size:.62rem;font-weight:700;letter-spacing:.05em;padding:3px 8px;border-radius:99px;background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent-bdr);flex-shrink:0;white-space:nowrap}
+
+.svc-card{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:var(--r);overflow:hidden;margin-bottom:6px;transition:all var(--t);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}
+.svc-card.connected{border-color:var(--accent-bdr);box-shadow:0 0 0 1px var(--accent-bdr)}
+.svc-head{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;transition:background var(--t);-webkit-tap-highlight-color:transparent;min-height:54px}
+.svc-head:hover{background:var(--glass-bg-hover)}
+.svc-info{flex:1;min-width:0}
+.svc-name{font-size:.88rem;font-weight:600;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.svc-perk{font-size:.68rem;color:var(--muted);margin-top:2px}
+.svc-opt{font-size:.58rem;font-weight:500;color:var(--faint);background:var(--glass-bg-active);padding:2px 7px;border-radius:99px;border:1px solid var(--glass-border);letter-spacing:.03em;text-transform:uppercase}
+.svc-status{font-size:.62rem;font-weight:700;letter-spacing:.05em;padding:3px 8px;border-radius:99px;flex-shrink:0;white-space:nowrap}
+.svc-status.off{background:var(--glass-bg-active);color:var(--faint);border:1px solid var(--glass-border)}
+.svc-status.on{background:var(--accent-dim);color:var(--accent);border:1px solid var(--accent-bdr)}
+.svc-chevron{color:var(--faint);transition:transform var(--t);flex-shrink:0}
+.svc-card.open .svc-chevron{transform:rotate(180deg)}
+.svc-body{max-height:0;overflow:hidden;transition:max-height .3s ease}
+.svc-card.open .svc-body{max-height:800px}
+.svc-body-inner{padding:12px 14px 14px;border-top:1px solid var(--glass-border)}
+
+.field{margin-top:12px}
+.field:first-child{margin-top:0}
+.field-label{display:block;font-size:.68rem;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px}
+.field-input{
+  width:100%;background:rgba(0,0,0,.25);
+  border:1px solid var(--glass-border);border-radius:var(--r-sm);
+  color:var(--text);padding:11px 13px;font-size:.875rem;font-family:inherit;
+  transition:all var(--t);outline:none;appearance:none;-webkit-appearance:none;min-height:46px;
+  backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+}
+.field-input:focus{border-color:var(--accent-bdr);box-shadow:0 0 0 3px var(--accent-dim)}
+.field-input::placeholder{color:var(--faint)}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:640px){.field-r ow{grid-template-columns:1fr}}
+.hint{font-size:.72rem;color:var(--muted);line-height:1.55;margin-top:8px}
+.hint a{color:var(--accent);text-decoration:none}
+.hint a:hover{text-decoration:underline}
+.hint code{font-family:'JetBrains Mono',monospace;font-size:.7rem;color:var(--accent);background:var(--glass-bg-active);padding:1px 6px;border-radius:3px}
+.warn{background:rgba(251,191,36,.06);border:1px solid rgba(251,191,36,.2);border-radius:var(--r-sm);padding:10px 12px;font-size:.76rem;color:#c89a2f;line-height:1.5;margin-bottom:10px}
+.warn strong{color:var(--warn)}
+.info{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:var(--r-sm);padding:10px 12px;font-size:.76rem;color:var(--muted);line-height:1.5;margin-bottom:10px;backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}
+.info strong{color:var(--text)}
+
+.adv-toggle{display:inline-flex;align-items:center;gap:6px;margin-top:10px;padding:7px 11px;background:transparent;border:none;color:var(--faint);font-size:.72rem;font-family:inherit;cursor:pointer;transition:color var(--t);-webkit-tap-highlight-color:transparent;min-height:38px}
+.adv-toggle:hover{color:var(--muted)}
+.adv-toggle svg{transition:transform var(--t)}
+.adv-toggle.open svg{transform:rotate(90deg)}
+.adv-box{max-height:0;overflow:hidden;transition:max-height .3s ease}
+.adv-box.open{max-height:1200px}
+
+.mode-toggle{
+  display:grid;grid-template-columns:1fr 1fr;gap:6px;
+  background:rgba(0,0,0,.2);border:1px solid var(--glass-border);
+  border-radius:var(--r);padding:4px;margin-bottom:14px;
+}
+.mode-btn{
+  padding:12px 14px;background:transparent;border:none;
+  border-radius:var(--r-sm);color:var(--muted);
+  font-size:.82rem;font-weight:600;font-family:inherit;
+  cursor:pointer;transition:all var(--t);
+  display:flex;flex-direction:column;align-items:center;gap:4px;
+  -webkit-tap-highlight-color:transparent;min-height:56px;
+  position:relative;
+}
+.mode-btn:hover{color:var(--text)}
+.mode-btn.on{
+  background:var(--accent-dim);color:var(--accent);
+  box-shadow:inset 0 0 0 1px var(--accent-bdr), 0 0 12px rgba(110,231,183,.08);
+}
+.mode-btn-sub{font-size:.64rem;color:var(--faint);font-weight:400}
+.mode-btn.on .mode-btn-sub{color:var(--accent);opacity:.7}
+.mode-btn-soon{
+  position:absolute;top:6px;right:6px;
+  font-size:.52rem;font-weight:700;
+  color:var(--faint);
+  background:var(--glass-bg-active);
+  padding:1px 5px;border-radius:99px;
+  border:1px solid var(--glass-border);
+  letter-spacing:.03em;
+}
+
+.quality-pills{
+  display:flex;
+  gap:6px;
+  overflow-x:auto;
+  overflow-y:hidden;
+  padding:4px;
+  scroll-snap-type:x mandatory;
+  -webkit-overflow-scrolling:touch;
+  scrollbar-width:none;
+  background:rgba(0,0,0,.2);
+  border:1px solid var(--glass-border);
+  border-radius:var(--r);
+}
+.quality-pills::-webkit-scrollbar{display:none}
+.quality-pill{
+  flex:0 0 auto;
+  min-width:110px;
+  padding:14px 16px;
+  background:transparent;
+  border:1px solid transparent;
+  border-radius:var(--r-sm);
+  cursor:pointer;
+  transition:all var(--t);
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:4px;
+  scroll-snap-align:start;
+  -webkit-tap-highlight-color:transparent;
+  font-family:inherit;
+}
+.quality-pill:hover{
+  background:var(--glass-bg-hover);
+  border-color:var(--glass-border);
+}
+.quality-pill.on{
+  background:var(--accent-dim);
+  border-color:var(--accent-bdr);
+  box-shadow:0 0 0 1px var(--accent-bdr), 0 0 16px rgba(110,231,183,.1);
+}
+.quality-pill-name{
+  font-size:.82rem;
+  font-weight:700;
+  color:var(--muted);
+  transition:color var(--t);
+  letter-spacing:-.01em;
+}
+.quality-pill.on .quality-pill-name{color:var(--accent)}
+.quality-pill-desc{
+  font-size:.64rem;
+  color:var(--faint);
+  font-weight:400;
+  transition:color var(--t);
+}
+.quality-pill.on .quality-pill-desc{color:var(--accent);opacity:.7}
+
+.quality-current{
+  margin-top:12px;
+  padding:12px 16px;
+  background:var(--accent-dim);
+  border:1px solid var(--accent-bdr);
+  border-radius:var(--r-sm);
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:12px;
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.05);
+}
+.quality-current-label{
+  font-size:.68rem;
+  color:var(--muted);
+  font-weight:500;
+}
+.quality-current-value{
+  font-size:.82rem;
+  color:var(--accent);
+  font-weight:700;
+  letter-spacing:-.01em;
+}
+
+.preset-grid{display:grid;grid-template-columns:1fr;gap:6px;margin-bottom:12px}
+.preset-card{
+  padding:14px;background:var(--glass-bg);
+  border:1px solid var(--glass-border);border-radius:var(--r);
+  cursor:pointer;transition:all var(--t);user-select:none;
+  position:relative;-webkit-tap-highlight-color:transparent;
+  min-height:72px;backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
+}
+.preset-card:hover{border-color:var(--glass-border-h);background:var(--glass-bg-hover)}
+.preset-card.on{background:var(--accent-dim);border-color:var(--accent-bdr);box-shadow:0 0 0 1px var(--accent-bdr), inset 0 1px 0 rgba(255,255,255,.05)}
+.preset-check{
+  position:absolute;top:12px;right:12px;
+  width:20px;height:20px;border-radius:50%;
+  background:var(--glass-bg-active);border:1.5px solid var(--glass-border);
+  display:flex;align-items:center;justify-content:center;
+  color:transparent;transition:all var(--t);
+}
+.preset-card.on .preset-check{background:var(--accent);border-color:var(--accent);color:#000;box-shadow:0 0 8px rgba(110,231,183,.4)}
+.preset-name{font-size:.88rem;font-weight:700;color:var(--text);margin-bottom:4px;padding-right:28px}
+.preset-card.on .preset-name{color:var(--accent)}
+.preset-desc{font-size:.72rem;color:var(--muted);line-height:1.45}
+
+.drag-list{display:flex;flex-direction:column;gap:5px}
+.drag-item{
+  display:flex;align-items:center;gap:8px;
+  padding:10px 12px;background:var(--glass-bg);
+  border:1px solid var(--glass-border);border-radius:var(--r-sm);
+  transition:all var(--t);user-select:none;position:relative;
+  -webkit-tap-highlight-color:transparent;min-height:52px;
+  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
+}
+.drag-item:hover{border-color:var(--glass-border-h);background:var(--glass-bg-hover)}
+.drag-item.inactive{opacity:.45}
+.drag-item.inactive .drag-rank{background:var(--glass-bg-active);border-color:var(--glass-border);color:var(--faint)}
+.drag-item.dragging{opacity:.35;border-color:var(--accent-bdr)}
+.drag-item.drag-over{border-color:var(--accent);transform:scale(1.01);box-shadow:0 0 0 2px var(--accent-dim)}
+.drag-item[draggable="true"]{cursor:grab}
+.drag-item[draggable="true"]:active{cursor:grabbing}
+.drag-handle{color:var(--faint);flex-shrink:0;cursor:grab;padding:3px;touch-action:none}
+.drag-handle:active{cursor:grabbing}
+.drag-rank{width:24px;height:24px;background:var(--accent-dim);border:1px solid var(--accent-bdr);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:700;color:var(--accent);flex-shrink:0}
+.drag-body{flex:1;min-width:0}
+.drag-name{font-size:.82rem;font-weight:600}
+.drag-sub{font-size:.66rem;color:var(--muted);margin-top:1px}
+.drag-toggle{width:40px;height:24px;background:var(--accent);border-radius:12px;position:relative;transition:background var(--t);flex-shrink:0;cursor:pointer;border:none;padding:0;-webkit-tap-highlight-color:transparent;box-shadow:inset 0 1px 0 rgba(255,255,255,.2)}
+.drag-toggle::after{content:'';position:absolute;width:18px;height:18px;background:#fff;border-radius:50%;top:3px;left:19px;transition:transform var(--t);box-shadow:0 1px 3px rgba(0,0,0,.3)}
+.drag-toggle.off{background:var(--glass-bg-active);border:1px solid var(--glass-border);box-shadow:none}
+.drag-toggle.off::after{left:3px}
+.drag-arrows{display:flex;flex-direction:column;gap:2px;flex-shrink:0}
+.arrow-btn{width:28px;height:22px;background:var(--glass-bg-active);border:1px solid var(--glass-border);border-radius:4px;color:var(--muted);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all var(--t);padding:0;-webkit-tap-highlight-color:transparent}
+.arrow-btn:hover{background:var(--accent-dim);border-color:var(--accent-bdr);color:var(--accent)}
+.arrow-btn:active{transform:scale(.95)}
+.arrow-btn:disabled{opacity:.3;cursor:not-allowed}
+
+.summary-grid{display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:14px}
+.sum-card{
+  background:var(--glass-bg);border:1px solid var(--glass-border);
+  border-radius:var(--r);padding:14px 16px;
+  backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
+  position:relative;overflow:hidden;
+}
+.sum-card::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg, rgba(255,255,255,.02) 0%, transparent 50%);pointer-events:none}
+.sum-label{font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--faint);margin-bottom:8px;display:block}
+.sum-value{font-size:.88rem;font-weight:600;color:var(--text);line-height:1.45;word-break:break-word}
+.sum-value.accent{color:var(--accent);text-shadow:0 0 20px rgba(110,231,183,.2)}
+.sum-row{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--glass-border)}
+.sum-row:last-child{border-bottom:none}
+.sum-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px rgba(110,231,183,.4);flex-shrink:0}
+.sum-dot.off{background:var(--faint);box-shadow:none}
+.sum-source-name{font-size:.82rem;font-weight:600;color:var(--text);flex:1}
+.sum-source-name.off{color:var(--faint);font-weight:500}
+
+.url-card{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:var(--r);padding:12px;margin-bottom:8px;backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}
+.url-label{font-size:.7rem;font-weight:600;color:var(--muted);margin-bottom:8px}
+.url-row{display:flex;gap:8px;align-items:stretch}
+.url-box{flex:1;background:rgba(0,0,0,.3);border:1px solid var(--glass-border);border-radius:var(--r-sm);padding:10px 12px;font-family:'JetBrains Mono',monospace;font-size:.68rem;color:var(--accent);word-break:break-all;line-height:1.5;min-height:42px;display:flex;align-items:center}
+.copy-btn{background:var(--glass-bg);border:1px solid var(--glass-border);color:var(--text);padding:0 14px;border-radius:var(--r-sm);cursor:pointer;font-size:.74rem;font-weight:600;font-family:inherit;transition:all var(--t);flex-shrink:0;display:flex;align-items:center;gap:6px;-webkit-tap-highlight-color:transparent;min-height:42px;backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}
+.copy-btn:hover{border-color:var(--accent-bdr);color:var(--accent)}
+.copy-btn:active{transform:scale(.95)}
+.copy-btn.copied{background:var(--accent-dim);border-color:var(--accent-bdr);color:var(--accent)}
+
+.install-steps{display:flex;flex-direction:column;gap:12px;margin-top:14px}
+.i-step{display:flex;gap:10px;align-items:flex-start}
+.i-num{width:26px;height:26px;border-radius:50%;background:var(--accent-dim);border:1px solid var(--accent-bdr);color:var(--accent);font-size:.76rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}
+.i-body{font-size:.8rem;color:var(--muted);line-height:1.55}
+.i-body strong{color:var(--text)}
+
+.nav-row{display:flex;gap:8px;margin-top:18px;padding-top:16px;border-top:1px solid var(--glass-border)}
+.nav-row .btn{flex:1}
+@media(max-width:640px){.nav-row{flex-direction:column-reverse}.nav-row .btn{width:100%}}
+
+.toast{position:fixed;bottom:20px;left:16px;right:16px;transform:translateY(120px);background:rgba(20,20,24,.92);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--accent-bdr);color:var(--text);padding:13px 20px;border-radius:99px;font-size:.84rem;font-weight:500;box-shadow:0 8px 32px rgba(0,0,0,.5);transition:transform .3s cubic-bezier(.16,1,.3,1);z-index:100;display:flex;align-items:center;justify-content:center;gap:8px}
+.toast.show{transform:translateY(0)}
+.toast-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);box-shadow:0 0 8px var(--accent);flex-shrink:0}
+@media(min-width:641px){.toast{left:50%;right:auto;transform:translateX(-50%) translateY(120px);max-width:400px}.toast.show{transform:translateX(-50%) translateY(0)}}
+
+footer{margin-top:28px;text-align:center;font-size:.66rem;color:var(--faint);line-height:1.7}
+
+.spinner{width:14px;height:14px;border:2px solid transparent;border-top-color:currentColor;border-radius:50%;animation:spin .6s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header class="header">
+    <div class="header-text">
+      <div class="header-title">All In Eclipse</div>
+      <div class="header-sub">Music · Podcasts · Audiobooks · Radio</div>
+    </div>
+  </header>
+
+  <section class="hero glass" id="heroSection">
+    <div class="hero-bg"></div>
+    <div class="hero-content">
+      <div class="hero-badge">
+        <span class="hero-badge-dot"></span>
+        <span>Universal Addon for Eclipse</span>
+      </div>
+      <h1>All In Eclipse</h1>
+      <div class="hero-subtitle">One addon. Every source.</div>
+      <p>Stream from Qobuz, Tidal, Deezer, SoundCloud and more — all in one place. Set up in under a minute.</p>
+      <div class="hero-cta">
+        <button class="btn btn-primary" onclick="startSetup()">Get started</button>
+        <button class="btn btn-ghost" onclick="openRefresh()">I have an existing URL</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="steps-bar glass" id="stepsBar" style="display:none">
+    <div class="step-item active" data-step="1" onclick="handleStepClick(1)"><div class="step-num">1</div><div class="step-label">Content</div></div>
+    <div class="step-item" data-step="2" onclick="handleStepClick(2)"><div class="step-num">2</div><div class="step-label">Accounts</div></div>
+    <div class="step-item" data-step="3" onclick="handleStepClick(3)"><div class="step-num">3</div><div class="step-label">Priority</div></div>
+    <div class="step-item" data-step="4" onclick="handleStepClick(4)"><div class="step-num">4</div><div class="step-label">Quality</div></div>
+    <div class="step-item" data-step="5" onclick="handleStepClick(5)"><div class="step-num">5</div><div class="step-label">Install</div></div>
+  </div>
+
+  <div class="panel glass" data-panel="1">
+    <div class="panel-head">
+      <div><div class="panel-title">What do you want to listen to?</div><div class="panel-desc">Music is always included. Toggle anything else you want.</div></div>
+    </div>
+    <div class="section"><div class="music-card"><div class="content-meta"><div class="content-name">Music</div><div class="content-desc">Qobuz · Tidal · Deezer · SoundCloud · Archive</div></div><span class="always-badge">Always on</span></div></div>
+    <div class="section">
+      <div class="section-title">Additional content <span class="opt">— optional</span></div>
+      <div class="content-grid">
+        <div class="content-card" data-type="podcast"><div class="content-meta"><div class="content-name">Podcasts</div><div class="content-desc">Apple Podcasts</div></div><div class="switch"></div></div>
+        <div class="content-card" data-type="audiobook"><div class="content-meta"><div class="content-name">Audiobooks</div><div class="content-desc">LibriVox · Internet Archive</div></div><div class="switch"></div></div>
+        <div class="content-card" data-type="radio"><div class="content-meta"><div class="content-name">Radio</div><div class="content-desc">Radio Browser · SomaFM</div></div><div class="switch"></div></div>
+      </div>
+    </div>
+    <div class="nav-row"><button class="btn btn-primary" onclick="goToStep(2)">Continue</button></div>
+  </div>
+
+  <div class="panel glass" data-panel="2">
+    <div class="panel-head">
+      <div><div class="panel-title">Connect your accounts <span class="svc-opt" style="margin-left:6px">OPTIONAL</span></div><div class="panel-desc">Skip this to use the default shared credentials. Add your own for direct access.</div></div>
+    </div>
+    <div class="info" style="margin-bottom:14px"><strong>Everything below is optional.</strong> The addon works without any accounts. Connect yours only if you want direct access to your personal library or higher quality streams. Credentials are encoded in your URL only — never stored on any server.</div>
+    <div class="svc-card" data-svc="qobuz">
+      <div class="svc-head"><div class="svc-info"><div class="svc-name">Qobuz <span class="svc-opt">OPTIONAL</span></div><div class="svc-perk">Hi-Res FLAC up to 24-bit/192kHz</div></div><span class="svc-status off" id="status-qobuz">Not connected</span><svg class="svc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg></div>
+      <div class="svc-body"><div class="svc-body-inner">
+        <div class="field"><label class="field-label">User Auth Token</label><input type="password" id="qobuzUserToken" class="field-input" placeholder="From your Qobuz account"></div>
+        <button class="adv-toggle" data-adv="qobuz"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="9 18 15 12 9 6"/></svg>Custom API credentials (rarely needed)</button>
+        <div class="adv-box" data-adv-box="qobuz"><div class="field-row" style="margin-top:12px"><div class="field" style="margin:0"><label class="field-label">App Secret</label><input type="password" id="qobuzSecret" class="field-input" placeholder="32-char hex"></div><div class="field" style="margin:0"><label class="field-label">App ID</label><input type="text" id="qobuzAppId" class="field-input" placeholder="e.g. 312369995"></div></div><div class="hint" style="margin-top:10px">Get your token via <a href="https://github.com/nickcoutsos/qobuz-dl" target="_blank" rel="noopener">qobuz-dl</a> or by inspecting Qobuz app traffic.</div></div>
+      </div></div>
+    </div>
+    <div class="svc-card" data-svc="deezer">
+      <div class="svc-head"><div class="svc-info"><div class="svc-name">Deezer <span class="svc-opt">OPTIONAL</span></div><div class="svc-perk">FLAC or MP3 320 kbps</div></div><span class="svc-status off" id="status-deezer">Not connected</span><svg class="svc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg></div>
+      <div class="svc-body"><div class="svc-body-inner">
+        <div class="warn"><strong>Required for Deezer playback.</strong> Without an ARL cookie, Deezer tracks appear in results but won't play.</div>
+        <div class="field"><label class="field-label">ARL Cookie</label><input type="password" id="deezerArl" class="field-input" placeholder="Long hex string from deezer.com"></div>
+        <div class="hint">Open deezer.com → DevTools → Application → Cookies → copy the <code>arl</code> value. Valid for ~3 months.</div>
+      </div></div>
+    </div>
+    <div class="svc-card" data-svc="tidal">
+      <div class="svc-head"><div class="svc-info"><div class="svc-name">Tidal HiFi <span class="svc-opt">OPTIONAL</span></div><div class="svc-perk">AAC 320 kbps via proxy</div></div><span class="svc-status off" id="status-tidal">Using public pool</span><svg class="svc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg></div>
+      <div class="svc-body"><div class="svc-body-inner">
+        <div class="hint" style="margin-top:0">Only needed if you run your own HiFi proxy. Leave blank to use the public pool.</div>
+        <div class="field"><label class="field-label">Custom instance URLs</label><input type="text" id="hifiInst" class="field-input" placeholder="comma-separated"></div>
+      </div></div>
+    </div>
+    <div class="svc-card" data-svc="sc">
+      <div class="svc-head"><div class="svc-info"><div class="svc-name">SoundCloud <span class="svc-opt">OPTIONAL</span></div><div class="svc-perk">MP3 up to 320 kbps</div></div><span class="svc-status off" id="status-sc">Auto-discovered</span><svg class="svc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg></div>
+      <div class="svc-body"><div class="svc-body-inner">
+        <div class="field"><label class="field-label">Client ID</label><input type="text" id="scId" class="field-input" placeholder="Leave blank for auto-discovery"></div>
+        <div class="hint">Only set this if auto-discovery stops working.</div>
+      </div></div>
+    </div>
+    <div class="nav-row"><button class="btn btn-ghost" onclick="goToStep(1)">Back</button><button class="btn btn-primary" onclick="goToStep(3)">Continue</button></div>
+  </div>
+
+  <div class="panel glass" data-panel="3">
+    <div class="panel-head">
+      <div><div class="panel-title">Choose a priority preset</div><div class="panel-desc">Pick a preset, then fine-tune below. You can always reorder or disable sources.</div></div>
+    </div>
+    <div class="section">
+      <div class="section-title">Preset <span class="opt">— pick one</span></div>
+      <div class="preset-grid" id="presetGrid">
+        <div class="preset-card on" data-preset="full"><div class="preset-check"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></div><div class="preset-name">Full</div><div class="preset-desc">Every source enabled. Best coverage.</div></div>
+        <div class="preset-card" data-preset="recommended"><div class="preset-check"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></div><div class="preset-name">Recommended</div><div class="preset-desc">Fast searches via Tidal, all streams for playback.</div></div>
+        <div class="preset-card" data-preset="bigger"><div class="preset-check"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></div><div class="preset-name">Bigger catalog</div><div class="preset-desc">Deezer & SoundCloud for search, all streams for playback.</div></div>
+        <div class="preset-card" data-preset="custom"><div class="preset-check"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg></div><div class="preset-name">Custom</div><div class="preset-desc">Start from scratch. Enable what you want.</div></div>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-title">Search priority <span class="opt">— drag to reorder, toggle to enable/disable</span></div>
+      <div class="info">These sources are queried when you search. Disabled sources won't appear in search results.</div>
+      <div class="drag-list" id="searchList" style="margin-top:10px"></div>
+    </div>
+    <div class="section">
+      <div class="section-title">Stream priority <span class="opt">— drag to reorder, toggle to enable/disable</span></div>
+      <div class="info">When a track matches multiple sources, these are tried in order.</div>
+      <div class="drag-list" id="streamList" style="margin-top:10px"></div>
+    </div>
+    <div class="nav-row"><button class="btn btn-ghost" onclick="goToStep(2)">Back</button><button class="btn btn-primary" onclick="goToStep(4)">Continue</button></div>
+  </div>
+
+  <div class="panel glass" data-panel="4">
+    <div class="panel-head">
+      <div><div class="panel-title">Audio quality</div><div class="panel-desc">Set preferred quality for each source individually.</div></div>
+    </div>
+    <div class="info" style="margin-bottom:14px"><strong>Per-source quality.</strong> Each source supports different quality tiers. The addon falls back gracefully if your preferred tier is unavailable for a track.</div>
+    <div class="section">
+      <div class="section-title">Qobuz <span class="opt">— Hi-Res FLAC up to 24-bit/192kHz</span></div>
+      <div class="quality-pills" id="qobuzQualityPills">
+        <button class="quality-pill" data-source="qobuz" data-q="HIGH" type="button">
+          <span class="quality-pill-name">High</span>
+          <span class="quality-pill-desc">320 kbps</span>
+        </button>
+        <button class="quality-pill" data-source="qobuz" data-q="LOSSLESS" type="button">
+          <span class="quality-pill-name">Lossless</span>
+          <span class="quality-pill-desc">CD 44.1 kHz</span>
+        </button>
+        <button class="quality-pill on" data-source="qobuz" data-q="HIRES_96" type="button">
+          <span class="quality-pill-name">Hi-Res 96</span>
+          <span class="quality-pill-desc">24-bit / 96 kHz</span>
+        </button>
+        <button class="quality-pill" data-source="qobuz" data-q="HIRES_192" type="button">
+          <span class="quality-pill-name">Hi-Res 192</span>
+          <span class="quality-pill-desc">24-bit / 192 kHz</span>
+        </button>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-title">Deezer <span class="opt">— FLAC or MP3</span></div>
+      <div class="quality-pills" id="deezerQualityPills">
+        <button class="quality-pill" data-source="deezer" data-q="128kbps" type="button">
+          <span class="quality-pill-name">Standard</span>
+          <span class="quality-pill-desc">128 kbps</span>
+        </button>
+        <button class="quality-pill on" data-source="deezer" data-q="320kbps" type="button">
+          <span class="quality-pill-name">High</span>
+          <span class="quality-pill-desc">320 kbps</span>
+        </button>
+        <button class="quality-pill" data-source="deezer" data-q="FLAC" type="button">
+          <span class="quality-pill-name">Lossless</span>
+          <span class="quality-pill-desc">FLAC CD</span>
+        </button>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-title">Tidal HiFi <span class="opt">— AAC via proxy</span></div>
+      <div class="quality-pills" id="hifiQualityPills">
+        <button class="quality-pill" data-source="hifi" data-q="LOW" type="button">
+          <span class="quality-pill-name">Low</span>
+          <span class="quality-pill-desc">AAC 96 kbps</span>
+        </button>
+        <button class="quality-pill" data-source="hifi" data-q="HIGH" type="button">
+          <span class="quality-pill-name">High</span>
+          <span class="quality-pill-desc">AAC 320 kbps</span>
+        </button>
+        <button class="quality-pill on" data-source="hifi" data-q="LOSSLESS" type="button">
+          <span class="quality-pill-name">Lossless</span>
+          <span class="quality-pill-desc">FLAC CD</span>
+        </button>
+      </div>
+    </div>
+    <div class="section">
+      <div class="section-title">Other sources</div>
+      <div class="info"><strong>SoundCloud</strong> streams at 128 kbps MP3 — no quality selection available.<br><strong>Internet Archive &amp; Radio</strong> use whatever quality the source provides.</div>
+    </div>
+    <div class="nav-row"><button class="btn btn-ghost" onclick="goToStep(3)">Back</button><button class="btn btn-primary" onclick="goToStep(5)">Continue</button></div>
+  </div>
+
+  <div class="panel glass" data-panel="5">
+    <div class="panel-head">
+      <div><div class="panel-title">You're all set</div><div class="panel-desc">Review your configuration and generate install URLs.</div></div>
+    </div>
+    <div class="summary-grid" id="summaryGrid"></div>
+    <div class="section">
+      <div class="field-label" style="margin-bottom:8px">Addon base URL <span class="svc-opt" style="margin-left:6px">OPTIONAL</span></div>
+      <input type="text" id="vercelUrl" class="field-input" placeholder="https://your-addon.vercel.app">
+      <div class="hint">Only change if you're self-hosting.</div>
+    </div>
+    <button class="btn btn-primary" id="genBtn" style="width:100%" onclick="doGenerate()">Generate my install URLs</button>
+    <div id="outputBox" style="display:none;margin-top:16px">
+      <div id="urlCards"></div>
+      <div class="section" style="margin-top:22px">
+        <div class="section-title">How to install in Eclipse</div>
+        <div class="install-steps">
+          <div class="i-step"><div class="i-num">1</div><div class="i-body">Open Eclipse → <strong>Settings</strong> → <strong>Connections</strong></div></div>
+          <div class="i-step"><div class="i-num">2</div><div class="i-body">Tap <strong>Add Connection</strong> → <strong>Addon</strong></div></div>
+          <div class="i-step"><div class="i-num">3</div><div class="i-body">Paste a manifest URL from above and tap <strong>Install</strong>. Install each type separately.</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="nav-row"><button class="btn btn-ghost" onclick="goToStep(4)">Back</button><button class="btn btn-ghost" onclick="goToWelcome()">Start over</button></div>
+  </div>
+
+  <div class="panel glass" data-panel="refresh">
+    <div class="panel-head">
+      <div><div class="panel-title">Refresh existing URL</div><div class="panel-desc">Paste your current manifest URL to refresh it.</div></div>
+    </div>
+    <div class="field"><label class="field-label">Current manifest URL</label><input type="text" id="existingUrl" class="field-input" placeholder="https://your-addon.vercel.app/abc123.../manifest.json"></div>
+    <button class="btn btn-primary" style="width:100%;margin-top:14px" onclick="doRefresh()">Refresh URL</button>
+    <div id="refreshOutput" style="display:none;margin-top:14px"></div>
+    <div class="nav-row"><button class="btn btn-ghost" onclick="closeRefresh()">Back to setup</button></div>
+  </div>
+
+  <footer>Credentials are encoded in your URL only — never stored server-side<br>All In Eclipse · Qobuz · Tidal · Deezer · SoundCloud · Internet Archive · Podcasts · Radio</footer>
+</div>
+
+<div class="toast" id="toast"><span class="toast-dot"></span><span id="toastMsg">Copied</span></div>
+
+<script>
+const SOURCES={
+  qobuz:{name:'Qobuz',sub:'Hi-Res FLAC'},
+  hifi:{name:'Tidal HiFi',sub:'AAC 320'},
+  deezer:{name:'Deezer',sub:'FLAC / MP3'},
+  sc:{name:'SoundCloud',sub:'MP3 320'},
+  ia:{name:'Internet Archive',sub:'Various'}
+};
+const QOBUZ_TIERS=['HIGH','LOSSLESS','HIRES_96','HIRES_192'];
+const QOBUZ_TIER_LABELS={HIGH:'High — 320 kbps MP3',LOSSLESS:'Lossless — CD 44.1 kHz FLAC',HIRES_96:'Hi-Res 96 — 24-bit / 96 kHz',HIRES_192:'Hi-Res 192 — 24-bit / 192 kHz'};
+const QOBUZ_TIER_SHORT={HIGH:'High — 320 kbps',LOSSLESS:'Lossless — CD 44.1 kHz',HIRES_96:'Hi-Res 96 — 24-bit',HIRES_192:'Hi-Res 192 — 24-bit'};
+const DEEZER_TIERS=['128kbps','320kbps','FLAC'];
+const DEEZER_TIER_LABELS={'128kbps':'Standard — 128 kbps','320kbps':'High — 320 kbps MP3',FLAC:'Lossless — FLAC CD'};
+const HIFI_TIERS=['LOW','HIGH','LOSSLESS'];
+const HIFI_TIER_LABELS={LOW:'Low — AAC 96 kbps',HIGH:'High — AAC 320 kbps',LOSSLESS:'Lossless — FLAC CD'};
+
+const PRESETS={
+  full:{search:[{s:'hifi',on:true},{s:'qobuz',on:true},{s:'deezer',on:true},{s:'sc',on:true},{s:'ia',on:true}],stream:[{s:'qobuz',on:true},{s:'hifi',on:true},{s:'deezer',on:true},{s:'sc',on:true},{s:'ia',on:true}]},
+  recommended:{search:[{s:'hifi',on:true},{s:'qobuz',on:false},{s:'deezer',on:false},{s:'sc',on:false},{s:'ia',on:false}],stream:[{s:'qobuz',on:true},{s:'hifi',on:true},{s:'deezer',on:true},{s:'sc',on:true}]},
+  bigger:{search:[{s:'deezer',on:true},{s:'sc',on:true},{s:'qobuz',on:false},{s:'hifi',on:false},{s:'ia',on:false}],stream:[{s:'qobuz',on:true},{s:'hifi',on:true},{s:'deezer',on:true},{s:'sc',on:true},{s:'ia',on:true}]},
+  custom:{search:[{s:'qobuz',on:false},{s:'hifi',on:false},{s:'deezer',on:false},{s:'sc',on:false},{s:'ia',on:false}],stream:[{s:'qobuz',on:false},{s:'hifi',on:false},{s:'deezer',on:false},{s:'sc',on:false},{s:'ia',on:false}]}
+};
+
+const state={
+  step:1,
+  content:{podcast:false,audiobook:false,radio:false},
+  qualityMode:'general',
+  qobuzQuality:'HIRES_96',
+  deezerQuality:'320kbps',
+  hifiQuality:'LOSSLESS',
+  preset:'full',
+  searchOrder:JSON.parse(JSON.stringify(PRESETS.full.search)),
+  streamOrder:JSON.parse(JSON.stringify(PRESETS.full.stream)),
+  started:false
+};
+
+function startSetup(){
+  state.started=true;
+  document.getElementById('heroSection').style.display='none';
+  document.getElementById('stepsBar').style.display='flex';
+  goToStep(1);
+}
+
+function goToWelcome(){
+  state.started=false;
+  state.step=1;
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('heroSection').style.display='flex';
+  document.getElementById('stepsBar').style.display='none';
+  document.querySelectorAll('.step-item').forEach(s=>{s.classList.remove('active','done')});
+  document.querySelector('[data-step="1"]').classList.add('active');
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+function handleStepClick(n){
+  if(!state.started) return;
+  if(n===state.step) return;
+  if(n>state.step+1) return;
+  goToStep(n);
+}
+
+function goToStep(n){
+  state.step=n;
+  document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));
+  const target=document.querySelector(`[data-panel="${n}"]`);
+  if(target)target.classList.add('active');
+  document.querySelectorAll('.step-item').forEach(s=>{
+    const sn=+s.dataset.step;s.classList.remove('active','done');
+    if(sn<n)s.classList.add('done');else if(sn===n)s.classList.add('active');
+  });
+  if(n===3)renderDragLists();
+  if(n===4)renderQualityStep();
+  if(n===5)renderSummary();
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+function openRefresh(){document.querySelectorAll('.panel').forEach(p=>p.classList.remove('active'));document.querySelector('[data-panel="refresh"]').classList.add('active');document.getElementById('heroSection').style.display='none';document.getElementById('stepsBar').style.display='none'}
+function closeRefresh(){
+  if(state.started){goToStep(state.step);document.getElementById('stepsBar').style.display='flex'}
+  else{goToWelcome()}
+}
+
+document.querySelectorAll('.content-card').forEach(c=>{c.addEventListener('click',()=>{const t=c.dataset.type;state.content[t]=!state.content[t];c.classList.toggle('on',state.content[t])})});
+
+
+
+document.querySelectorAll('.quality-pills .quality-pill').forEach(pill=>{
+  pill.addEventListener('click',()=>{
+    const src=pill.dataset.source;
+    pill.parentElement.querySelectorAll('.quality-pill').forEach(p=>p.classList.remove('on'));
+    pill.classList.add('on');
+    if(src==='qobuz')state.qobuzQuality=pill.dataset.q;
+    else if(src==='deezer')state.deezerQuality=pill.dataset.q;
+    else if(src==='hifi')state.hifiQuality=pill.dataset.q;
+  });
+});
+
+function renderQualityStep(){
+  document.querySelectorAll('#qobuzQualityPills .quality-pill').forEach(p=>p.classList.toggle('on',p.dataset.q===state.qobuzQuality));
+  document.querySelectorAll('#deezerQualityPills .quality-pill').forEach(p=>p.classList.toggle('on',p.dataset.q===state.deezerQuality));
+  document.querySelectorAll('#hifiQualityPills .quality-pill').forEach(p=>p.classList.toggle('on',p.dataset.q===state.hifiQuality));
+}
+
+const STATUS_FIELDS={qobuz:['qobuzUserToken','qobuzSecret','qobuzAppId'],deezer:['deezerArl'],tidal:['hifiInst'],sc:['scId']};
+const STATUS_DEFAULT={qobuz:'Not connected',deezer:'Not connected',tidal:'Using public pool',sc:'Auto-discovered'};
+document.querySelectorAll('.svc-card').forEach(card=>{card.querySelector('.svc-head').addEventListener('click',()=>card.classList.toggle('open'))});
+
+function updateStatuses(){
+  Object.keys(STATUS_FIELDS).forEach(svc=>{
+    const hasValue=STATUS_FIELDS[svc].some(id=>{const el=document.getElementById(id);return el&&el.value.trim()});
+    const statusEl=document.getElementById('status-'+svc);
+    const card=document.querySelector(`[data-svc="${svc}"]`);
+    if(hasValue){statusEl.textContent='Connected';statusEl.className='svc-status on';if(card)card.classList.add('connected')}
+    else{statusEl.textContent=STATUS_DEFAULT[svc];statusEl.className='svc-status off';if(card)card.classList.remove('connected')}
+  });
+}
+document.querySelectorAll('.field-input').forEach(i=>i.addEventListener('input',updateStatuses));
+document.querySelectorAll('.adv-toggle').forEach(t=>{t.addEventListener('click',()=>{const key=t.dataset.adv;const box=document.querySelector(`[data-adv-box="${key}"]`);t.classList.toggle('open');box.classList.toggle('open')})});
+document.querySelectorAll('.preset-card').forEach(card=>{card.addEventListener('click',()=>{const preset=card.dataset.preset;document.querySelectorAll('.preset-card').forEach(c=>c.classList.remove('on'));card.classList.add('on');state.preset=preset;state.searchOrder=JSON.parse(JSON.stringify(PRESETS[preset].search));state.streamOrder=JSON.parse(JSON.stringify(PRESETS[preset].stream));renderDragLists();toast('Applied "'+card.querySelector('.preset-name').textContent+'" preset')})});
+
+function buildDragItem(src,isOn,rank){
+  const item=document.createElement('div');
+  item.className='drag-item'+(isOn?'':' inactive');
+  item.draggable=true;item.dataset.source=src;item.dataset.on=isOn?'1':'0';
+  item.innerHTML='<svg class="drag-handle" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg><div class="drag-rank">'+(isOn?rank:'—')+'</div><div class="drag-body"><div class="drag-name">'+SOURCES[src].name+'</div><div class="drag-sub">'+SOURCES[src].sub+'</div></div><button class="drag-toggle'+(isOn?'':' off')+'" type="button" aria-label="Toggle"></button><div class="drag-arrows"><button class="arrow-btn up" aria-label="Move up" type="button"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="18 15 12 9 6 15"/></svg></button><button class="arrow-btn down" aria-label="Move down" type="button"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"><polyline points="6 9 12 15 18 9"/></svg></button></div>';
+  return item;
+}
+
+function renderDragLists(){renderDragList('searchList',state.searchOrder);renderDragList('streamList',state.streamOrder)}
+function renderDragList(containerId,order){
+  const container=document.getElementById(containerId);container.innerHTML='';
+  let rankCounter=1;
+  order.forEach(entry=>{const rank=entry.on?rankCounter++:0;container.appendChild(buildDragItem(entry.s,entry.on,rank))});
+  updateRanks(container);
+}
+function updateRanks(container){
+  let rank=1;
+  container.querySelectorAll('.drag-item').forEach(it=>{
+    const isOn=it.dataset.on==='1';
+    it.querySelector('.drag-rank').textContent=isOn?rank++:'—';
+    const upBtn=it.querySelector('.arrow-btn.up');const downBtn=it.querySelector('.arrow-btn.down');
+    if(upBtn)upBtn.disabled=it===container.firstChild;
+    if(downBtn)downBtn.disabled=it===container.lastChild;
+  });
+}
+function syncState(container,orderKey){state[orderKey]=[...container.querySelectorAll('.drag-item')].map(it=>({s:it.dataset.source,on:it.dataset.on==='1'}));detectPreset()}
+function detectPreset(){
+  const sStr=JSON.stringify(state.searchOrder);const stStr=JSON.stringify(state.streamOrder);
+  let matched=null;
+  for(const key of Object.keys(PRESETS)){if(JSON.stringify(PRESETS[key].search)===sStr&&JSON.stringify(PRESETS[key].stream)===stStr){matched=key;break}}
+  state.preset=matched||'custom';
+  document.querySelectorAll('.preset-card').forEach(c=>c.classList.toggle('on',c.dataset.preset===state.preset));
+}
+function moveItem(container,orderKey,source,direction){
+  const items=[...container.querySelectorAll('.drag-item')];const idx=items.findIndex(i=>i.dataset.source===source);
+  if(idx<0)return;const newIdx=idx+direction;if(newIdx<0||newIdx>=items.length)return;
+  const item=items[idx];
+  if(direction>0)container.insertBefore(items[newIdx],item);else container.insertBefore(item,items[newIdx]);
+  updateRanks(container);syncState(container,orderKey);
+}
+function toggleItem(container,orderKey,source){
+  const item=container.querySelector('[data-source="'+source+'"]');if(!item)return;
+  const isOn=item.dataset.on==='1';item.dataset.on=isOn?'0':'1';
+  item.classList.toggle('inactive',isOn);item.querySelector('.drag-toggle').classList.toggle('off',isOn);
+  updateRanks(container);syncState(container,orderKey);
+}
+function initDrag(container,orderKey){
+  let dragged=null;
+  container.addEventListener('click',function(e){
+    const toggle=e.target.closest('.drag-toggle');
+    if(toggle){e.stopPropagation();const item=toggle.closest('.drag-item');if(item)toggleItem(container,orderKey,item.dataset.source);return}
+    const btn=e.target.closest('.arrow-btn');
+    if(btn){e.stopPropagation();const item=btn.closest('.drag-item');if(item){const dir=btn.classList.contains('up')?-1:1;moveItem(container,orderKey,item.dataset.source,dir)}}
+  });
+  container.addEventListener('dragstart',function(e){const item=e.target.closest('.drag-item');if(!item)return;dragged=item;e.dataTransfer.effectAllowed='move';try{e.dataTransfer.setData('text/plain',item.dataset.source)}catch(err){}requestAnimationFrame(()=>item.classList.add('dragging'))});
+  container.addEventListener('dragend',function(){if(!dragged)return;dragged.classList.remove('dragging');container.querySelectorAll('.drag-item').forEach(i=>i.classList.remove('drag-over'));syncState(container,orderKey);dragged=null});
+  container.addEventListener('dragover',function(e){e.preventDefault();e.dataTransfer.dropEffect='move';if(!dragged)return;const after=getAfter(container,e.clientY);container.querySelectorAll('.drag-item').forEach(i=>i.classList.remove('drag-over'));if(after&&after!==dragged){after.classList.add('drag-over');const rect=after.getBoundingClientRect();const mid=rect.top+rect.height/2;if(e.clientY<mid)container.insertBefore(dragged,after);else container.insertBefore(dragged,after.nextSibling)}else if(!after)container.appendChild(dragged);updateRanks(container)});
+  container.addEventListener('drop',function(e){e.preventDefault();container.querySelectorAll('.drag-item').forEach(i=>i.classList.remove('drag-over'));syncState(container,orderKey)});
+  let touchDragItem=null,touchClone=null,touchStartY=0,touchStartX=0,isDragging=false;
+  container.addEventListener('touchstart',function(e){const handle=e.target.closest('.drag-handle');if(!handle)return;const item=handle.closest('.drag-item');if(!item)return;touchStartX=e.touches[0].clientX;touchStartY=e.touches[0].clientY;touchDragItem=item;isDragging=false},{passive:true});
+  container.addEventListener('touchmove',function(e){if(!touchDragItem)return;const touch=e.touches[0];const deltaX=Math.abs(touch.clientX-touchStartX);const deltaY=Math.abs(touch.clientY-touchStartY);if(!isDragging&&(deltaX>10||deltaY>10)){isDragging=true;const rect=touchDragItem.getBoundingClientRect();touchClone=touchDragItem.cloneNode(true);touchClone.style.cssText='position:fixed;left:'+rect.left+'px;top:'+rect.top+'px;width:'+rect.width+'px;z-index:9999;opacity:.8;pointer-events:none;box-shadow:0 8px 24px rgba(0,0,0,.4);border:1px solid var(--accent-bdr)';document.body.appendChild(touchClone);touchDragItem.classList.add('dragging')}if(!isDragging)return;e.preventDefault();touchClone.style.top=(touch.clientY-25)+'px';const after=getAfter(container,touch.clientY);container.querySelectorAll('.drag-item').forEach(i=>i.classList.remove('drag-over'));if(after&&after!==touchDragItem){after.classList.add('drag-over');const rect=after.getBoundingClientRect();const mid=rect.top+rect.height/2;if(touch.clientY<mid)container.insertBefore(touchDragItem,after);else container.insertBefore(touchDragItem,after.nextSibling)}updateRanks(container)},{passive:false});
+  container.addEventListener('touchend',function(){if(!touchDragItem)return;if(isDragging){touchDragItem.classList.remove('dragging');container.querySelectorAll('.drag-item').forEach(i=>i.classList.remove('drag-over'));if(touchClone&&touchClone.parentNode)touchClone.parentNode.removeChild(touchClone);syncState(container,orderKey)}touchDragItem=null;touchClone=null;isDragging=false});
+}
+function getAfter(container,y){const els=[...container.querySelectorAll('.drag-item:not(.dragging)')];return els.reduce(function(closest,child){const box=child.getBoundingClientRect();const offset=y-box.top-box.height/2;if(offset<0&&offset>closest.offset)return{offset:offset,element:child};return closest},{offset:Number.NEGATIVE_INFINITY}).element}
+
+renderDragLists();
+initDrag(document.getElementById('searchList'),'searchOrder');
+initDrag(document.getElementById('streamList'),'streamOrder');
+
+function renderSummary(){
+  const grid=document.getElementById('summaryGrid');
+  const types=['Music',state.content.podcast?'Podcasts':null,state.content.audiobook?'Audiobooks':null,state.content.radio?'Radio':null].filter(Boolean).join(' · ');
+  const connected=Object.keys(STATUS_FIELDS).filter(function(s){return STATUS_FIELDS[s].some(function(id){const el=document.getElementById(id);return el&&el.value.trim()})}).map(function(s){if(s==='tidal')return'Tidal';if(s==='sc')return'SoundCloud';return s.charAt(0).toUpperCase()+s.slice(1)}).join(', ')||'None (using defaults)';
+  const presetName=document.querySelector('[data-preset="'+state.preset+'"] .preset-name');
+  const presetText=presetName?presetName.textContent:'Custom';
+  const qLabel='Qobuz: '+(QOBUZ_TIER_SHORT[state.qobuzQuality]||'—')+' · Deezer: '+(DEEZER_TIER_LABELS[state.deezerQuality]||'—')+' · HiFi: '+(HIFI_TIER_LABELS[state.hifiQuality]||'—');
+
+  const searchOn=state.searchOrder.filter(function(e){return e.on});
+  const streamOn=state.streamOrder.filter(function(e){return e.on});
+
+  let sourcesHTML='';
+  streamOn.forEach(function(e){
+    sourcesHTML+='<div class="sum-row"><div class="sum-dot"></div><div class="sum-source-name">'+SOURCES[e.s].name+'</div></div>';
+  });
+  if(streamOn.length===0){
+    sourcesHTML='<div class="sum-row"><div class="sum-source-name off">No streams enabled</div></div>';
+  }
+
+  let searchHTML='';
+  searchOn.forEach(function(e){
+    searchHTML+='<div class="sum-row"><div class="sum-dot"></div><div class="sum-source-name">'+SOURCES[e.s].name+'</div></div>';
+  });
+  if(searchOn.length===0){
+    searchHTML='<div class="sum-row"><div class="sum-source-name off">None</div></div>';
+  }
+
+  grid.innerHTML='<div class="sum-card"><span class="sum-label">Content</span><div class="sum-value">'+types+'</div></div>'+
+    '<div class="sum-card"><span class="sum-label">Preset</span><div class="sum-value accent">'+presetText+'</div></div>'+
+    '<div class="sum-card"><span class="sum-label">Quality</span><div class="sum-value accent">'+qLabel+'</div></div>'+
+    '<div class="sum-card"><span class="sum-label">Accounts</span><div class="sum-value">'+connected+'</div></div>'+
+    '<div class="sum-card"><span class="sum-label">Search Sources ('+searchOn.length+')</span><div style="margin-top:4px">'+searchHTML+'</div></div>'+
+    '<div class="sum-card"><span class="sum-label">Stream Sources ('+streamOn.length+')</span><div style="margin-top:4px">'+sourcesHTML+'</div></div>';
+}
+
+function toast(msg){const t=document.getElementById('toast');document.getElementById('toastMsg').textContent=msg;t.classList.add('show');clearTimeout(window._toastTimer);window._toastTimer=setTimeout(function(){t.classList.remove('show')},2200)}
+async function copyUrl(urlId,btn){const text=document.getElementById(urlId).textContent.trim();if(!text)return;try{await navigator.clipboard.writeText(text);btn.classList.add('copied');btn.textContent='Copied';toast('URL copied to clipboard');setTimeout(function(){btn.classList.remove('copied');btn.textContent='Copy'},2000)}catch(e){toast('Copy failed')}}
+function v(id){return(document.getElementById(id)||{}).value||''}
+
+async function doGenerate(){
+  const btn=document.getElementById('genBtn');
+  let vercel=v('vercelUrl').replace(/\/+$/,'');
+  if(!vercel)vercel=window.location.origin;
+  if(vercel.indexOf('http')!==0)vercel='https://'+vercel;
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span> Generating...';
+  const body={vercelUrl:vercel};
+  if(v('hifiInst'))body.hifi=v('hifiInst');if(v('scId'))body.sc=v('scId');
+  if(v('qobuzUserToken'))body.qobuz_user_token=v('qobuzUserToken');
+  if(v('qobuzSecret'))body.qobuz_secret=v('qobuzSecret');
+  if(v('qobuzAppId'))body.qobuz_app_id=v('qobuzAppId');
+  if(v('deezerArl'))body.deezer_arl=v('deezerArl');
+  if(state.qobuzQuality)body.q_qobuz=state.qobuzQuality;
+  if(state.deezerQuality)body.q_deezer=state.deezerQuality;
+  if(state.hifiQuality)body.q_hifi=state.hifiQuality;
+  if(!state.content.podcast)body.no_podcast=true;
+  if(!state.content.audiobook)body.no_audiobook=true;
+  if(!state.content.radio)body.no_radio=true;
+  body.search_order=state.searchOrder.filter(function(e){return e.on}).map(function(e){return e.s});
+  body.stream_order=state.streamOrder.filter(function(e){return e.on}).map(function(e){return e.s});
+  body.preset=state.preset;
+  try{const r=await fetch('/generate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});if(!r.ok)throw new Error('HTTP '+r.status);const data=await r.json();if(data.error)throw new Error(data.error);renderOutput(data)}
+  catch(e){toast('Error: '+e.message)}
+  finally{btn.disabled=false;btn.textContent='Generate my install URLs'}
+}
+
+function renderOutput(data){
+  const cards=document.getElementById('urlCards');cards.innerHTML='';
+  const items=[{id:'music',label:'Music',url:data.manifestUrl,always:true},{id:'podcast',label:'Podcasts',url:data.podcastManifestUrl,show:state.content.podcast},{id:'audiobook',label:'Audiobooks',url:data.audiobookManifestUrl,show:state.content.audiobook},{id:'radio',label:'Radio',url:data.radioManifestUrl,show:state.content.radio}].filter(function(i){return i.always||i.show});
+  items.forEach(function(i){if(!i.url)return;const card=document.createElement('div');card.className='url-card';card.innerHTML='<div class="url-label">'+i.label+'</div><div class="url-row"><div class="url-box" id="url-'+i.id+'">'+i.url+'</div><button class="copy-btn" onclick="copyUrl(\'url-'+i.id+'\',this)">Copy</button></div>';cards.appendChild(card)});
+  document.getElementById('outputBox').style.display='block';
+  toast('URLs generated successfully');
+  setTimeout(function(){document.getElementById('outputBox').scrollIntoView({behavior:'smooth',block:'start'})},200);
+}
+
+async function doRefresh(){
+  const raw=v('existingUrl');if(!raw){toast('Paste your URL first');return}
+  try{const r=await fetch('/refresh',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({existingUrl:raw})});if(!r.ok)throw new Error('HTTP '+r.status);const data=await r.json();if(data.error)throw new Error(data.error);const box=document.getElementById('refreshOutput');box.style.display='block';box.innerHTML='<div class="url-card"><div class="url-label">Refreshed URL</div><div class="url-row"><div class="url-box" id="url-ref">'+data.manifestUrl+'</div><button class="copy-btn" onclick="copyUrl(\'url-ref\',this)">Copy</button></div></div>';toast('URL refreshed')}
+  catch(e){toast('Error: '+e.message)}
+}
+</script>
+</body>
+</html>
+
