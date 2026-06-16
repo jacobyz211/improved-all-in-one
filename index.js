@@ -200,6 +200,7 @@ function getConfig(c) {
     noPodcast:   !!(cfg.no_podcast   === true || cfg.no_podcast   === 1 || cfg.no_podcast   === "true"),
     noAudiobook: !!(cfg.no_audiobook === true || cfg.no_audiobook === 1 || cfg.no_audiobook === "true"),
     noRadio:     !!(cfg.no_radio     === true || cfg.no_radio     === 1 || cfg.no_radio     === "true"),
+    noExplicit:  !!(cfg.no_explicit  === true || cfg.no_explicit  === 1 || cfg.no_explicit  === "true"),
     noDeezer:    (!!(cfg.no_deezer === true || cfg.no_deezer === 1 || cfg.no_deezer === "true")) || (!c.env?.DEEZER_ARL && !cfg.deezer_arl),
     deezerArl:      cfg.deezer_arl       || c.env?.DEEZER_ARL       || null,
     qobuzUserToken: cfg.qobuz_user_token || c.env?.QOBUZ_USER_TOKEN || null,
@@ -602,6 +603,8 @@ async function qobuzSearch(query) {
 
       // ── Tracks ────────────────────────────────────────────────────────────
       const rawTracks = data.tracks?.items || data.tracks || data.items || [];
+      // Sort explicit (parental_warning) tracks first — prevents clean/censored versions winning
+      rawTracks.sort((a, b) => (!!(b.parental_warning||b.explicit) ? 1 : 0) - (!!(a.parental_warning||a.explicit) ? 1 : 0));
       const tracks = rawTracks.slice(0, 20).map(t => {
         const artistName = t.performer?.name || t.artist?.name || t.artists?.[0]?.name || 'Unknown';
         const cover = t.album?.image?.large || t.album?.cover_url || null;
@@ -613,6 +616,7 @@ async function qobuzSearch(query) {
           duration: t.duration || undefined,
           artworkURL: cover,
           format: 'flac',
+          explicit: !!(t.parental_warning || t.explicit),
           source: 'qobuz',
         };
       });
@@ -634,11 +638,9 @@ async function qobuzSearch(query) {
         id:         `qobuz_artist_${a.id}`,
         name:       a.name || 'Unknown Artist',
         // Qobuz search: artist.image.large  or artist.picture (300x300 jpg path)
-        artworkURL: (() => {
-          const _u = a.image?.large || a.image?.thumbnail || a.image?.small || (a.picture ? `https://static.qobuz.com/images/artists/covers/${a.picture}_600.jpg` : null);
-          if (!_u || !_u.includes('/images/artists/covers/')) return _u;
-          return _u.replace(/(_org|_\d+)(\.jpg)$/i, '_600$2');
-        })(),
+        artworkURL: a.picture && a.picture.length > 5
+          ? `https://static.qobuz.com/images/artists/covers/${a.picture}_600.jpg`
+          : (() => { const _u = a.image?.large || a.image?.small || null; if (!_u) return null; return _u.includes('/images/artists/covers/') ? _u.replace(/(_org|_\d+)(\.jpg)$/i, '_600$2') : _u; })(),
         source:     'qobuz',
       }));
 
@@ -780,6 +782,7 @@ async function hifiSearch(query, instances) {
         artworkURL,
         isrc: hifiIsrc || undefined,
         format: 'flac',
+        explicit: !!(t.explicit || t.contentType === 'EXPLICIT' || (t.audioQuality && t.explicitLyrics)),
         _source: 'hifi',
         _inst: inst,
         _instB64: instB64,
@@ -865,6 +868,8 @@ async function hifiSearch(query, instances) {
       tracks.length = 0;
       scored.forEach(x => tracks.push(x.t));
     }
+    // Prefer explicit versions over clean/radio-edit censored versions
+    tracks.sort((a, b) => (b.explicit ? 1 : 0) - (a.explicit ? 1 : 0));
 
     const result = {
       tracks,
@@ -2222,6 +2227,8 @@ async function deezerSearch(query) {
       axios.get(`${DEEZER_API}/search/playlist`, { params: { q: query, limit: 4  }, headers: { 'User-Agent': UA }, timeout: 8000 }),
     ]);
     const rawTracks    = trackRes.status    === 'fulfilled' ? (trackRes.value.data?.data    || []) : [];
+    // Sort Deezer explicit tracks first to prefer unfiltered versions
+    rawTracks.sort((a, b) => (b.explicit_lyrics || 0) - (a.explicit_lyrics || 0));
     const rawAlbums    = albumRes.status    === 'fulfilled' ? (albumRes.value.data?.data    || []) : [];
     const rawArtists   = artistRes.status   === 'fulfilled' ? (artistRes.value.data?.data   || []) : [];
     const rawPlaylists = playlistRes.status === 'fulfilled' ? (playlistRes.value.data?.data || []) : [];
@@ -3409,6 +3416,11 @@ async function handleSearch(c) {
 
   allArtists = _dedupeArtists(allArtists);
   allAlbums  = _dedupeAlbums(allAlbums);
+
+  // noExplicit filter: remove explicit tracks when enabled (default: OFF = explicit allowed)
+  if (cfg.noExplicit) {
+    allTracks = allTracks.filter(t => !t.explicit);
+  }
 
   const result = {
     tracks:    allTracks.slice(0, 60),
@@ -5347,17 +5359,20 @@ async function handleArtist(c) {
         const arData = arRes.data || {};
         if (!arData?.id && !arData?.name) continue;
         const artistName = arData.name || '';
-        // Mirror reference repo: large → thumbnail → small → picture → images[0]
-        // Then normalize Qobuz artist CDN URLs to _600.jpg (guaranteed square crop)
-        // image.large can be _org.jpg (landscape promo) on some Qobuz instances
-        let cover = arData.image?.large || arData.image?.thumbnail || arData.image?.small || arData.picture || null;
-        if (!cover && arData.images && arData.images.length) cover = arData.images[0];
-        if (cover && typeof cover === 'string' && cover.includes('/images/artists/covers/')) {
-          // Replace any size suffix (_org, _600, _230, etc.) with _600 for a consistent square crop
-          cover = cover.replace(/(_org|_\d+)(\.jpg)$/i, '_600$2');
-          // If URL has no size suffix at all, append _600 before .jpg
-          if (!/_\d+\.jpg$/i.test(cover) && !/_org\.jpg$/i.test(cover)) {
-            cover = cover.replace(/\.jpg$/i, '_600.jpg');
+        // Use picture hash to build canonical Qobuz square CDN URL (_600.jpg)
+        // This bypasses image.large which can be a landscape promo photo on some proxies
+        let cover = null;
+        if (arData.picture && typeof arData.picture === 'string' && arData.picture.length > 5) {
+          // picture is a hash like "ab12cd34ef..." - build canonical square URL
+          cover = `https://static.qobuz.com/images/artists/covers/${arData.picture}_600.jpg`;
+        } else {
+          // Fallback: try image fields, normalize any CDN URL to _600.jpg square
+          const _raw = arData.image?.large || arData.image?.thumbnail || arData.image?.small || null;
+          if (_raw && _raw.includes('/images/artists/covers/')) {
+            cover = _raw.replace(/(_org|_\d+)(\.jpg)$/i, '_600$2');
+            if (!/_\d+\.jpg$/i.test(cover)) cover = cover.replace(/\.jpg$/i, '_600.jpg');
+          } else {
+            cover = _raw || (arData.images && arData.images[0]) || null;
           }
         }
 
@@ -6077,6 +6092,7 @@ function buildConfigPage(baseUrl, env) {
   w('<div class="content-check"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>');
   w('<div class="content-meta"><div class="content-name">Radio</div><div class="content-desc">Radio Browser &middot; Live streams worldwide</div></div>');
   w('</div>');
+  w('<div class="content-card" data-type="explicit" onclick="toggleContent(this,\'explicit\')"><div class="content-check"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div><div class="content-meta"><div class="content-name">🔞 Explicit Tracks</div><div class="content-desc">Allow unfiltered tracks &middot; default ON</div></div></div>');
   w('</div>');
   w('<div class="nav-row"><div></div><button class="btn btn-primary" onclick="goToStep(2)">Next <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></button></div>');
   w('</div>');
@@ -6258,7 +6274,7 @@ function buildConfigPage(baseUrl, env) {
   w('  bigger:{search:[{s:"deezer",on:true},{s:"sc",on:true},{s:"qobuz",on:false},{s:"hifi",on:false},{s:"ia",on:false}],stream:[{s:"qobuz",on:true},{s:"hifi",on:true},{s:"deezer",on:true},{s:"sc",on:true},{s:"ia",on:true}]},');
   w('  custom:{search:[{s:"qobuz",on:false},{s:"hifi",on:false},{s:"deezer",on:false},{s:"sc",on:false},{s:"ia",on:false}],stream:[{s:"qobuz",on:false},{s:"hifi",on:false},{s:"deezer",on:false},{s:"sc",on:false},{s:"ia",on:false}]}');
   w('};');
-  w('var state={step:1,content:{podcast:false,audiobook:false,radio:false},qualityMode:"general",qobuzQuality:"HIRES_96",preset:"full",searchOrder:JSON.parse(JSON.stringify(PRESETS.full.search)),streamOrder:JSON.parse(JSON.stringify(PRESETS.full.stream)),started:false};');
+  w('var state={step:1,content:{podcast:false,audiobook:false,radio:false,explicit:true},qualityMode:"general",qobuzQuality:"HIRES_96",preset:"full",searchOrder:JSON.parse(JSON.stringify(PRESETS.full.search)),streamOrder:JSON.parse(JSON.stringify(PRESETS.full.stream)),started:false};');
   w('var isrcToggles={musicbrainz:true,theaudiodb:true,deezer_isrc:true,qobuz_isrc:true};');
 
   w('function startSetup(){state.started=true;document.getElementById("heroSection").style.display="none";document.getElementById("stepsBar").style.display="flex";goToStep(1)}');
@@ -6294,7 +6310,7 @@ function buildConfigPage(baseUrl, env) {
 
   w('function renderSummary(){var grid=document.getElementById("summaryGrid");if(!grid)return;var contentList=Object.keys(state.content).filter(function(k){return state.content[k]}).map(function(k){return k[0].toUpperCase()+k.slice(1)});if(!contentList.length)contentList=["Music only"];var html="";html+=\'<div class="sum-card"><span class="sum-label">Content</span><div class="sum-value">\'+contentList.join(" &middot; ")+\'</div></div>\';html+=\'<div class="sum-card"><span class="sum-label">Search sources</span>\';state.searchOrder.forEach(function(x){html+=\'<div class="sum-row"><div class="sum-dot\'+(x.on?"":" off")+\'"></div><div class="sum-source-name\'+(x.on?"":" off")+\'">\'+SOURCES[x.s].name+\'</div></div>\'});html+=\'</div>\';html+=\'<div class="sum-card"><span class="sum-label">Stream sources</span>\';state.streamOrder.forEach(function(x){html+=\'<div class="sum-row"><div class="sum-dot\'+(x.on?"":" off")+\'"></div><div class="sum-source-name\'+(x.on?"":" off")+\'">\'+SOURCES[x.s].name+\'</div></div>\'});html+=\'</div>\';html+=\'<div class="sum-card"><span class="sum-label">Qobuz quality</span><div class="sum-value accent">\'+QOBUZ_TIER_LABELS[state.qobuzQuality]+\'</div></div>\';grid.innerHTML=html}');
 
-  w('function generateUrls(){var btn=document.getElementById("genBtn");btn.disabled=true;btn.textContent="Generating\u2026";showStatus("genStatus","","");var body={vercelUrl:BASE_URL||window.location.origin,hifi:(document.getElementById("hifiInst")||{}).value||"",sc:(document.getElementById("scId")||{}).value||"",sc_oauth:(document.getElementById("scOauth")||{}).value||"",pi_key:(document.getElementById("piKey")||{}).value||"",pi_secret:(document.getElementById("piSecret")||{}).value||"",taddy_key:(document.getElementById("taddyKey")||{}).value||"",taddy_uid:(document.getElementById("taddyUid")||{}).value||"",qobuz_token:(document.getElementById("qobuzUserToken")||{}).value||"",qobuz_secret:(document.getElementById("qobuzSecret")||{}).value||"",qobuz_app_id:(document.getElementById("qobuzAppId")||{}).value||"",deezer_arl:(document.getElementById("deezerArl")||{}).value||"",q:state.qobuzQuality==="AUTO"?null:state.qobuzQuality,no_podcast:!state.content.podcast,no_audiobook:!state.content.audiobook,no_radio:!state.content.radio,no_musicbrainz:!isrcToggles.musicbrainz,no_theaudiodb:!isrcToggles.theaudiodb,no_deezer_isrc:!isrcToggles.deezer_isrc,no_qobuz_isrc:!isrcToggles.qobuz_isrc,search_order:state.searchOrder.filter(function(x){return x.on}).map(function(x){return x.s}),stream_order:state.streamOrder.filter(function(x){return x.on}).map(function(x){return x.s}),blocked_isrcs:(document.getElementById("blockedIsrcs")||{}).value?((document.getElementById("blockedIsrcs")||{}).value.split("\\n").map(function(s){return s.trim()}).filter(Boolean)):[]};fetch("/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json()}).then(function(data){if(data.error)throw new Error(data.error);var outbox=document.getElementById("outbox");outbox.innerHTML="";outbox.style.display="block";var urls=data.urls||[];if(!urls.length){if(data.manifestUrl)urls.push({label:"🎵 Music",url:data.manifestUrl});if(data.podcastManifestUrl&&!body.no_podcast)urls.push({label:"🎤 Podcasts — install separately for podcast player (±15s skip, speed control)",url:data.podcastManifestUrl});if(data.audiobookManifestUrl&&!body.no_audiobook)urls.push({label:"📚 Audiobooks — install separately for audiobook player (±30s skip, speed control)",url:data.audiobookManifestUrl});if(data.radioManifestUrl&&!body.no_radio)urls.push({label:"📻 Live Radio — install separately for radio-only addon (Radio Browser + SomaFM)",url:data.radioManifestUrl});}urls.forEach(function(u){var label=u.label||u.type||"Addon";var url=u.url||u.manifestUrl||"";var div=document.createElement("div");div.className="url-card";div.innerHTML=\'<div class="url-label">\'+label+\'</div><div class="url-row"><div class="url-box">\'+url+\'</div><button class="copy-btn" onclick="copyText(this.previousElementSibling.textContent,this)">Copy</button></div>\';outbox.appendChild(div)});showStatus("genStatus","Done! Copy your install URLs above.","ok")}).catch(function(e){showStatus("genStatus","Error: "+e.message,"err")}).finally(function(){btn.disabled=false;btn.innerHTML=\'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> Generate My Addon URLs\'})}');
+  w('function generateUrls(){var btn=document.getElementById("genBtn");btn.disabled=true;btn.textContent="Generating\u2026";showStatus("genStatus","","");var body={vercelUrl:BASE_URL||window.location.origin,hifi:(document.getElementById("hifiInst")||{}).value||"",sc:(document.getElementById("scId")||{}).value||"",sc_oauth:(document.getElementById("scOauth")||{}).value||"",pi_key:(document.getElementById("piKey")||{}).value||"",pi_secret:(document.getElementById("piSecret")||{}).value||"",taddy_key:(document.getElementById("taddyKey")||{}).value||"",taddy_uid:(document.getElementById("taddyUid")||{}).value||"",qobuz_token:(document.getElementById("qobuzUserToken")||{}).value||"",qobuz_secret:(document.getElementById("qobuzSecret")||{}).value||"",qobuz_app_id:(document.getElementById("qobuzAppId")||{}).value||"",deezer_arl:(document.getElementById("deezerArl")||{}).value||"",q:state.qobuzQuality==="AUTO"?null:state.qobuzQuality,no_podcast:!state.content.podcast,no_audiobook:!state.content.audiobook,no_radio:!state.content.radio,no_explicit:!state.content.explicit,no_musicbrainz:!isrcToggles.musicbrainz,no_theaudiodb:!isrcToggles.theaudiodb,no_deezer_isrc:!isrcToggles.deezer_isrc,no_qobuz_isrc:!isrcToggles.qobuz_isrc,search_order:state.searchOrder.filter(function(x){return x.on}).map(function(x){return x.s}),stream_order:state.streamOrder.filter(function(x){return x.on}).map(function(x){return x.s}),blocked_isrcs:(document.getElementById("blockedIsrcs")||{}).value?((document.getElementById("blockedIsrcs")||{}).value.split("\\n").map(function(s){return s.trim()}).filter(Boolean)):[]};fetch("/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json()}).then(function(data){if(data.error)throw new Error(data.error);var outbox=document.getElementById("outbox");outbox.innerHTML="";outbox.style.display="block";var urls=data.urls||[];if(!urls.length){if(data.manifestUrl)urls.push({label:"🎵 Music",url:data.manifestUrl});if(data.podcastManifestUrl&&!body.no_podcast)urls.push({label:"🎤 Podcasts — install separately for podcast player (±15s skip, speed control)",url:data.podcastManifestUrl});if(data.audiobookManifestUrl&&!body.no_audiobook)urls.push({label:"📚 Audiobooks — install separately for audiobook player (±30s skip, speed control)",url:data.audiobookManifestUrl});if(data.radioManifestUrl&&!body.no_radio)urls.push({label:"📻 Live Radio — install separately for radio-only addon (Radio Browser + SomaFM)",url:data.radioManifestUrl});}urls.forEach(function(u){var label=u.label||u.type||"Addon";var url=u.url||u.manifestUrl||"";var div=document.createElement("div");div.className="url-card";div.innerHTML=\'<div class="url-label">\'+label+\'</div><div class="url-row"><div class="url-box">\'+url+\'</div><button class="copy-btn" onclick="copyText(this.previousElementSibling.textContent,this)">Copy</button></div>\';outbox.appendChild(div)});showStatus("genStatus","Done! Copy your install URLs above.","ok")}).catch(function(e){showStatus("genStatus","Error: "+e.message,"err")}).finally(function(){btn.disabled=false;btn.innerHTML=\'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> Generate My Addon URLs\'})}');
 
   w('function doRefresh(){var raw=(document.getElementById("existingUrl")||{}).value;if(!raw){showStatus("refStatus","Paste your existing URL first.","err");return}fetch("/refresh",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({existingUrl:raw})}).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json()}).then(function(data){if(data.error)throw new Error(data.error);document.getElementById("urlRef").textContent=data.manifestUrl;document.getElementById("refBox").style.display="block";showStatus("refStatus","Refreshed!","ok")}).catch(function(e){showStatus("refStatus","Error: "+e.message,"err")})}');
 
@@ -6305,6 +6321,7 @@ function buildConfigPage(baseUrl, env) {
   w('function checkHifiHealth(){var list=document.getElementById("hifiInstList");if(!list)return;list.innerHTML=\'<div style="color:var(--muted);font-size:.72rem;padding:6px 0">Checking instances\u2026</div>\';fetch("/instances").then(function(r){return r.json()}).then(function(data){list.innerHTML="";if(!data.instances||!data.instances.length){list.innerHTML=\'<div style="color:var(--faint);font-size:.72rem;padding:6px 0">No instances configured.</div>\';return}data.instances.forEach(function(inst){var row=document.createElement("div");row.className="inst-row";var dot=document.createElement("span");dot.style.cssText="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:"+(inst.online?"#6ee7b7":"#f87171");var urlSp=document.createElement("span");urlSp.style.cssText="flex:1;color:var(--text);word-break:break-all";urlSp.textContent=inst.url||"";var badge=document.createElement("span");badge.style.cssText="font-size:.62rem;font-weight:700;padding:2px 7px;border-radius:99px;background:"+(inst.online?"var(--accent-dim)":"rgba(248,113,113,.1)")+";border:1px solid "+(inst.online?"var(--accent-bdr)":"rgba(248,113,113,.25)")+";color:"+(inst.online?"var(--accent)":"var(--err)");badge.textContent=inst.online?"Online":"Offline";row.appendChild(dot);row.appendChild(urlSp);row.appendChild(badge);list.appendChild(row)})}).catch(function(){list.innerHTML=\'<div style="color:var(--err);font-size:.72rem;padding:6px 0">Failed to check instances.</div>\'})}');
   w('document.querySelector("[data-svc=\'tidal\'] .svc-head").addEventListener("click",function(){setTimeout(checkHifiHealth,300)});');
 
+  w('(function(){var ec=document.querySelector("[data-type=\'explicit\']");if(ec)ec.classList.add("on");})();');
   w('</script>');
   w('</body>');
   w('</html>');
