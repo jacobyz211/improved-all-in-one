@@ -5763,505 +5763,612 @@ function buildConfigPage(baseUrl, env) {
   w('<html lang="en">');
   w('<head>');
   w('<meta charset="UTF-8">');
-  w('<meta name="viewport" content="width=device-width,initial-scale=1">');
-  w('<title>Eclipse Universal Addon</title>');
+  w('<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=5">');
+  w('<title>All In Eclipse — Setup</title>');
   w('<link rel="preconnect" href="https://fonts.googleapis.com">');
   w('<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>');
-  w('<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">');
+  w('<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">');
   w('<style>');
   w('*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}');
-  w(':root{');
-  w('--bg:#0a0a0b;--surf:#111113;--surf2:#18181b;--surf3:#1f1f23;');
-  w('--bdr:rgba(255,255,255,.07);--bdrh:rgba(255,255,255,.14);');
-  w('--txt:#e8e8f0;--muted:#8b8b9e;--faint:#3f3f52;');
-  w('--accent:#6ee7b7;--accent-dim:rgba(110,231,183,.10);--accent-bdr:rgba(110,231,183,.28);');
-  w('--ok:#6ee7b7;--err:#f87171;--warn:#fbbf24;');
-  w('--r:8px;--rsm:5px;--rlg:12px;');
-  w('--tr:150ms cubic-bezier(0.16,1,0.3,1);');
-  w('}');
-  w('html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;scroll-behavior:smooth}');
-  w('body{font-family:"Inter",system-ui,sans-serif;background:var(--bg);color:var(--txt);min-height:100dvh;line-height:1.55;font-size:14px}');
-  w('.page{max-width:600px;margin:0 auto;padding:44px 20px 80px}');
-  w('.hdr{display:flex;align-items:center;gap:14px;margin-bottom:36px;padding-bottom:24px;border-bottom:1px solid var(--bdr)}');
-  w('.hdr-logo{width:40px;height:40px;border-radius:10px;background:var(--accent-dim);border:1px solid var(--accent-bdr);display:flex;align-items:center;justify-content:center;flex-shrink:0}');
-  w('.hdr-logo svg{color:var(--accent)}');
-  w('.hdr-title{font-size:1rem;font-weight:700;letter-spacing:-.02em;color:#fff}');
-  w('.hdr-sub{font-size:.72rem;color:var(--muted);margin-top:2px}');
-  w('.hdr-badge{margin-left:auto;font-size:.6rem;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--accent);background:var(--accent-dim);border:1px solid var(--accent-bdr);padding:3px 9px;border-radius:99px;flex-shrink:0}');
-  w('.sec-head{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--faint);margin:28px 0 8px;padding-left:2px;display:flex;align-items:center;gap:8px}');
-  w('.sec-opt{font-weight:400;text-transform:none;letter-spacing:0;color:var(--faint);font-size:.6rem}');
-  w('.card{background:var(--surf);border:1px solid var(--bdr);border-radius:var(--rlg);padding:18px 20px;margin-bottom:8px}');
-  w('.card-title{font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:14px;display:flex;align-items:center;gap:8px}');
-  w('.ctag{font-size:.58rem;font-weight:500;text-transform:none;letter-spacing:0;color:var(--faint);background:var(--surf3);padding:2px 8px;border-radius:99px;border:1px solid var(--bdr)}');
-  w('label.lbl{display:block;font-size:.63rem;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:5px;margin-top:14px}');
-  w('label.lbl:first-child{margin-top:0}');
-  w('input[type=text],input[type=password]{width:100%;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);color:var(--txt);padding:9px 11px;font-size:.875rem;font-family:"Inter",system-ui,sans-serif;transition:border-color var(--tr),box-shadow var(--tr);outline:none}');
-  w('input:focus{border-color:var(--accent-bdr);box-shadow:0 0 0 3px var(--accent-dim)}');
-  w('input::placeholder{color:var(--faint)}');
-  w('.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}');
-  w('@media(max-width:480px){.row2{grid-template-columns:1fr}}');
-  w('.hint{font-size:.7rem;color:var(--muted);line-height:1.65;margin-top:6px}');
-  w('.hint a,.tip a{color:var(--accent);text-decoration:none}.hint a:hover,.tip a:hover{text-decoration:underline}');
-  w('.tip{background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);padding:10px 13px;font-size:.74rem;color:var(--muted);line-height:1.65;margin-bottom:12px}');
-  w('.tip b{color:var(--txt)}');
-  w('.tip.warn{border-color:rgba(251,191,36,.18);background:rgba(251,191,36,.05);color:#a37a10}.tip.ok{border-color:rgba(251,191,36,.28);background:rgba(251,191,36,.08);color:var(--warn)}');
-  w('.tip.warn b{color:var(--warn)}');
-  w('code.inline{font-family:"JetBrains Mono","SF Mono",ui-monospace,monospace;font-size:.72rem;color:var(--accent);background:var(--surf3);padding:1px 5px;border-radius:3px}');
-  w('.qrow{display:flex;gap:7px;flex-wrap:wrap}');
-  w('.qbtn{background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);padding:9px 14px;cursor:pointer;color:var(--muted);font-size:.75rem;font-weight:600;transition:all var(--tr);display:flex;flex-direction:column;align-items:center;gap:3px;min-width:80px;user-select:none}');
-  w('.qbtn:hover{border-color:var(--bdrh);color:var(--txt)}');
-  w('.qbtn.on{background:var(--accent-dim);border-color:var(--accent-bdr);color:var(--accent)}');
-  w('.qbtn .qs{font-size:.6rem;opacity:.55;margin-top:1px;font-weight:400}');
-  w('.src-note{font-size:.7rem;color:var(--faint);margin-top:10px;line-height:1.8;border-top:1px solid var(--bdr);padding-top:10px}');
-  w('.src-note b{color:var(--muted)}');
-  w('.stitle{font-size:.63rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:7px;margin-top:16px}');
-  w('.stitle:first-child{margin-top:0}');
-  w('.srow{display:flex;flex-wrap:wrap;gap:7px}');
-  w('.sbtn{display:flex;flex-direction:column;align-items:center;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--r);padding:9px 12px;cursor:pointer;color:var(--muted);transition:all var(--tr);min-width:88px;position:relative;user-select:none}');
-  w('.sbtn:hover{background:var(--surf3);color:var(--txt);border-color:var(--bdrh)}');
-  w('.sbtn.on{background:var(--accent-dim);border-color:var(--accent-bdr);color:var(--accent)}');
-  w('.sbtn .sn{font-size:.75rem;font-weight:700;line-height:1.3}');
-  w('.sbtn .st{font-size:.6rem;opacity:.5;margin-top:2px}');
-  w('.sbadge{position:absolute;top:-8px;left:50%;transform:translateX(-50%);background:var(--accent);color:#000;font-size:.55rem;font-weight:800;padding:1px 6px;border-radius:99px;white-space:nowrap}');
-  w('.isrc-toggle-row{display:flex;flex-direction:column;gap:8px}');
-  w('.isrc-toggle-item{display:flex;align-items:flex-start;gap:12px;padding:10px 12px;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);transition:border-color var(--tr),background var(--tr)}');
-  w('.isrc-toggle-item.off{opacity:.65}');
-  w('.isrc-toggle-item .itlabel{flex:1;min-width:0}');
-  w('.isrc-toggle-item .itname{font-size:.8rem;font-weight:600;color:var(--txt);margin-bottom:2px}');
-  w('.isrc-toggle-item .itdesc{font-size:.7rem;color:var(--muted);line-height:1.4}');
-  w('.isrc-toggle-item .itwarn{font-size:.7rem;color:var(--warn,#c87941);margin-top:3px;display:none}');
-  w('.isrc-toggle-item.off .itwarn{display:none}');
-  w('.isrc-toggle-btn{flex-shrink:0;width:36px;height:20px;border-radius:99px;border:1px solid var(--bdr);background:var(--surf3);cursor:pointer;position:relative;transition:background var(--tr),border-color var(--tr);margin-top:1px}');
-  w('.isrc-toggle-btn::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--muted);transition:transform var(--tr),background var(--tr)}');
-  w('.isrc-toggle-btn.on{background:var(--accent-dim);border-color:var(--accent-bdr)}');
-  w('.isrc-toggle-btn.on::after{transform:translateX(16px);background:var(--accent)}');
-  w('.shint{font-size:.68rem;color:var(--faint);margin-top:8px;line-height:1.65}');
-  w('.ct-row{display:flex;flex-wrap:wrap;gap:8px}');
-  w('.ct-btn{display:flex;align-items:center;gap:9px;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--r);padding:10px 14px;cursor:pointer;transition:all var(--tr);user-select:none;min-width:128px}');
-  w('.ct-btn:hover{border-color:var(--bdrh);background:var(--surf3)}');
-  w('.ct-btn.on{background:var(--accent-dim);border-color:var(--accent-bdr)}');
-  w('.ct-dot{width:7px;height:7px;border-radius:50%;background:var(--faint);transition:all var(--tr);flex-shrink:0}');
-  w('.ct-btn.on .ct-dot{background:var(--accent);box-shadow:0 0 6px rgba(110,231,183,.45)}');
-  w('.ct-lbl{font-size:.78rem;font-weight:600;color:var(--muted);transition:color var(--tr)}');
-  w('.ct-btn.on .ct-lbl{color:var(--accent)}');
-  w('.ct-sub{font-size:.62rem;color:var(--faint);margin-top:1px}');
-  w('.ct-info{display:flex;flex-direction:column}');
-  w('.brow{display:flex;gap:10px;flex-wrap:wrap}');
-  w('.btn{padding:10px 22px;border-radius:var(--rsm);font-size:.875rem;font-weight:600;font-family:"Inter",system-ui,sans-serif;cursor:pointer;transition:all var(--tr);border:none;outline:none}');
-  w('.bprimary{background:var(--accent);color:#000;box-shadow:0 2px 14px rgba(110,231,183,.22)}');
-  w('.bprimary:hover{background:#86efac;box-shadow:0 4px 22px rgba(110,231,183,.32);transform:translateY(-1px)}');
-  w('.bprimary:active{transform:none;box-shadow:none}');
-  w('.bprimary:disabled{background:var(--surf3);color:var(--faint);box-shadow:none;cursor:not-allowed;transform:none}');
-  w('.bsec{background:var(--surf2);border:1px solid var(--bdr);color:var(--muted)}');
-  w('.bsec:hover{border-color:var(--bdrh);color:var(--txt)}');
-  w('.status{padding:10px 14px;border-radius:var(--rsm);font-size:.78rem;margin-top:10px;display:none;line-height:1.5}');
-  w('.s-ok{background:rgba(110,231,183,.07);border:1px solid rgba(110,231,183,.18);color:var(--ok)}');
-  w('.s-err{background:rgba(248,113,113,.07);border:1px solid rgba(248,113,113,.18);color:var(--err)}');
-  w('.outbox{display:none;margin-top:16px}');
-  w('.out-item{margin-bottom:12px}.out-item:last-child{margin-bottom:0}');
-  w('.olbl{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:5px}');
-  w('.orow{display:flex;gap:8px;align-items:stretch}');
-  w('.ourl{flex:1;background:var(--surf2);border:1px solid var(--bdr);border-radius:var(--rsm);padding:9px 12px;font-size:.68rem;font-family:"JetBrains Mono","SF Mono",ui-monospace,monospace;color:#86efac;word-break:break-all;line-height:1.55;min-height:38px;display:flex;align-items:center}');
-  w('.cbtn{background:var(--surf2);border:1px solid var(--bdr);color:var(--muted);padding:8px 14px;border-radius:var(--rsm);cursor:pointer;font-size:.74rem;font-family:"Inter",system-ui,sans-serif;white-space:nowrap;transition:all var(--tr);flex-shrink:0}');
-  w('.cbtn:hover{border-color:var(--accent-bdr);color:var(--accent)}');
-  w('.cbtn.cp{border-color:rgba(110,231,183,.38);color:var(--ok);background:rgba(110,231,183,.07)}');
-  w('.steps{display:flex;flex-direction:column;gap:10px}');
-  w('.step{display:flex;gap:12px;align-items:flex-start}');
-  w('.stepn{width:22px;height:22px;border-radius:50%;background:var(--accent-dim);border:1px solid var(--accent-bdr);color:var(--accent);font-size:.7rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:2px}');
-  w('.stept{font-size:.78rem;color:var(--muted);line-height:1.6}');
-  w('.stept b{color:var(--txt)}');
-  w('footer{margin-top:36px;text-align:center;font-size:.65rem;color:var(--faint);line-height:1.9}');
+  w(':root{--gb:rgba(255,255,255,.04);--gbh:rgba(255,255,255,.07);--gba:rgba(255,255,255,.09);--gbdr:rgba(255,255,255,.09);--gbdrh:rgba(255,255,255,.16);--blur:blur(24px);--tx:#f0f0f5;--mt:#9a9ab0;--ft:#5a5a70;--ac:#6ee7b7;--acd:rgba(110,231,183,.12);--acb:rgba(110,231,183,.3);--wn:#fbbf24;--er:#f87171;--rsm:8px;--r:12px;--rl:16px;--rxl:22px;--tr:200ms cubic-bezier(.16,1,.3,1)}');
+  w('html{-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;-webkit-tap-highlight-color:transparent;scroll-behavior:smooth}');
+  w('body{font-family:"Inter",system-ui,sans-serif;background:#0a0a0c;color:var(--tx);min-height:100dvh;line-height:1.5;font-size:14px;overflow-x:hidden}');
+  w('body::before{content:"";position:fixed;inset:0;background:radial-gradient(ellipse 900px 500px at 15% 0%,rgba(110,231,183,.08),transparent 60%),radial-gradient(ellipse 700px 500px at 85% 15%,rgba(96,165,250,.06),transparent 60%),radial-gradient(ellipse 800px 600px at 50% 100%,rgba(192,132,252,.05),transparent 60%);pointer-events:none;z-index:0}');
+  w('.app{position:relative;z-index:1;max-width:720px;margin:0 auto;padding:20px 16px 120px}');
+  w('@media(max-width:640px){.app{padding:12px 12px 100px}}');
+
+  // Glass util
+  w('.gl{background:var(--gb);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);border:1px solid var(--gbdr);border-radius:var(--rl);position:relative;overflow:hidden}');
+  w('.gl::before{content:"";position:absolute;inset:0;background:linear-gradient(135deg,rgba(255,255,255,.03) 0%,transparent 50%,rgba(255,255,255,.01) 100%);pointer-events:none;z-index:0}');
+
+  // Hero
+  w('.hero{min-height:calc(100dvh - 100px);display:flex;flex-direction:column;margin-bottom:14px;border-radius:var(--rxl)}');
+  w('@media(max-width:640px){.hero{min-height:calc(100dvh - 80px);border-radius:var(--rl)}}');
+  w('.hero-bg{position:absolute;inset:0;background:radial-gradient(ellipse 800px 500px at 50% 0%,rgba(110,231,183,.15),transparent 70%),radial-gradient(ellipse 600px 400px at 20% 80%,rgba(96,165,250,.1),transparent 70%),radial-gradient(ellipse 500px 300px at 80% 60%,rgba(192,132,252,.08),transparent 70%);pointer-events:none}');
+  w('.hero-bg::after{content:"";position:absolute;inset:0;background:linear-gradient(180deg,rgba(255,255,255,.04) 0%,rgba(255,255,255,.01) 50%,transparent 100%)}');
+  w('.hero-inner{position:relative;z-index:1;flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:80px 40px 60px;text-align:center}');
+  w('@media(max-width:640px){.hero-inner{padding:60px 24px 50px}}');
+  w('.hero-badge{display:inline-flex;align-items:center;gap:8px;padding:8px 16px;background:var(--acd);border:1px solid var(--acb);border-radius:99px;font-size:.72rem;font-weight:600;color:var(--ac);margin-bottom:28px;letter-spacing:.02em;animation:fid .6s ease}');
+  w('.hero-dot{width:6px;height:6px;border-radius:50%;background:var(--ac);box-shadow:0 0 8px var(--ac);animation:pulse 2s ease-in-out infinite}');
+  w('@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}');
+  w('@keyframes fid{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:translateY(0)}}');
+  w('@keyframes fiu{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}');
+  w('.hero h1{font-size:clamp(2.8rem,8vw,5rem);font-weight:900;letter-spacing:-.05em;margin-bottom:20px;background:linear-gradient(180deg,#fff 0%,#e0e0ea 40%,#a0a0b0 100%);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;line-height:1;animation:fiu .8s ease .05s both}');
+  w('.hero-sub{font-size:clamp(1.1rem,3vw,1.5rem);font-weight:600;color:var(--tx);margin-bottom:18px;letter-spacing:-.02em;animation:fiu .8s ease .1s both}');
+  w('.hero p{font-size:clamp(.9rem,2vw,1.1rem);color:var(--mt);max-width:500px;margin:0 auto 38px;line-height:1.65;animation:fiu .8s ease .18s both}');
+  w('.hero-cta{display:flex;gap:12px;justify-content:center;flex-wrap:wrap;max-width:460px;width:100%;animation:fiu .8s ease .26s both}');
+  w('.hero-cta .btn{flex:1;min-width:170px}');
+  w('@media(max-width:480px){.hero-cta{flex-direction:column}.hero-cta .btn{min-width:auto}}');
+  w('.hero-foot{position:relative;z-index:1;padding:14px 20px;border-top:1px solid var(--gbdr);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px}');
+  w('.hero-foot-l{font-size:.68rem;color:var(--ft)}');
+  w('.hero-foot-r{font-family:"JetBrains Mono",monospace;font-size:.65rem;color:var(--ac)}');
+
+  // Buttons
+  w('.btn{padding:13px 22px;border-radius:var(--r);font-size:.88rem;font-weight:600;font-family:inherit;cursor:pointer;transition:all var(--tr);border:none;outline:none;display:inline-flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap;min-height:46px;-webkit-tap-highlight-color:transparent;position:relative;overflow:hidden}');
+  w('.btn-primary{background:linear-gradient(135deg,var(--ac),#86efac);color:#000;box-shadow:0 4px 20px rgba(110,231,183,.25),inset 0 1px 0 rgba(255,255,255,.3)}');
+  w('.btn-primary:hover{box-shadow:0 6px 28px rgba(110,231,183,.4),inset 0 1px 0 rgba(255,255,255,.3);transform:translateY(-1px)}');
+  w('.btn-primary:active{transform:none;box-shadow:0 2px 10px rgba(110,231,183,.2)}');
+  w('.btn-primary:disabled{background:var(--gba);color:var(--ft);box-shadow:none;cursor:not-allowed;transform:none}');
+  w('.btn-ghost{background:var(--gb);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur);color:var(--mt);border:1px solid var(--gbdr)}');
+  w('.btn-ghost:hover{border-color:var(--gbdrh);color:var(--tx);background:var(--gbh)}');
+  w('.btn-ghost:active{transform:scale(.98)}');
+
+  // Steps
+  w('.steps{display:none;align-items:center;gap:4px;padding:10px;margin-bottom:10px}');
+  w('.si{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;position:relative;cursor:pointer;padding:4px 0;transition:opacity var(--tr)}');
+  w('.si:hover{opacity:.85}');
+  w('.si:not(:last-child)::after{content:"";position:absolute;top:12px;left:calc(50% + 14px);right:calc(-50% + 14px);height:2px;background:var(--gbdr);transition:background var(--tr)}');
+  w('.si.done:not(:last-child)::after{background:var(--ac)}');
+  w('.sinum{width:24px;height:24px;border-radius:50%;background:var(--gba);border:1.5px solid var(--gbdr);display:flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:700;color:var(--ft);transition:all var(--tr)}');
+  w('.si.active .sinum{background:var(--acd);border-color:var(--acb);color:var(--ac);box-shadow:0 0 0 3px rgba(110,231,183,.08)}');
+  w('.si.done .sinum{background:var(--ac);border-color:var(--ac);color:#000}');
+  w('.silbl{font-size:.58rem;font-weight:600;color:var(--ft);text-transform:uppercase;letter-spacing:.05em;transition:color var(--tr)}');
+  w('.si.active .silbl{color:var(--tx)}.si.done .silbl{color:var(--mt)}');
+
+  // Panels
+  w('.pnl{padding:18px;margin-bottom:10px;display:none;animation:fiu .3s ease}');
+  w('.pnl.active{display:block}');
+  w('.ph{display:flex;align-items:flex-start;gap:10px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--gbdr)}');
+  w('.pt{font-size:.95rem;font-weight:700;letter-spacing:-.01em}');
+  w('.pd{font-size:.74rem;color:var(--mt);margin-top:3px;line-height:1.45}');
+
+  // Fields
+  w('.fld{margin-bottom:10px}');
+  w('.flbl{display:block;font-size:.63rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--mt);margin-bottom:6px}');
+  w('.finp{width:100%;background:rgba(0,0,0,.25);border:1px solid var(--gbdr);border-radius:var(--rsm);color:var(--tx);padding:11px 13px;font-size:.875rem;font-family:inherit;transition:border-color var(--tr),box-shadow var(--tr);outline:none;-webkit-appearance:none}');
+  w('.finp:focus{border-color:var(--acb);box-shadow:0 0 0 3px var(--acd)}');
+  w('.finp::placeholder{color:var(--ft)}');
+  w('.fhint{font-size:.68rem;color:var(--ft);margin-top:5px;line-height:1.55}');
+  w('.fhint a{color:var(--ac);text-decoration:none}.fhint a:hover{text-decoration:underline}');
+  w('.frow{display:grid;grid-template-columns:1fr 1fr;gap:8px}');
+  w('@media(max-width:480px){.frow{grid-template-columns:1fr}}');
+
+  // Sections
+  w('.sec{margin-bottom:18px}.sec:last-child{margin-bottom:0}');
+  w('.stl{font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--mt);margin-bottom:8px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}');
+  w('.stl .opt{font-weight:500;color:var(--ft);text-transform:none;letter-spacing:0;font-size:.62rem}');
+
+  // Content cards
+  w('.ccards{display:flex;flex-direction:column;gap:6px}');
+  w('.cc{display:flex;align-items:center;gap:12px;padding:13px 15px;background:var(--gb);border:1px solid var(--gbdr);border-radius:var(--r);cursor:pointer;transition:all var(--tr);user-select:none;min-height:56px;backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}');
+  w('.cc:hover{border-color:var(--gbdrh);background:var(--gbh)}');
+  w('.cc.on{background:var(--acd);border-color:var(--acb);box-shadow:0 0 0 1px var(--acb),inset 0 1px 0 rgba(255,255,255,.05)}');
+  w('.cchk{width:20px;height:20px;border-radius:50%;background:var(--gba);border:1.5px solid var(--gbdr);display:flex;align-items:center;justify-content:center;flex-shrink:0;color:transparent;transition:all var(--tr)}');
+  w('.cc.on .cchk{background:var(--ac);border-color:var(--ac);color:#000;box-shadow:0 0 8px rgba(110,231,183,.4)}');
+  w('.ccmeta{flex:1;min-width:0}.ccname{font-size:.88rem;font-weight:600;color:var(--tx);margin-bottom:2px}');
+  w('.cc.on .ccname{color:var(--ac)}.ccdesc{font-size:.7rem;color:var(--mt)}');
+
+  // Service accordion cards
+  w('.svc{background:var(--gb);border:1px solid var(--gbdr);border-radius:var(--r);margin-bottom:8px;overflow:hidden;transition:border-color var(--tr);backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}');
+  w('.svc.connected{border-color:var(--acb)}');
+  w('.svch{display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;user-select:none;min-height:58px}');
+  w('.svci{width:36px;height:36px;border-radius:10px;background:var(--gba);border:1px solid var(--gbdr);display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0;transition:all var(--tr)}');
+  w('.svc.connected .svci{background:var(--acd);border-color:var(--acb)}');
+  w('.svcinfo{flex:1;min-width:0}.svcname{font-size:.9rem;font-weight:700;color:var(--tx);letter-spacing:-.01em}');
+  w('.svcdesc{font-size:.7rem;color:var(--mt);margin-top:2px}');
+  w('.svcst{font-size:.63rem;font-weight:600;padding:3px 9px;border-radius:99px;flex-shrink:0;white-space:nowrap}');
+  w('.svcst.on{background:var(--acd);border:1px solid var(--acb);color:var(--ac)}.svcst.off{background:var(--gba);border:1px solid var(--gbdr);color:var(--ft)}');
+  w('.svcarr{color:var(--ft);transition:transform var(--tr);flex-shrink:0}');
+  w('.svc.open .svcarr{transform:rotate(180deg)}');
+  w('.svcbody{display:none;padding:0 16px 16px;border-top:1px solid var(--gbdr)}');
+  w('.svc.open .svcbody{display:block}.svcbody .fld:first-child{margin-top:14px}');
+
+  // Adv toggle
+  w('.advt{display:flex;align-items:center;gap:6px;background:none;border:none;color:var(--ft);font-size:.7rem;font-weight:600;cursor:pointer;padding:6px 0;margin-top:4px;font-family:inherit;transition:color var(--tr)}');
+  w('.advt:hover{color:var(--mt)}.advt svg{transition:transform var(--tr)}.advt.open svg{transform:rotate(180deg)}');
+  w('.advbox{display:none;margin-top:8px}.advbox.open{display:block}');
+
+  // Mode toggle
+  w('.modet{display:grid;grid-template-columns:1fr 1fr;gap:6px;background:rgba(0,0,0,.2);border:1px solid var(--gbdr);border-radius:var(--r);padding:4px;margin-bottom:14px}');
+  w('.modebtn{padding:12px 14px;background:transparent;border:none;border-radius:var(--rsm);color:var(--mt);font-size:.82rem;font-weight:600;font-family:inherit;cursor:pointer;transition:all var(--tr);display:flex;flex-direction:column;align-items:center;gap:4px;min-height:56px;position:relative}');
+  w('.modebtn:hover{color:var(--tx)}.modebtn.on{background:var(--acd);color:var(--ac);box-shadow:inset 0 0 0 1px var(--acb)}');
+  w('.mbs{font-size:.64rem;color:var(--ft);font-weight:400}.modebtn.on .mbs{color:var(--ac);opacity:.7}');
+  w('.mbsoon{position:absolute;top:6px;right:6px;font-size:.5rem;font-weight:700;color:var(--ft);background:var(--gba);padding:2px 5px;border-radius:99px;border:1px solid var(--gbdr);letter-spacing:.03em}');
+
+  // Quality pills
+  w('.qpills{display:flex;gap:5px;overflow-x:auto;padding:4px;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none;background:rgba(0,0,0,.2);border:1px solid var(--gbdr);border-radius:var(--r)}');
+  w('.qpills::-webkit-scrollbar{display:none}');
+  w('.qp{flex:0 0 auto;min-width:108px;padding:13px 14px;background:transparent;border:1px solid transparent;border-radius:var(--rsm);cursor:pointer;transition:all var(--tr);display:flex;flex-direction:column;align-items:center;gap:4px;scroll-snap-align:start;font-family:inherit}');
+  w('.qp:hover{background:var(--gbh);border-color:var(--gbdr)}.qp.on{background:var(--acd);border-color:var(--acb);box-shadow:0 0 0 1px var(--acb)}');
+  w('.qpn{font-size:.82rem;font-weight:700;color:var(--mt);transition:color var(--tr)}.qp.on .qpn{color:var(--ac)}');
+  w('.qpd{font-size:.63rem;color:var(--ft);transition:color var(--tr)}.qp.on .qpd{color:var(--ac);opacity:.7}');
+  w('.qcur{margin-top:12px;padding:12px 16px;background:var(--acd);border:1px solid var(--acb);border-radius:var(--rsm);display:flex;align-items:center;justify-content:space-between;gap:12px}');
+  w('.qcurlbl{font-size:.68rem;color:var(--mt);font-weight:500}.qcurval{font-size:.82rem;color:var(--ac);font-weight:700;letter-spacing:-.01em}');
+
+  // Preset cards
+  w('.pgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:14px}');
+  w('@media(max-width:480px){.pgrid{grid-template-columns:1fr}}');
+  w('.pc{padding:14px;background:var(--gb);border:1px solid var(--gbdr);border-radius:var(--r);cursor:pointer;transition:all var(--tr);user-select:none;position:relative;min-height:72px;backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}');
+  w('.pc:hover{border-color:var(--gbdrh);background:var(--gbh)}.pc.on{background:var(--acd);border-color:var(--acb)}');
+  w('.pchk{position:absolute;top:10px;right:10px;width:18px;height:18px;border-radius:50%;background:var(--gba);border:1.5px solid var(--gbdr);display:flex;align-items:center;justify-content:center;color:transparent;transition:all var(--tr)}');
+  w('.pc.on .pchk{background:var(--ac);border-color:var(--ac);color:#000}');
+  w('.pcname{font-size:.85rem;font-weight:700;color:var(--tx);margin-bottom:4px;padding-right:26px}.pc.on .pcname{color:var(--ac)}');
+  w('.pcdesc{font-size:.7rem;color:var(--mt);line-height:1.45}');
+
+  // Drag list
+  w('.dlist{display:flex;flex-direction:column;gap:5px}');
+  w('.di{display:flex;align-items:center;gap:8px;padding:10px 12px;background:var(--gb);border:1px solid var(--gbdr);border-radius:var(--rsm);transition:all var(--tr);user-select:none;min-height:52px;backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}');
+  w('.di:hover{border-color:var(--gbdrh);background:var(--gbh)}.di.inactive{opacity:.4}.di.dragging{opacity:.3;border-style:dashed}.di.dragover{border-color:var(--ac);box-shadow:0 0 0 2px var(--acd)}');
+  w('.di[draggable="true"]{cursor:grab}.di[draggable="true"]:active{cursor:grabbing}');
+  w('.dhdl{color:var(--ft);flex-shrink:0;cursor:grab;padding:3px;touch-action:none}.dhdl:active{cursor:grabbing}');
+  w('.drnk{width:22px;height:22px;background:var(--acd);border:1px solid var(--acb);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.64rem;font-weight:700;color:var(--ac);flex-shrink:0}');
+  w('.dbody{flex:1;min-width:0}.dname{font-size:.82rem;font-weight:600}.dsub{font-size:.66rem;color:var(--mt);margin-top:1px}');
+  w('.dtog{width:38px;height:22px;background:var(--ac);border-radius:11px;position:relative;transition:background var(--tr);flex-shrink:0;cursor:pointer;border:none;padding:0;box-shadow:inset 0 1px 0 rgba(255,255,255,.2)}');
+  w('.dtog::after{content:"";position:absolute;width:16px;height:16px;background:#fff;border-radius:50%;top:3px;left:19px;transition:transform var(--tr);box-shadow:0 1px 3px rgba(0,0,0,.3)}');
+  w('.dtog.off{background:var(--gba);border:1px solid var(--gbdr);box-shadow:none}.dtog.off::after{left:3px}');
+  w('.darrs{display:flex;flex-direction:column;gap:2px;flex-shrink:0}');
+  w('.abtn{width:28px;height:22px;background:var(--gba);border:1px solid var(--gbdr);border-radius:4px;color:var(--mt);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all var(--tr);padding:0}');
+  w('.abtn:hover{background:var(--acd);border-color:var(--acb);color:var(--ac)}.abtn:active{transform:scale(.94)}.abtn:disabled{opacity:.3;cursor:not-allowed}');
+
+  // Summary
+  w('.sgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px}');
+  w('@media(max-width:480px){.sgrid{grid-template-columns:1fr}}');
+  w('.sc2{grid-column:1/-1}');
+  w('.scard{background:var(--gb);border:1px solid var(--gbdr);border-radius:var(--r);padding:14px 16px;backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}');
+  w('.slbl{font-size:.6rem;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--ft);margin-bottom:8px;display:block}');
+  w('.sval{font-size:.88rem;font-weight:600;color:var(--tx);line-height:1.5;word-break:break-word}.sval.ac{color:var(--ac)}');
+  w('.srow2{display:flex;align-items:center;gap:10px;padding:5px 0;border-bottom:1px solid var(--gbdr)}.srow2:last-child{border-bottom:none}');
+  w('.sdot{width:6px;height:6px;border-radius:50%;background:var(--ac);box-shadow:0 0 6px rgba(110,231,183,.5);flex-shrink:0}.sdot.off{background:var(--ft);box-shadow:none}');
+  w('.sn2{font-size:.82rem;font-weight:600;color:var(--tx);flex:1}.sn2.off{color:var(--ft);font-weight:500}');
+
+  // URL output
+  w('.ucard{background:var(--gb);border:1px solid var(--gbdr);border-radius:var(--r);padding:12px;margin-bottom:8px;backdrop-filter:var(--blur);-webkit-backdrop-filter:var(--blur)}');
+  w('.ulbl{font-size:.7rem;font-weight:600;color:var(--mt);margin-bottom:8px}');
+  w('.urow{display:flex;gap:8px;align-items:stretch}');
+  w('.ubox{flex:1;background:rgba(0,0,0,.3);border:1px solid var(--gbdr);border-radius:var(--rsm);padding:10px 12px;font-family:"JetBrains Mono",monospace;font-size:.68rem;color:var(--ac);word-break:break-all;line-height:1.5;min-height:42px;display:flex;align-items:center}');
+  w('.cpybtn{background:var(--gb);border:1px solid var(--gbdr);color:var(--tx);padding:0 14px;border-radius:var(--rsm);cursor:pointer;font-size:.74rem;font-weight:600;font-family:inherit;transition:all var(--tr);flex-shrink:0;display:flex;align-items:center;gap:6px;min-height:42px}');
+  w('.cpybtn:hover{border-color:var(--acb);color:var(--ac)}.cpybtn:active{transform:scale(.95)}.cpybtn.copied{background:var(--acd);border-color:var(--acb);color:var(--ac)}');
+
+  // Install steps
+  w('.isteps{display:flex;flex-direction:column;gap:12px;margin-top:14px}');
+  w('.istep{display:flex;gap:10px;align-items:flex-start}');
+  w('.inum{width:26px;height:26px;border-radius:50%;background:var(--acd);border:1px solid var(--acb);color:var(--ac);font-size:.74rem;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0;margin-top:1px}');
+  w('.ibody{font-size:.8rem;color:var(--mt);line-height:1.55}.ibody strong{color:var(--tx)}');
+
+  // Nav
+  w('.navrow{display:flex;gap:8px;margin-top:18px;padding-top:16px;border-top:1px solid var(--gbdr)}');
+  w('.navrow .btn{flex:1}');
+  w('@media(max-width:480px){.navrow{flex-direction:column-reverse}}');
+
+  // Toast
+  w('.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(8px);background:rgba(18,18,22,.96);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid var(--gbdr);border-radius:99px;padding:10px 18px;font-size:.8rem;font-weight:600;color:var(--tx);display:flex;align-items:center;gap:8px;opacity:0;transition:all .3s cubic-bezier(.16,1,.3,1);pointer-events:none;z-index:1000;white-space:nowrap}');
+  w('.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}');
+  w('.tdot{width:6px;height:6px;border-radius:50%;background:var(--ac);box-shadow:0 0 6px var(--ac);flex-shrink:0}');
+
+  // ISRC toggles
+  w('.itrow{display:flex;flex-direction:column;gap:7px}');
+  w('.itm{display:flex;align-items:flex-start;gap:12px;padding:10px 12px;background:var(--gb);border:1px solid var(--gbdr);border-radius:var(--rsm);transition:all var(--tr)}');
+  w('.itm.off{opacity:.6}.itlabel{flex:1;min-width:0}.itname{font-size:.8rem;font-weight:600;color:var(--tx);margin-bottom:2px}');
+  w('.itdesc{font-size:.7rem;color:var(--mt);line-height:1.4}.itwarn{font-size:.68rem;color:var(--wn);margin-top:3px;display:none}');
+  w('.itbtn{flex-shrink:0;width:36px;height:20px;border-radius:99px;border:1px solid var(--gbdr);background:var(--gba);cursor:pointer;position:relative;transition:all var(--tr);margin-top:1px}');
+  w('.itbtn::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--mt);transition:all var(--tr)}');
+  w('.itbtn.on{background:var(--acd);border-color:var(--acb)}.itbtn.on::after{transform:translateX(16px);background:var(--ac)}');
+
+  // Blocked ISRCs
+  w('.blk{width:100%;background:rgba(0,0,0,.25);border:1px solid var(--gbdr);border-radius:var(--rsm);color:var(--tx);padding:10px 12px;font-size:.8rem;font-family:"JetBrains Mono",monospace;resize:vertical;min-height:70px;outline:none;transition:border-color var(--tr)}');
+  w('.blk:focus{border-color:var(--acb);box-shadow:0 0 0 3px var(--acd)}');
+
+  // Status / tip
+  w('.stat{padding:10px 14px;border-radius:var(--rsm);font-size:.78rem;margin-top:10px;display:none;line-height:1.5}');
+  w('.s-ok{background:rgba(110,231,183,.07);border:1px solid rgba(110,231,183,.2);color:var(--ac)}');
+  w('.s-err{background:rgba(248,113,113,.07);border:1px solid rgba(248,113,113,.2);color:var(--er)}');
+  w('.tip{background:var(--gb);border:1px solid var(--gbdr);border-radius:var(--rsm);padding:10px 13px;font-size:.74rem;color:var(--mt);line-height:1.65;margin-bottom:12px}');
+  w('.tip b{color:var(--tx)}.tip a{color:var(--ac);text-decoration:none}.tip a:hover{text-decoration:underline}');
+
+  // HiFi instance rows
+  w('#hifiList .ir{display:flex;align-items:center;gap:8px;font-size:.72rem;padding:7px 10px;background:rgba(0,0,0,.25);border:1px solid var(--gbdr);border-radius:8px;margin-bottom:5px}');
+
+  w('footer{text-align:center;font-size:.64rem;color:var(--ft);padding:24px 0 10px;line-height:1.8}');
   w('</style>');
-  w('</head>');
-  w('<body>');
-  w('<div class="page">');
+  w('</head><body>');
+  w('<div class="app">');
 
-  w('<div class="hdr">');
-  w('  <div class="hdr-logo"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="3" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="21"/><line x1="3" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="21" y2="12"/></svg></div>');
-  w('  <div><div class="hdr-title">Eclipse Universal Addon</div><div class="hdr-sub">Qobuz &middot; Tidal HiFi &middot; Deezer &middot; SoundCloud &middot; Podcasts &middot; Radio</div></div>');
-  w('  <span class="hdr-badge">v1.4</span>');
+  // ── HERO
+  w('<div class="hero gl" id="heroSec">');
+  w('<div class="hero-bg"></div>');
+  w('<div class="hero-inner">');
+  w('<div class="hero-badge"><div class="hero-dot"></div>Eclipse Universal Addon</div>');
+  w('<h1>All In Eclipse</h1>');
+  w('<div class="hero-sub">One addon. Every source.</div>');
+  w('<p>Stream Qobuz, Tidal, Deezer, SoundCloud &amp; more &mdash; all configured in one place.</p>');
+  w('<div class="hero-cta">');
+  w('<button class="btn btn-primary" onclick="startSetup()"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>Get Started</button>');
+  w('<button class="btn btn-ghost" onclick="openRefresh()">Refresh URL</button>');
+  w('</div>');
+  w('</div>');
+  w('<div class="hero-foot">');
+  w('<div class="hero-foot-l">Qobuz &middot; Tidal &middot; Deezer &middot; SoundCloud &middot; Internet Archive &middot; Podcasts &middot; Radio</div>');
+  w('<div class="hero-foot-r">' + (baseUrl || 'your-addon-url') + '</div>');
+  w('</div>');
   w('</div>');
 
-  w('<div class="sec-head">Deployment</div>');
-  w('<div class="card">');
-  w('  <div class="card-title">Base URL <span class="ctag">pre-filled</span></div>');
-  w('  <label class="lbl" for="vercelUrl">Your addon base URL</label>');
-  var escaped = String(baseUrl).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
-  w('  <input type="text" id="vercelUrl" value="' + escaped + '" placeholder="https://your-addon.vercel.app">');
-  w('  <p class="hint">Only change this if you are self-hosting on a different domain.</p>');
+  // ── STEPS BAR
+  w('<div class="steps gl" id="stepsBar">');
+  var stepLabels = ['Content','Credentials','Sources','Quality','Install'];
+  for (var si = 0; si < stepLabels.length; si++) {
+    w('<div class="si' + (si === 0 ? ' active' : '') + '" data-step="' + (si+1) + '" onclick="handleStepClick(' + (si+1) + ')"><div class="sinum">' + (si+1) + '</div><div class="silbl">' + stepLabels[si] + '</div></div>');
+  }
   w('</div>');
 
-  w('<div class="sec-head">Streaming Credentials <span class="sec-opt">&mdash; all optional, encoded in your URL only</span></div>');
-
-  w('<div class="card">');
-  w('  <div class="card-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg> Qobuz <span class="ctag">optional</span></div>');
-  w('  <div class="tip"><b>Use your own account for direct hi-res streaming.</b> Leave blank to use the built-in shared credentials. Your token is encoded in the URL only &mdash; never stored on the server.</div>');
-  w('  <label class="lbl" for="qobuzUserToken">User Auth Token</label>');
-  w('  <input type="password" id="qobuzUserToken" placeholder="Your user_auth_token from Qobuz">');
-  w('  <div class="row2" style="margin-top:2px">');
-  w('    <div><label class="lbl" for="qobuzSecret">App Secret</label><input type="password" id="qobuzSecret" placeholder="32-char hex secret"></div>');
-  w('    <div><label class="lbl" for="qobuzAppId">App ID <span class="ctag">optional</span></label><input type="text" id="qobuzAppId" placeholder="e.g. 312369995"></div>');
-  w('  </div>');
-  w('  <p class="hint">Get your token via <a href="https://github.com/nickcoutsos/qobuz-dl" target="_blank" rel="noopener">qobuz-dl</a> or by intercepting the Qobuz app network traffic. App ID &amp; Secret are only needed if you have custom Qobuz API credentials.</p>');
+  // ── PANEL 1: Content Types
+  w('<div class="pnl gl" data-panel="1">');
+  w('<div class="ph"><div><div class="pt">What do you want to stream?</div><div class="pd">Music is always included. Choose extra content types.</div></div></div>');
+  w('<div class="ccards">');
+  var ctypes = [
+    ['podcast','Podcasts','Podcast Index &middot; Taddy &middot; Apple Podcasts'],
+    ['audiobook','Audiobooks','LibriVox &middot; Internet Archive'],
+    ['radio','Radio','Radio Browser &middot; Live streams worldwide']
+  ];
+  ctypes.forEach(function(ct) {
+    w('<div class="cc" data-type="' + ct[0] + '" onclick="toggleContent(this,\'' + ct[0] + '\')">');
+    w('<div class="cchk"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>');
+    w('<div class="ccmeta"><div class="ccname">' + ct[1] + '</div><div class="ccdesc">' + ct[2] + '</div></div>');
+    w('</div>');
+  });
+  w('</div>');
+  w('<div class="navrow"><div></div><button class="btn btn-primary" onclick="goToStep(2)">Next <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></button></div>');
   w('</div>');
 
-  w('<div class="card">');
-  w('  <div class="card-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/></svg> Deezer ARL <span class="ctag">optional</span></div>');
-  (env && env.DEEZER_ARL
-    ? w('  <div class="tip ok"><b>Deezer ARL is optional.</b> &#x2705; An ARL is <b>already configured server-side</b> &mdash; you don\'t need to enter one. You can paste your own below to override it.</div>')
-    : w('  <div class="tip"><b>Deezer ARL is optional.</b> Without it, Deezer tracks appear in search but won\'t stream. Streams are FLAC (HiFi) or MP3 320 kbps when set.</div>'));
-  w('  <label class="lbl" for="deezerArl">ARL Cookie Value</label>');
-  w('  <input type="password" id="deezerArl" placeholder="Your deezer.com arl= cookie value (long hex string)">');
-  w('  <p class="hint">In your browser: open deezer.com &rarr; DevTools &rarr; Application &rarr; Cookies &rarr; copy the <code class="inline">arl</code> value. Valid for ~3 months.</p>');
+  // ── PANEL 2: Credentials
+  w('<div class="pnl gl" data-panel="2">');
+  w('<div class="ph"><div><div class="pt">Connect your services</div><div class="pd">All fields are optional. Leave blank to use free sources only.</div></div></div>');
+
+  // Qobuz
+  w('<div class="svc" data-svc="qobuz">');
+  w('<div class="svch" onclick="this.closest(\'.svc\').classList.toggle(\'open\')">');
+  w('<div class="svci">&#127925;</div>');
+  w('<div class="svcinfo"><div class="svcname">Qobuz</div><div class="svcdesc">Hi-Res FLAC up to 192kHz</div></div>');
+  w('<div class="svcst off" id="st-qobuz">Not connected</div>');
+  w('<svg class="svcarr" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
+  w('</div>');
+  w('<div class="svcbody">');
+  w('<div class="fld"><label class="flbl">User Auth Token</label><input type="password" id="qobuzToken" class="finp" placeholder="user_auth_token from Qobuz"></div>');
+  w('<button class="advt" data-adv="qobuz" onclick="toggleAdv(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg> Advanced (App ID &amp; Secret)</button>');
+  w('<div class="advbox" data-advbox="qobuz"><div class="frow"><div class="fld"><label class="flbl">App ID</label><input type="text" id="qobuzAppId" class="finp" placeholder="App ID"></div><div class="fld"><label class="flbl">App Secret</label><input type="password" id="qobuzSecret" class="finp" placeholder="Secret"></div></div><div class="fhint">Leave blank to use built-in credentials.</div></div>');
+  w('</div></div>');
+
+  // Tidal
+  w('<div class="svc" data-svc="tidal">');
+  w('<div class="svch" onclick="this.closest(\'.svc\').classList.toggle(\'open\')">');
+  w('<div class="svci">&#127926;</div>');
+  w('<div class="svcinfo"><div class="svcname">Tidal HiFi</div><div class="svcdesc">AAC 320 via HiFi instances</div></div>');
+  w('<div class="svcst off" id="st-tidal">Public pool</div>');
+  w('<svg class="svcarr" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
+  w('</div>');
+  w('<div class="svcbody">');
+  w('<div class="fld"><label class="flbl">HiFi Instance URL(s)</label><input type="text" id="hifiInst" class="finp" placeholder="https://hifi.example.com, https://hifi2.example.com"><div class="fhint">Comma-separated. Leave blank for auto-discovered instances.</div></div>');
+  w('<div id="hifiList" style="margin-top:10px"></div>');
+  w('</div></div>');
+
+  // Deezer
+  w('<div class="svc" data-svc="deezer">');
+  w('<div class="svch" onclick="this.closest(\'.svc\').classList.toggle(\'open\')">');
+  w('<div class="svci">&#127928;</div>');
+  w('<div class="svcinfo"><div class="svcname">Deezer</div><div class="svcdesc">FLAC &amp; MP3 via ARL cookie</div></div>');
+  w('<div class="svcst off" id="st-deezer">Not connected</div>');
+  w('<svg class="svcarr" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
+  w('</div>');
+  w('<div class="svcbody">');
+  w('<div class="fld"><label class="flbl">ARL Cookie</label><input type="password" id="deezerArl" class="finp" placeholder="deezer.com ARL cookie"><div class="fhint">DevTools → Application → Cookies → deezer.com → arl</div></div>');
+  w('</div></div>');
+
+  // SoundCloud
+  w('<div class="svc" data-svc="sc">');
+  w('<div class="svch" onclick="this.closest(\'.svc\').classList.toggle(\'open\')">');
+  w('<div class="svci">&#9729;&#65039;</div>');
+  w('<div class="svcinfo"><div class="svcname">SoundCloud</div><div class="svcdesc">MP3 320 — auto-discovered</div></div>');
+  w('<div class="svcst off" id="st-sc">Auto</div>');
+  w('<svg class="svcarr" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
+  w('</div>');
+  w('<div class="svcbody">');
+  w('<div class="fld"><label class="flbl">Client ID <span style="font-weight:400;text-transform:none;color:var(--ft)">(optional)</span></label><input type="text" id="scId" class="finp" placeholder="Auto-discovered — only set if it fails"></div>');
+  w('<button class="advt" data-adv="sc" onclick="toggleAdv(this)"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg> OAuth Token</button>');
+  w('<div class="advbox" data-advbox="sc"><div class="fld"><label class="flbl">OAuth Token</label><input type="password" id="scOauth" class="finp" placeholder="OAuth token for higher quality"></div></div>');
+  w('</div></div>');
+
+  // Podcast creds (shown if podcast enabled)
+  w('<div id="podcastCreds" style="display:none">');
+  w('<div class="svc" data-svc="pi">');
+  w('<div class="svch" onclick="this.closest(\'.svc\').classList.toggle(\'open\')">');
+  w('<div class="svci">&#127897;&#65039;</div>');
+  w('<div class="svcinfo"><div class="svcname">Podcast Index</div><div class="svcdesc">Optional — improves podcast search</div></div>');
+  w('<div class="svcst off" id="st-pi">Optional</div>');
+  w('<svg class="svcarr" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
+  w('</div>');
+  w('<div class="svcbody"><div class="frow"><div class="fld"><label class="flbl">API Key</label><input type="text" id="piKey" class="finp" placeholder="Podcast Index API Key"></div><div class="fld"><label class="flbl">API Secret</label><input type="password" id="piSecret" class="finp" placeholder="Secret"></div></div><div class="fhint">Free at <a href="https://podcastindex.org/developer" target="_blank" rel="noopener">podcastindex.org/developer</a></div></div>');
+  w('</div>');
+  w('<div class="svc" data-svc="taddy">');
+  w('<div class="svch" onclick="this.closest(\'.svc\').classList.toggle(\'open\')">');
+  w('<div class="svci">&#127911;</div>');
+  w('<div class="svcinfo"><div class="svcname">Taddy</div><div class="svcdesc">Additional podcast metadata</div></div>');
+  w('<div class="svcst off" id="st-taddy">Optional</div>');
+  w('<svg class="svcarr" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
+  w('</div>');
+  w('<div class="svcbody"><div class="frow"><div class="fld"><label class="flbl">API Key</label><input type="text" id="taddyKey" class="finp" placeholder="Taddy API Key"></div><div class="fld"><label class="flbl">User ID</label><input type="text" id="taddyUid" class="finp" placeholder="Taddy User ID"></div></div></div>');
+  w('</div>');
   w('</div>');
 
-  w('<div class="card">');
-  w('  <div class="card-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"/><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"/></svg> Tidal HiFi Instances <span class="ctag">optional</span></div>');
-  w('  <div class="tip">Tidal streams via HiFi proxy at AAC 320 kbps. Leave blank to use the built-in public instance pool.</div>');
-  w('  <label class="lbl" for="hifiInst">Custom instance URLs</label>');
-  w('  <input type="text" id="hifiInst" placeholder="https://hifi.yourdomain.com  (comma-separated)">');
-  w('  <p class="hint">Leave blank to use the built-in public instance pool. Only set this if you run your own HiFi proxy.</p>');
+  w('<div class="navrow"><button class="btn btn-ghost" onclick="goToStep(1)">Back</button><button class="btn btn-primary" onclick="goToStep(3)">Next <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></button></div>');
   w('</div>');
 
-  w('<div class="card">');
-  w('  <div class="card-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M2 14.5A4.5 4.5 0 0 1 6.5 10c.28 0 .56.03.83.08A6 6 0 0 1 18 10.5a3.5 3.5 0 0 1 3 3.5"/><path d="M2 14.5v1a2.5 2.5 0 0 0 5 0v-1"/></svg> SoundCloud <span class="ctag">optional</span></div>');
-  w('  <div class="tip">SoundCloud streams at <b>320 kbps MP3</b> (or lower for older tracks). The client ID is auto-discovered &mdash; only set this if auto-discovery breaks.</div>');
-  w('  <label class="lbl" for="scId">Client ID</label>');
-  w('  <input type="text" id="scId" placeholder="Leave blank for auto-discovery">');
-  w('  <label class="lbl" for="scOAuth" style="margin-top:var(--sp)">OAuth Token <span class="ctag">optional &mdash; full tracks</span></label>');
-  w('  <input type="password" id="scOAuth" placeholder="Paste OAuth token to unlock full tracks (removes 30-sec preview limit)">');
-  w('  <p class="hint">Get it: open <a href="https://soundcloud.com" target="_blank" rel="noopener">soundcloud.com</a> &rarr; F12 &rarr; Application &rarr; Local Storage &rarr; soundcloud.com &rarr; copy <code>oauth_token</code>. Or Network tab &rarr; any api-v2 request &rarr; <code>Authorization: OAuth &hellip;</code></p>');
+  // ── PANEL 3: Sources & Order
+  w('<div class="pnl gl" data-panel="3">');
+  w('<div class="ph"><div><div class="pt">Source priority &amp; order</div><div class="pd">Choose a preset or drag to customize. Toggle sources individually.</div></div></div>');
+
+  w('<div class="sec">');
+  w('<div class="stl">Quick presets</div>');
+  w('<div class="pgrid" id="presetGrid">');
+  var presetDefs = [
+    ['full','Everything','All sources enabled — maximum coverage',true],
+    ['recommended','Recommended','Tidal search, all streams — best balance',false],
+    ['bigger','Bigger catalog','Deezer + SoundCloud search for more tracks',false],
+    ['custom','Custom','Configure manually below',false]
+  ];
+  presetDefs.forEach(function(p) {
+    w('<div class="pc' + (p[3]?' on':'') + '" data-preset="' + p[0] + '" onclick="applyPreset(this)">');
+    w('<div class="pchk"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg></div>');
+    w('<div class="pcname">' + p[1] + '</div><div class="pcdesc">' + p[2] + '</div>');
+    w('</div>');
+  });
+  w('</div></div>');
+
+  w('<div class="sec"><div class="stl">Search order <span class="opt">drag or arrows to reorder</span></div><div class="dlist" id="searchList"></div><div class="fhint" style="margin-top:8px">First enabled source is searched first. Disable sources you lack credentials for.</div></div>');
+  w('<div class="sec"><div class="stl">Stream order <span class="opt">drag or arrows to reorder</span></div><div class="dlist" id="streamList"></div><div class="fhint" style="margin-top:8px">Fallback happens automatically if a source fails.</div></div>');
+
+  // ISRC enrichment
+  w('<div class="sec"><div class="stl">ISRC enrichment <span class="opt">optional</span></div>');
+  w('<div class="itrow" id="isrcRow">');
+  var isrcItems = [
+    ['musicbrainz','MusicBrainz','Free, open music encyclopedia. Best ISRC coverage.','Disabling reduces match accuracy.'],
+    ['theaudiodb','TheAudioDB','Adds artwork and metadata enrichment.','Disabling reduces metadata quality.'],
+    ['deezer_isrc','Deezer ISRC','Fast ISRC lookup via Deezer public API.','Disabling may reduce stream hit rate.'],
+    ['qobuz_isrc','Qobuz ISRC','Qobuz ISRC resolution (requires credentials).','Requires Qobuz credentials to be useful.']
+  ];
+  isrcItems.forEach(function(it) {
+    w('<div class="itm on" id="itm-' + it[0] + '">');
+    w('<button class="itbtn on" id="btn-' + it[0] + '" onclick="toggleIsrc(\'' + it[0] + '\')" aria-label="Toggle ' + it[1] + '"></button>');
+    w('<div class="itlabel"><div class="itname">' + it[1] + '</div><div class="itdesc">' + it[2] + '</div><div class="itwarn" id="warn-' + it[0] + '">' + it[3] + '</div></div>');
+    w('</div>');
+  });
+  w('</div></div>');
+
+  // Blocked ISRCs
+  w('<div class="sec"><div class="stl">Blocked ISRCs <span class="opt">optional</span></div>');
+  w('<textarea class="blk" id="blockedIsrcs" placeholder="One ISRC per line&#10;e.g. USUM71900000"></textarea>');
+  w('<div class="fhint">These ISRCs will never be streamed.</div></div>');
+
+  w('<div class="navrow"><button class="btn btn-ghost" onclick="goToStep(2)">Back</button><button class="btn btn-primary" onclick="goToStep(4)">Next <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></button></div>');
   w('</div>');
 
-  w('<div class="card">');
-  w('  <div class="card-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="11" r="3"/><path d="M12 2a9 9 0 0 1 9 9c0 4.97-6 11-9 11S3 15.97 3 11a9 9 0 0 1 9-9z"/></svg> Podcast Index <span class="ctag">optional</span></div>');
-  w('  <div class="tip">Free keys from <a href="https://api.podcastindex.org/" target="_blank" rel="noopener">api.podcastindex.org</a>. Without keys, the addon falls back to Apple Podcasts search only.</div>');
-  w('  <div class="row2">');
-  w('    <div><label class="lbl" for="piKey">API Key</label><input type="text" id="piKey" placeholder="PI key"></div>');
-  w('    <div><label class="lbl" for="piSecret">API Secret</label><input type="password" id="piSecret" placeholder="PI secret"></div>');
-  w('  </div>');
+  // ── PANEL 4: Quality
+  w('<div class="pnl gl" data-panel="4">');
+  w('<div class="ph"><div><div class="pt">Audio quality</div><div class="pd">Sets preferred streaming quality for Qobuz.</div></div></div>');
+
+  w('<div class="modet" id="modeToggle">');
+  w('<button class="modebtn on" data-mode="general" onclick="setQMode(\'general\')">General<span class="mbs">One quality for all</span></button>');
+  w('<button class="modebtn" data-mode="perstream" onclick="setQMode(\'perstream\')">Per-stream<span class="mbs">Coming soon</span><span class="mbsoon">SOON</span></button>');
   w('</div>');
 
-  w('<div class="card">');
-  w('  <div class="card-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5M2 12l10 5 10-5"/></svg> Taddy <span class="ctag">optional</span></div>');
-  w('  <div class="tip">Enhanced podcast metadata and series search. Free plan at <a href="https://taddy.org" target="_blank" rel="noopener">taddy.org</a>.</div>');
-  w('  <div class="row2">');
-  w('    <div><label class="lbl" for="taddyKey">API Key</label><input type="text" id="taddyKey" placeholder="Taddy key"></div>');
-  w('    <div><label class="lbl" for="taddyUid">User ID</label><input type="text" id="taddyUid" placeholder="Taddy UID"></div>');
-  w('  </div>');
+  w('<div id="genQSec">');
+  w('<div class="qpills" id="qpills">');
+  var qOpts = [['HIGH','High','320 kbps MP3'],['LOSSLESS','Lossless','CD 44.1 kHz'],['HIRES_96','Hi-Res 96','24-bit / 96 kHz'],['HIRES_192','Hi-Res 192','24-bit / 192 kHz'],['AUTO','Auto','Best available']];
+  qOpts.forEach(function(q) {
+    w('<button class="qp' + (q[0]==='HIRES_96'?' on':'') + '" data-q="' + q[0] + '" onclick="setQ(this)"><span class="qpn">' + q[1] + '</span><span class="qpd">' + q[2] + '</span></button>');
+  });
+  w('</div>');
+  w('<div class="qcur"><span class="qcurlbl">Selected quality</span><span class="qcurval" id="qcurval">Hi-Res 96 — 24-bit / 96 kHz</span></div>');
+  w('<div class="fhint" style="margin-top:10px">Only applies to Qobuz. Other sources use their native quality.</div>');
   w('</div>');
 
-  w('<div class="sec-head">Audio Quality</div>');
-  w('<div class="card">');
-  w('  <div class="card-title">Qobuz Quality Target <span class="ctag">optional</span></div>');
-  w('  <div class="tip"><b>This only affects Qobuz streams.</b> The addon always falls back gracefully if the selected tier is unavailable for a track.</div>');
-  w('  <div class="qrow">');
-  w('    <div class="qbtn on" id="q-auto"     onclick="setQuality(null)">        <span>Auto</span>    <span class="qs">Best available</span></div>');
-  w('    <div class="qbtn"    id="q-hires192"    onclick="setQuality(\'HIRES_192\')">   <span>Hi-Res 192</span>  <span class="qs">24-bit 192kHz</span></div>');
-  w('    <div class="qbtn"    id="q-hires96"    onclick="setQuality(\'HIRES_96\')">   <span>Hi-Res 96</span>  <span class="qs">24-bit 96kHz</span></div>');
-  w('    <div class="qbtn"    id="q-lossless" onclick="setQuality(\'LOSSLESS\')"><span>Lossless</span><span class="qs">CD 44.1 kHz</span></div>');
-  w('    <div class="qbtn"    id="q-high"     onclick="setQuality(\'HIGH\')">    <span>High</span>    <span class="qs">320 kbps MP3</span></div>');
-  w('  </div>');
-  w('  <div class="src-note">');
-  w('    <b>Tidal HiFi</b> &mdash; AAC 320 kbps only (proxy limitation) &nbsp;&bull;&nbsp; <b>Deezer</b> &mdash; FLAC (HiFi accounts) or MP3 320 kbps &nbsp;&bull;&nbsp; <b>SoundCloud</b> &mdash; 320 kbps MP3 or lower');
-  w('  </div>');
+  w('<div id="perQSec" style="display:none"><div class="tip">Per-stream quality configuration is coming soon.</div></div>');
+
+  w('<div class="navrow"><button class="btn btn-ghost" onclick="goToStep(3)">Back</button><button class="btn btn-primary" onclick="goToStep(5)">Generate &amp; Install <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></button></div>');
   w('</div>');
 
-  w('<div class="sec-head">Content Types</div>');
-  w('<div class="card">');
-  w('  <div class="card-title">Enabled Types</div>');
-  w('  <div class="tip"><b>Each enabled type gets its own install URL.</b> Disable anything you don\'t want &mdash; it will be excluded from search results.</div>');
-  w('  <div class="ct-row">');
-  w('    <div class="ct-btn on" id="ct-podcast"   onclick="toggleCT(\'podcast\')">  <div class="ct-dot"></div><div class="ct-info"><div class="ct-lbl">Podcasts</div>  <div class="ct-sub">PI &middot; Taddy &middot; Apple</div></div></div>');
-  w('    <div class="ct-btn on" id="ct-audiobook" onclick="toggleCT(\'audiobook\')"><div class="ct-dot"></div><div class="ct-info"><div class="ct-lbl">Audiobooks</div><div class="ct-sub">LibriVox &middot; Archive</div></div></div>');
-  w('    <div class="ct-btn on" id="ct-radio"     onclick="toggleCT(\'radio\')">    <div class="ct-dot"></div><div class="ct-info"><div class="ct-lbl">Radio</div>      <div class="ct-sub">Browser &middot; SomaFM</div></div></div>');
-  w('  </div>');
-  w('  <p class="hint" style="margin-top:10px">Music is always included and cannot be disabled.</p>');
+  // ── PANEL 5: Generate & Install
+  w('<div class="pnl gl" data-panel="5">');
+  w('<div class="ph"><div><div class="pt">Your addon URLs</div><div class="pd">Copy these into Eclipse to install your addon.</div></div></div>');
+
+  w('<div class="sgrid" id="sumGrid"></div>');
+
+  w('<div id="genStat" class="stat"></div>');
+  w('<button class="btn btn-primary" id="genBtn" style="width:100%;margin-bottom:12px" onclick="generateUrls()"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Generate My Addon URLs</button>');
+  w('<div id="outbox" style="display:none"></div>');
+
+  w('<div class="sec" style="margin-top:22px"><div class="stl">How to install in Eclipse</div>');
+  w('<div class="isteps">');
+  var isteps = [
+    'Open Eclipse → <strong>Settings</strong> → <strong>Connections</strong>',
+    'Tap <strong>Add Connection</strong> → <strong>Addon</strong>',
+    'Paste a manifest URL from above and tap <strong>Install</strong>. Install each type separately.'
+  ];
+  isteps.forEach(function(s,i) {
+    w('<div class="istep"><div class="inum">' + (i+1) + '</div><div class="ibody">' + s + '</div></div>');
+  });
+  w('</div></div>');
+
+  w('<div class="navrow"><button class="btn btn-ghost" onclick="goToStep(4)">Back</button><button class="btn btn-ghost" onclick="goToWelcome()">Start over</button></div>');
   w('</div>');
 
-  w('<div class="sec-head">Source Priority <span class="sec-opt">&mdash; optional, click to set order</span></div>');
-  w('<div class="card">');
-  w('  <div class="tip">Click a source to set priority &mdash; first clicked = highest priority. Numbers show rank. Click an active source again to remove it from the custom order (it will still be used, just at default priority).</div>');
-  w('  <div class="stitle">Search Priority</div>');
-  w('  <div class="srow" id="searchRow">');
-  w('    <div class="sbtn" id="ss-qobuz"  onclick="toggleSearch(\'qobuz\')"> <span class="sn">Qobuz</span>     <span class="st">Hi-Res FLAC</span></div>');
-  w('    <div class="sbtn" id="ss-hifi"   onclick="toggleSearch(\'hifi\')">  <span class="sn">Tidal HiFi</span><span class="st">AAC 320</span></div>');
-  w('    <div class="sbtn" id="ss-deezer" onclick="toggleSearch(\'deezer\')"><span class="sn">Deezer</span>    <span class="st">FLAC / MP3</span></div>');
-  w('    <div class="sbtn" id="ss-sc"     onclick="toggleSearch(\'sc\')">    <span class="sn">SoundCloud</span><span class="st">MP3 320</span></div>');
-  w('    <div class="sbtn" id="ss-ia"     onclick="toggleSearch(\'ia\')">    <span class="sn">Archive</span>   <span class="st">Various</span></div>');
-  w('  </div>');
-  w('  <div class="shint" id="searchHint"></div>');
-  w('  <div class="stitle" style="margin-top:18px">Stream Priority</div>');
-  w('  <div class="srow" id="streamRow">');
-  w('    <div class="sbtn" id="st-qobuz"  onclick="toggleStream(\'qobuz\')"> <span class="sn">Qobuz</span>     <span class="st">Hi-Res FLAC</span></div>');
-  w('    <div class="sbtn" id="st-hifi"   onclick="toggleStream(\'hifi\')">  <span class="sn">Tidal HiFi</span><span class="st">AAC 320</span></div>');
-  w('    <div class="sbtn" id="st-deezer" onclick="toggleStream(\'deezer\')"><span class="sn">Deezer</span>    <span class="st">FLAC / MP3</span></div>');
-  w('    <div class="sbtn" id="st-sc"     onclick="toggleStream(\'sc\')">    <span class="sn">SoundCloud</span><span class="st">MP3 320</span></div>');
-  w('    <div class="sbtn" id="st-ia"     onclick="toggleStream(\'ia\')">    <span class="sn">Archive</span>   <span class="st">Various</span></div>');
-  w('  </div>');
-  w('  <div class="shint" id="streamHint"></div>');
+  // ── REFRESH PANEL
+  w('<div class="pnl gl" data-panel="refresh">');
+  w('<div class="ph"><div><div class="pt">Refresh existing URL</div><div class="pd">Paste your current manifest URL to get a fresh token.</div></div></div>');
+  w('<div class="fld"><label class="flbl">Current manifest URL</label><input type="text" id="existingUrl" class="finp" placeholder="https://your-addon.vercel.app/abc.../manifest.json"></div>');
+  w('<div id="refStat" class="stat"></div>');
+  w('<button class="btn btn-primary" style="width:100%;margin-top:14px" onclick="doRefresh()">Refresh URL</button>');
+  w('<div id="refBox" style="display:none;margin-top:14px"><div class="ucard"><div class="ulbl">Refreshed URL</div><div class="urow"><div class="ubox" id="urlRef"></div><button class="cpybtn" onclick="copyText(document.getElementById(\'urlRef\').textContent,this)">Copy</button></div></div></div>');
+  w('<div class="navrow"><button class="btn btn-ghost" onclick="closeRefresh()">Back</button></div>');
   w('</div>');
 
-  w('<div class="sec-head">ISRC Enrichment Sources <span class="ctag">optional</span></div>');
-  w('<div class="card">');
-  w('  <div class="hint" style="margin-bottom:12px">Controls which external databases are used to look up ISRCs when a track is missing one. Disabling speeds up resolution but may reduce match accuracy.</div>');
-  w('  <div class="isrc-toggle-row">');
-  w('    <div class="isrc-toggle-item on" id="itm-musicbrainz">');
-  w('      <div class="itlabel">');
-  w('        <div class="itname">MusicBrainz</div>');
-  w('        <div class="itdesc">Open metadata database — used to enrich missing ISRCs before Qobuz/Tidal matching.</div>');
-  w('      </div>');
-  w('      <button class="isrc-toggle-btn on" id="btn-musicbrainz" onclick="toggleIsrcSource(\'musicbrainz\')" aria-label="Toggle MusicBrainz"></button>');
-  w('    </div>');
-  w('    <div class="isrc-toggle-item on" id="itm-theaudiodb">');
-  w('      <div class="itlabel">');
-  w('        <div class="itname">TheAudioDB</div>');
-  w('        <div class="itdesc">Secondary ISRC enrichment fallback — consulted when MusicBrainz has no result.</div>');
-  w('      </div>');
-  w('      <button class="isrc-toggle-btn on" id="btn-theaudiodb" onclick="toggleIsrcSource(\'theaudiodb\')" aria-label="Toggle TheAudioDB"></button>');
-  w('    </div>');
-  w('    <div class="isrc-toggle-item on" id="itm-deezer_isrc">');
-  w('      <div class="itlabel">');
-  w('        <div class="itname">Deezer ISRC Matching</div>');
-  w('        <div class="itdesc">Uses ISRC to find the exact track on Deezer during stream resolution.</div>');
-  w('        <div class="itwarn">&#9888; Disabling this while Deezer is active as a stream source may cause incorrect tracks or broken streams.</div>');
-  w('      </div>');
-  w('      <button class="isrc-toggle-btn on" id="btn-deezer_isrc" onclick="toggleIsrcSource(\'deezer_isrc\')" aria-label="Toggle Deezer ISRC"></button>');
-  w('    </div>');
-  w('    <div class="isrc-toggle-item on" id="itm-qobuz_isrc">');
-  w('      <div class="itlabel">');
-  w('        <div class="itname">Qobuz ISRC Matching</div>');
-  w('        <div class="itdesc">Uses ISRC for direct Qobuz track lookup — faster and more accurate than title search.</div>');
-  w('      </div>');
-  w('      <button class="isrc-toggle-btn on" id="btn-qobuz_isrc" onclick="toggleIsrcSource(\'qobuz_isrc\')" aria-label="Toggle Qobuz ISRC"></button>');
-  w('    </div>');
-  w('  </div>');
+  w('<footer>Credentials encoded in your URL only — never stored server-side<br>All In Eclipse &middot; Qobuz &middot; Tidal &middot; Deezer &middot; SoundCloud &middot; Internet Archive &middot; Podcasts &middot; Radio</footer>');
   w('</div>');
+  w('<div class="toast" id="toast"><span class="tdot"></span><span id="tmsg">Copied</span></div>');
 
-  w('<div class="sec-head">Generate</div>');
-  w('<div class="card">');
-  w('  <div class="card-title">Your Install URLs</div>');
-  w('  <div class="brow"><button class="btn bprimary" id="genBtn" onclick="doGenerate()">Generate My Addon URLs</button></div>');
-  w('  <div class="status" id="genStatus"></div>');
-  w('  <div class="outbox" id="genBox">');
-  w('    <div class="out-item" id="out-music"><div class="olbl">&#9834; Music</div><div class="orow"><div class="ourl" id="urlMusic"></div><button class="cbtn" id="cpMusic" onclick="copyIt(\'urlMusic\',\'cpMusic\')">Copy</button></div></div>');
-  w('    <div class="out-item" id="out-podcast"><div class="olbl">&#127897; Podcasts</div><div class="orow"><div class="ourl" id="urlPodcast"></div><button class="cbtn" id="cpPodcast" onclick="copyIt(\'urlPodcast\',\'cpPodcast\')">Copy</button></div></div>');
-  w('    <div class="out-item" id="out-audiobook"><div class="olbl">&#128214; Audiobooks</div><div class="orow"><div class="ourl" id="urlAudiobook"></div><button class="cbtn" id="cpAudiobook" onclick="copyIt(\'urlAudiobook\',\'cpAudiobook\')">Copy</button></div></div>');
-  w('    <div class="out-item" id="out-radio"><div class="olbl">&#128251; Radio</div><div class="orow"><div class="ourl" id="urlRadio"></div><button class="cbtn" id="cpRadio" onclick="copyIt(\'urlRadio\',\'cpRadio\')">Copy</button></div></div>');
-  w('  </div>');
-  w('</div>');
-
-  w('<div class="sec-head">Refresh Existing URL <span class="sec-opt">&mdash; optional</span></div>');
-  w('<div class="card">');
-  w('  <label class="lbl" for="existingUrl">Paste your current manifest URL</label>');
-  w('  <input type="text" id="existingUrl" placeholder="https://your-addon.vercel.app/abc123.../manifest.json">');
-  w('  <div class="brow" style="margin-top:10px"><button class="btn bsec" onclick="doRefresh()">Refresh URL</button></div>');
-  w('  <div class="status" id="refStatus"></div>');
-  w('  <div class="outbox" id="refBox">');
-  w('    <div class="olbl">Refreshed URL</div><div class="orow"><div class="ourl" id="urlRef"></div><button class="cbtn" id="cpRef" onclick="copyIt(\'urlRef\',\'cpRef\')">Copy</button></div>');
-  w('  </div>');
-  w('</div>');
-
-  w('<div class="sec-head">How to Install</div>');
-  w('<div class="card">');
-  w('  <div class="steps">');
-  w('    <div class="step"><div class="stepn">1</div><div class="stept">Fill in any credentials above, then click <b>Generate My Addon URLs</b>.</div></div>');
-  w('    <div class="step"><div class="stepn">2</div><div class="stept">Open <b>Eclipse</b> &rarr; Settings &rarr; Connections &rarr; Add Connection &rarr; Addon.</div></div>');
-  w('    <div class="step"><div class="stepn">3</div><div class="stept">Paste a Manifest URL and tap <b>Install</b>. Install each content type separately &mdash; Music, Podcasts, Audiobooks, and Radio each get their own dedicated URL.</div></div>');
-  w('  </div>');
-  w('</div>');
-
-
-  w('<div class="card">');
-  w('  <div class="card-title"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg> HiFi Instance Health <span class="ctag">live</span></div>');
-  w('  <div class="tip">Live status of the HiFi proxy instances used for TIDAL streaming. Green = online, Red = unreachable.</div>');
-  w('  <div id="hifiInstList" style="display:flex;flex-direction:column;gap:5px;margin-top:4px"><div style="color:var(--muted);font-size:.75rem">Checking...</div></div>');
-  w('  <button class="btn-gen" style="margin-top:10px;padding:8px 0;font-size:.75rem" onclick="checkHifiHealth()">Refresh Status</button>');
-  w('</div>');
-
-  w('<footer>Eclipse Universal Addon &bull; Credentials encoded in URL only &bull; Never stored server-side<br>Qobuz &bull; Tidal HiFi &bull; Deezer &bull; SoundCloud &bull; Internet Archive &bull; Podcasts &bull; Radio</footer>');
-  w('</div>');
-
+  // ── SCRIPTS
   w('<script>');
-  w('var selectedQuality = null;');
-  w('var searchOrder = ["hifi","qobuz","deezer","sc","ia"];');
-  w('var streamOrder = ["qobuz","hifi","deezer","sc","ia"];');
-  w('var ctEnabled = { podcast: true, audiobook: true, radio: true };');
-  w('var isrcToggles = { musicbrainz: true, theaudiodb: true, deezer_isrc: true, qobuz_isrc: true };');
-  w('var SRCLABELS = { hifi:"Tidal HiFi", qobuz:"Qobuz", sc:"SoundCloud", ia:"Internet Archive", deezer:"Deezer" };');
-  w('var ALLSRCS = ["qobuz","hifi","deezer","sc","ia"];');
+  w('var BASE="' + (baseUrl || '') + '";');
+  w('var SRCS={qobuz:{name:"Qobuz",sub:"Hi-Res FLAC"},hifi:{name:"Tidal HiFi",sub:"AAC 320"},deezer:{name:"Deezer",sub:"FLAC / MP3"},sc:{name:"SoundCloud",sub:"MP3 320"},ia:{name:"Internet Archive",sub:"Various"}};');
+  w('var QLBLS={HIGH:"High \u2014 320 kbps MP3",LOSSLESS:"Lossless \u2014 CD 44.1 kHz FLAC",HIRES_96:"Hi-Res 96 \u2014 24-bit / 96 kHz",HIRES_192:"Hi-Res 192 \u2014 24-bit / 192 kHz",AUTO:"Auto \u2014 Best available"};');
 
-  w('function setQuality(q) {');
-  w('  selectedQuality = q;');
-    w('  var _qMap = {"HIRES_192":"q-hires192","HIRES_96":"q-hires96","LOSSLESS":"q-lossless","HIGH":"q-high"};');
-  w('  Object.keys(_qMap).forEach(function(k){ var el=document.getElementById(_qMap[k]); if(el) el.classList.remove("on"); });');
-  w('  var _autoEl = document.getElementById("q-auto"); if(_autoEl) _autoEl.classList.toggle("on", q===null);');
-  w('  if(q && _qMap[q]){ var el2=document.getElementById(_qMap[q]); if(el2) el2.classList.add("on"); }');
-  w('}');
-  w('setQuality(null);');
+  w('var PRESETS={');
+  w('full:{search:[{s:"hifi",on:true},{s:"qobuz",on:true},{s:"deezer",on:true},{s:"sc",on:true},{s:"ia",on:true}],stream:[{s:"qobuz",on:true},{s:"hifi",on:true},{s:"deezer",on:true},{s:"sc",on:true},{s:"ia",on:true}]},');
+  w('recommended:{search:[{s:"hifi",on:true},{s:"qobuz",on:false},{s:"deezer",on:false},{s:"sc",on:false},{s:"ia",on:false}],stream:[{s:"qobuz",on:true},{s:"hifi",on:true},{s:"deezer",on:true},{s:"sc",on:true}]},');
+  w('bigger:{search:[{s:"deezer",on:true},{s:"sc",on:true},{s:"qobuz",on:false},{s:"hifi",on:false},{s:"ia",on:false}],stream:[{s:"qobuz",on:true},{s:"hifi",on:true},{s:"deezer",on:true},{s:"sc",on:true},{s:"ia",on:true}]},');
+  w('custom:{search:[{s:"qobuz",on:false},{s:"hifi",on:false},{s:"deezer",on:false},{s:"sc",on:false},{s:"ia",on:false}],stream:[{s:"qobuz",on:false},{s:"hifi",on:false},{s:"deezer",on:false},{s:"sc",on:false},{s:"ia",on:false}]}');
+  w('};');
 
-  w('function toggleCT(t) {');
-  w('  ctEnabled[t] = !ctEnabled[t];');
-  w('  var b = document.getElementById("ct-" + t);');
-  w('  ctEnabled[t] ? b.classList.add("on") : b.classList.remove("on");');
-  w('}');
+  w('var ST={step:1,content:{podcast:false,audiobook:false,radio:false},qMode:"general",q:"HIRES_96",preset:"full",search:JSON.parse(JSON.stringify(PRESETS.full.search)),stream:JSON.parse(JSON.stringify(PRESETS.full.stream)),started:false};');
+  w('var ISRC={musicbrainz:true,theaudiodb:true,deezer_isrc:true,qobuz_isrc:true};');
 
-  w('function toggleSearch(src) {');
-  w('  var i = searchOrder.indexOf(src);');
-  w('  if (i === -1) searchOrder.push(src); else searchOrder.splice(i, 1);');
-  w('  renderSRow("ss-", searchOrder); updateHint("searchHint", searchOrder);');
-  w('}');
-  w('function toggleStream(src) {');
-  w('  var i = streamOrder.indexOf(src);');
-  w('  if (i === -1) streamOrder.push(src); else streamOrder.splice(i, 1);');
-  w('  renderSRow("st-", streamOrder); updateHint("streamHint", streamOrder);');
-  w('}');
+  // Nav functions
+  w('function startSetup(){ST.started=true;document.getElementById("heroSec").style.display="none";var sb=document.getElementById("stepsBar");sb.style.display="flex";goToStep(1)}');
+  w('function goToWelcome(){ST.started=false;ST.step=1;document.querySelectorAll(".pnl").forEach(function(p){p.classList.remove("active")});document.getElementById("heroSec").style.display="flex";var sb=document.getElementById("stepsBar");sb.style.display="none";document.querySelectorAll(".si").forEach(function(s){s.classList.remove("active","done")});document.querySelector("[data-step=\'1\']").classList.add("active");window.scrollTo({top:0,behavior:"smooth"})}');
+  w('function handleStepClick(n){if(!ST.started||n>ST.step+1)return;goToStep(n)}');
+  w('function goToStep(n){ST.step=n;document.querySelectorAll(".pnl").forEach(function(p){p.classList.remove("active")});var t=document.querySelector("[data-panel=\'"+n+"\']");if(t)t.classList.add("active");document.querySelectorAll(".si").forEach(function(s){var sn=+s.dataset.step;s.classList.remove("active","done");if(sn<n)s.classList.add("done");else if(sn===n)s.classList.add("active")});if(n===3)renderLists();if(n===4)renderQuality();if(n===5)renderSummary();window.scrollTo({top:0,behavior:"smooth"})}');
+  w('function openRefresh(){document.querySelectorAll(".pnl").forEach(function(p){p.classList.remove("active")});document.querySelector("[data-panel=\'refresh\']").classList.add("active");document.getElementById("heroSec").style.display="none";document.getElementById("stepsBar").style.display="none"}');
+  w('function closeRefresh(){if(ST.started){goToStep(ST.step);document.getElementById("stepsBar").style.display="flex"}else goToWelcome()}');
 
-  w('function renderSRow(pfx, order) {');
-  w('  ALLSRCS.forEach(function(src) {');
-  w('    var el = document.getElementById(pfx + src); if (!el) return;');
-  w('    var pos = order.indexOf(src);');
-  w('    var badge = el.querySelector(".sbadge");');
-  w('    if (pos === -1) { el.classList.remove("on"); if (badge) badge.remove(); }');
-  w('    else { el.classList.add("on"); if (!badge) { badge = document.createElement("span"); badge.className = "sbadge"; el.appendChild(badge); } badge.textContent = pos + 1; }');
-  w('  });');
-  w('}');
+  // Content toggle
+  w('function toggleContent(el,type){ST.content[type]=!ST.content[type];el.classList.toggle("on",ST.content[type]);if(type==="podcast"){var s=document.getElementById("podcastCreds");if(s)s.style.display=ST.content[type]?"block":"none"}}');
 
-  w('function updateHint(id, order) {');
-  w('  var el = document.getElementById(id); if (!el) return;');
-  w('  if (!order.length) { el.textContent = "All sources used with default priority."; return; }');
-  w('  var names = order.map(function(s) { return SRCLABELS[s]; });');
-  w('  var off = ALLSRCS.filter(function(s) { return order.indexOf(s) === -1; });');
-  w('  var msg = "Priority: " + names.join(" \u2192 ");');
-  w('  if (off.length) msg += " \u2022 not in custom order (use default): " + off.map(function(s) { return SRCLABELS[s]; }).join(", ");');
-  w('  el.textContent = msg;');
-  w('}');
+  // Adv toggle
+  w('function toggleAdv(btn){var k=btn.dataset.adv;var b=document.querySelector("[data-advbox=\'"+k+"\']");btn.classList.toggle("open");if(b)b.classList.toggle("open")}');
 
-  w('function showStatus(id, msg, type) {');
-  w('  var el = document.getElementById(id);');
-  w('  el.textContent = msg; el.className = "status " + (type === "ok" ? "s-ok" : "s-err"); el.style.display = "block";');
+  // Status watchers
+  w('var SFLDS={qobuz:["qobuzToken","qobuzSecret","qobuzAppId"],deezer:["deezerArl"],tidal:["hifiInst"],sc:["scId"]};');
+  w('var SDEFS={qobuz:"Not connected",deezer:"Not connected",tidal:"Public pool",sc:"Auto"};');
+  w('function updStatus(){Object.keys(SFLDS).forEach(function(svc){var has=SFLDS[svc].some(function(id){var el=document.getElementById(id);return el&&el.value.trim()});var sel=document.getElementById("st-"+svc);var card=document.querySelector("[data-svc=\'"+svc+"\']");if(has){if(sel){sel.textContent="Connected";sel.className="svcst on"}if(card)card.classList.add("connected")}else{if(sel){sel.textContent=SDEFS[svc];sel.className="svcst off"}if(card)card.classList.remove("connected")}})}');
+  w('document.querySelectorAll(".finp").forEach(function(i){i.addEventListener("input",updStatus)});');
+
+  // Quality
+  w('function setQMode(m){if(m==="perstream")return;ST.qMode=m;document.querySelectorAll("#modeToggle .modebtn").forEach(function(b){b.classList.toggle("on",b.dataset.mode===m)});document.getElementById("genQSec").style.display=m==="general"?"block":"none";document.getElementById("perQSec").style.display=m==="perstream"?"block":"none"}');
+  w('function setQ(p){document.querySelectorAll("#qpills .qp").forEach(function(x){x.classList.remove("on")});p.classList.add("on");ST.q=p.dataset.q;document.getElementById("qcurval").textContent=QLBLS[ST.q]}');
+  w('function renderQuality(){document.querySelectorAll("#modeToggle .modebtn").forEach(function(b){b.classList.toggle("on",b.dataset.mode===ST.qMode)});document.getElementById("genQSec").style.display=ST.qMode==="general"?"block":"none";document.getElementById("perQSec").style.display=ST.qMode==="perstream"?"block":"none";document.querySelectorAll("#qpills .qp").forEach(function(p){p.classList.toggle("on",p.dataset.q===ST.q)});document.getElementById("qcurval").textContent=QLBLS[ST.q]||"Auto"}');
+
+  // Presets
+  w('function applyPreset(card){var p=card.dataset.preset;document.querySelectorAll(".pc").forEach(function(c){c.classList.remove("on")});card.classList.add("on");ST.preset=p;ST.search=JSON.parse(JSON.stringify(PRESETS[p].search));ST.stream=JSON.parse(JSON.stringify(PRESETS[p].stream));renderLists();toast("Applied preset")}');
+
+  // Drag lists
+  w('function buildItem(src,on,rank,lid){');
+  w('var d=document.createElement("div");d.className="di"+(on?"":" inactive");d.draggable=true;d.dataset.source=src;d.dataset.on=on?"1":"0";');
+  w('d.innerHTML=\'<svg class="dhdl" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><circle cx="9" cy="6" r="1.5"/><circle cx="9" cy="12" r="1.5"/><circle cx="9" cy="18" r="1.5"/><circle cx="15" cy="6" r="1.5"/><circle cx="15" cy="12" r="1.5"/><circle cx="15" cy="18" r="1.5"/></svg>\'');
+  w('+\'<div class="drnk">\'+(on?rank:"—")+"</div>"');
+  w('+\'<div class="dbody"><div class="dname">\'+SRCS[src].name+\'</div><div class="dsub">\'+SRCS[src].sub+"</div></div>"');
+  w('+\'<button class="dtog\'+(on?"":" off")+\'" type="button" aria-label="Toggle"></button>\'');
+  w('+\'<div class="darrs"><button class="abtn" onclick="moveItem(this,\\\'\'+lid+\'\\\',\\\'-1\\\')"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg></button><button class="abtn" onclick="moveItem(this,\\\'\'+lid+\'\\\',\\\'1\\\')"><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg></button></div>\';');
+  w('d.querySelector(".dtog").addEventListener("click",function(e){e.stopPropagation();var isOn=d.dataset.on==="1";d.dataset.on=isOn?"0":"1";var nOn=d.dataset.on==="1";d.classList.toggle("inactive",!nOn);d.querySelector(".dtog").classList.toggle("off",!nOn);var ord=lid==="searchList"?ST.search:ST.stream;var idx=ord.findIndex(function(x){return x.s===src});if(idx>-1)ord[idx].on=nOn;renderLists()});');
+  w('setupDrag(d,lid);return d}');
+
+  w('function renderLists(){["searchList","streamList"].forEach(function(lid){var ord=lid==="searchList"?ST.search:ST.stream;var el=document.getElementById(lid);if(!el)return;el.innerHTML="";var rank=1;ord.forEach(function(item){el.appendChild(buildItem(item.s,item.on,item.on?rank++:0,lid))})});');
   w('}');
 
-  w('function copyIt(urlId, btnId) {');
-  w('  var text = document.getElementById(urlId).textContent.trim(); if (!text) return;');
-  w('  navigator.clipboard.writeText(text).then(function() {');
-  w('    var btn = document.getElementById(btnId);');
-  w('    btn.textContent = "Copied!"; btn.classList.add("cp");');
-  w('    setTimeout(function() { btn.textContent = "Copy"; btn.classList.remove("cp"); }, 2000);');
-  w('  });');
+  w('function moveItem(btn,lid,dir){var item=btn.closest(".di");var src=item.dataset.source;var ord=lid==="searchList"?ST.search:ST.stream;var idx=ord.findIndex(function(x){return x.s===src});var ni=idx+parseInt(dir);if(ni<0||ni>=ord.length)return;var tmp=ord[idx];ord[idx]=ord[ni];ord[ni]=tmp;renderLists()}');
+
+  w('function setupDrag(item,lid){');
+  w('item.addEventListener("dragstart",function(e){item.classList.add("dragging");e.dataTransfer.effectAllowed="move";e.dataTransfer.setData("text/plain",item.dataset.source)});');
+  w('item.addEventListener("dragend",function(){item.classList.remove("dragging");document.querySelectorAll(".di").forEach(function(i){i.classList.remove("dragover")})});');
+  w('item.addEventListener("dragover",function(e){e.preventDefault();item.classList.add("dragover")});');
+  w('item.addEventListener("dragleave",function(){item.classList.remove("dragover")});');
+  w('item.addEventListener("drop",function(e){e.preventDefault();item.classList.remove("dragover");var from=e.dataTransfer.getData("text/plain");var to=item.dataset.source;if(from===to)return;var ord=lid==="searchList"?ST.search:ST.stream;var fi=ord.findIndex(function(x){return x.s===from});var ti=ord.findIndex(function(x){return x.s===to});if(fi<0||ti<0)return;var tmp=ord[fi];ord[fi]=ord[ti];ord[ti]=tmp;renderLists()});');
   w('}');
 
-  w('function v(id) { return (document.getElementById(id) || {}).value || ""; }');
+  // ISRC
+  w('function toggleIsrc(k){ISRC[k]=!ISRC[k];var btn=document.getElementById("btn-"+k);var itm=document.getElementById("itm-"+k);var warn=document.getElementById("warn-"+k);var on=ISRC[k];if(btn){btn.classList.toggle("on",on)}if(itm){itm.classList.toggle("off",!on)}if(warn)warn.style.display=on?"none":"block"}');
 
-  w('function doGenerate() {');
-  w('  var btn = document.getElementById("genBtn");');
-  w('  var vercel = v("vercelUrl").replace(/\\/+$/, "");');
-  w('  if (!vercel) vercel = window.location.origin;');
-  w('  if (vercel.indexOf("http") !== 0) vercel = "https://" + vercel;');
-  w('  btn.disabled = true; btn.textContent = "Generating...";');
-  w('  document.getElementById("genStatus").style.display = "none";');
-  w('  var body = { vercelUrl: vercel };');
-  w('  if (v("hifiInst"))       body.hifi             = v("hifiInst");');
-  w('  if (v("scId"))           body.sc               = v("scId");');
-  w('  if (v("scOAuth"))        body.sc_oauth         = v("scOAuth");');
-  w('  if (v("piKey"))          body.pi_key           = v("piKey");');
-  w('  if (v("piSecret"))       body.pi_secret        = v("piSecret");');
-  w('  if (v("taddyKey"))       body.taddy_key        = v("taddyKey");');
-  w('  if (v("taddyUid"))       body.taddy_uid        = v("taddyUid");');
-  w('  if (v("qobuzUserToken")) body.qobuz_user_token = v("qobuzUserToken");');
-  w('  if (v("qobuzSecret"))    body.qobuz_secret     = v("qobuzSecret");');
-  w('  if (v("qobuzAppId"))     body.qobuz_app_id     = v("qobuzAppId");');
-  w('  if (v("deezerArl"))      body.deezer_arl       = v("deezerArl");');
-  w('  if (selectedQuality)     body.q                = selectedQuality;');
-  w('  if (!ctEnabled.podcast)   body.no_podcast   = true;');
-  w('  if (!ctEnabled.audiobook) body.no_audiobook = true;');
-  w('  if (!ctEnabled.radio)     body.no_radio     = true;');
-  w('  if (searchOrder.length)  body.search_order  = searchOrder;');
-  w('  if (streamOrder.length)  body.stream_order  = streamOrder;');
-  w('  if (!isrcToggles.musicbrainz) body.no_musicbrainz = true;');
-  w('  if (!isrcToggles.theaudiodb)  body.no_theaudiodb  = true;');
-  w('  if (!isrcToggles.deezer_isrc) body.no_deezer_isrc = true;');
-  w('  if (!isrcToggles.qobuz_isrc)  body.no_qobuz_isrc  = true;');
-  w('  fetch("/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) })');
-  w('    .then(function(r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })');
-  w('    .then(function(data) {');
-  w('      if (data.error) throw new Error(data.error);');
-  w('      document.getElementById("urlMusic").textContent = data.manifestUrl;');
-  w('      var sp = data.podcastManifestUrl, sa = data.audiobookManifestUrl, sr = data.radioManifestUrl;');
-  w('      document.getElementById("out-podcast").style.display   = (ctEnabled.podcast   && sp) ? "" : "none";');
-  w('      document.getElementById("out-audiobook").style.display = (ctEnabled.audiobook && sa) ? "" : "none";');
-  w('      document.getElementById("out-radio").style.display     = (ctEnabled.radio     && sr) ? "" : "none";');
-  w('      if (sp) document.getElementById("urlPodcast").textContent   = sp;');
-  w('      if (sa) document.getElementById("urlAudiobook").textContent = sa;');
-  w('      if (sr) document.getElementById("urlRadio").textContent     = sr;');
-  w('      document.getElementById("genBox").style.display = "block";');
-  w('      showStatus("genStatus", "Done! Copy your install URLs below.", "ok");');
-  w('    })');
-  w('    .catch(function(e) { showStatus("genStatus", "Error: " + e.message, "err"); })');
-  w('    .finally(function() { btn.disabled = false; btn.textContent = "Generate My Addon URLs"; });');
+  // Summary
+  w('function renderSummary(){var g=document.getElementById("sumGrid");if(!g)return;');
+  w('var cl=Object.keys(ST.content).filter(function(k){return ST.content[k]}).map(function(k){return k[0].toUpperCase()+k.slice(1)});');
+  w('if(!cl.length)cl=["Music only"];');
+  w('var h="";');
+  w('h+=\'<div class="scard sc2"><span class="slbl">Content</span><div class="sval">\'+cl.join(" \u00b7 ")+\'</div></div>\';');
+  w('h+=\'<div class="scard"><span class="slbl">Search sources</span>\';ST.search.forEach(function(x){h+=\'<div class="srow2"><div class="sdot\'+(x.on?"":" off")+\'"></div><div class="sn2\'+(x.on?"":" off")+\'">\'+SRCS[x.s].name+"</div></div>"});h+="</div>";');
+  w('h+=\'<div class="scard"><span class="slbl">Stream sources</span>\';ST.stream.forEach(function(x){h+=\'<div class="srow2"><div class="sdot\'+(x.on?"":" off")+\'"></div><div class="sn2\'+(x.on?"":" off")+\'">\'+SRCS[x.s].name+"</div></div>"});h+="</div>";');
+  w('h+=\'<div class="scard sc2"><span class="slbl">Qobuz quality</span><div class="sval ac">\'+QLBLS[ST.q]+\'</div></div>\';');
+  w('g.innerHTML=h}');
+
+  // Generate
+  w('function generateUrls(){');
+  w('var btn=document.getElementById("genBtn");btn.disabled=true;btn.textContent="Generating\u2026";');
+  w('showStat("genStat","","");');
+  w('var body={');
+  w('vercelUrl:BASE||window.location.origin,');
+  w('hifi:(document.getElementById("hifiInst")||{}).value||"",');
+  w('sc:(document.getElementById("scId")||{}).value||"",');
+  w('sc_oauth:(document.getElementById("scOauth")||{}).value||"",');
+  w('pi_key:(document.getElementById("piKey")||{}).value||"",');
+  w('pi_secret:(document.getElementById("piSecret")||{}).value||"",');
+  w('taddy_key:(document.getElementById("taddyKey")||{}).value||"",');
+  w('taddy_uid:(document.getElementById("taddyUid")||{}).value||"",');
+  w('qobuz_token:(document.getElementById("qobuzToken")||{}).value||"",');
+  w('qobuz_secret:(document.getElementById("qobuzSecret")||{}).value||"",');
+  w('qobuz_app_id:(document.getElementById("qobuzAppId")||{}).value||"",');
+  w('deezer_arl:(document.getElementById("deezerArl")||{}).value||"",');
+  w('q:ST.q==="AUTO"?null:ST.q,');
+  w('no_podcast:!ST.content.podcast,no_audiobook:!ST.content.audiobook,no_radio:!ST.content.radio,');
+  w('no_musicbrainz:!ISRC.musicbrainz,no_theaudiodb:!ISRC.theaudiodb,no_deezer_isrc:!ISRC.deezer_isrc,no_qobuz_isrc:!ISRC.qobuz_isrc,');
+  w('search_order:ST.search.filter(function(x){return x.on}).map(function(x){return x.s}),');
+  w('stream_order:ST.stream.filter(function(x){return x.on}).map(function(x){return x.s}),');
+  w('blocked_isrcs:(document.getElementById("blockedIsrcs")||{}).value?((document.getElementById("blockedIsrcs").value).split("\\n").map(function(s){return s.trim()}).filter(Boolean)):[]');
+  w('};');
+  w('fetch("/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)})');
+  w('.then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json()})');
+  w('.then(function(data){if(data.error)throw new Error(data.error);');
+  w('var ob=document.getElementById("outbox");ob.innerHTML="";ob.style.display="block";');
+  w('var urls=data.urls||[];if(!urls.length&&data.manifestUrl)urls=[{label:"Music",url:data.manifestUrl}];');
+  w('urls.forEach(function(u){var label=u.label||u.type||"Addon";var url=u.url||u.manifestUrl||"";');
+  w('var d=document.createElement("div");d.className="ucard";');
+  w('d.innerHTML=\'<div class="ulbl">\'+label+\'</div><div class="urow"><div class="ubox">\'+url+\'</div><button class="cpybtn" onclick="copyText(\\"\'+url.replace(/"/g,\'\\\\"\')+(\'\\",this)">Copy</button></div>\');');
+  w('ob.appendChild(d)});');
+  w('showStat("genStat","Done! Copy your install URLs above.","ok")})');
+  w('.catch(function(e){showStat("genStat","Error: "+e.message,"err")})');
+  w('.finally(function(){btn.disabled=false;btn.innerHTML=\'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> Generate My Addon URLs\'})');
   w('}');
 
-  w('function doRefresh() {');
-  w('  var raw = v("existingUrl"); if (!raw) { showStatus("refStatus", "Paste your existing URL first.", "err"); return; }');
-  w('  fetch("/refresh", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ existingUrl: raw }) })');
-  w('    .then(function(r) { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })');
-  w('    .then(function(data) {');
-  w('      if (data.error) throw new Error(data.error);');
-  w('      document.getElementById("urlRef").textContent = data.manifestUrl;');
-  w('      document.getElementById("refBox").style.display = "block";');
-  w('      showStatus("refStatus", "Refreshed!", "ok");');
-  w('    })');
-  w('    .catch(function(e) { showStatus("refStatus", "Error: " + e.message, "err"); });');
+  // Refresh
+  w('function doRefresh(){var raw=(document.getElementById("existingUrl")||{}).value;if(!raw){showStat("refStat","Paste your existing URL first.","err");return}');
+  w('fetch("/refresh",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({existingUrl:raw})})');
+  w('.then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json()})');
+  w('.then(function(data){if(data.error)throw new Error(data.error);document.getElementById("urlRef").textContent=data.manifestUrl;document.getElementById("refBox").style.display="block";showStat("refStat","Refreshed!","ok")})');
+  w('.catch(function(e){showStat("refStat","Error: "+e.message,"err")})}');
+
+  // Helpers
+  w('function showStat(id,msg,type){var el=document.getElementById(id);if(!el)return;if(!msg){el.style.display="none";return}el.textContent=msg;el.className="stat "+(type==="ok"?"s-ok":"s-err");el.style.display="block"}');
+  w('function copyText(text,btn){navigator.clipboard.writeText(text).then(function(){if(btn){btn.textContent="Copied!";btn.classList.add("copied");setTimeout(function(){btn.textContent="Copy";btn.classList.remove("copied")},1800)}toast("Copied to clipboard")}).catch(function(){toast("Copy failed")})}');
+
+  w('var _tt=null;function toast(msg){var t=document.getElementById("toast");var m=document.getElementById("tmsg");if(!t||!m)return;m.textContent=msg;t.classList.add("show");if(_tt)clearTimeout(_tt);_tt=setTimeout(function(){t.classList.remove("show")},2200)}');
+
+  // HiFi health check
+  w('function checkHifi(){var list=document.getElementById("hifiList");if(!list)return;list.innerHTML=\'<div style="color:var(--mt);font-size:.72rem;padding:4px 0">Checking\u2026</div>\';');
+  w('fetch("/instances").then(function(r){return r.json()}).then(function(data){list.innerHTML="";if(!data.instances||!data.instances.length){list.innerHTML=\'<div style="color:var(--ft);font-size:.72rem;padding:4px 0">No instances configured.</div>\';return}');
+  w('data.instances.forEach(function(inst){var row=document.createElement("div");row.className="ir";row.style.cssText="display:flex;align-items:center;gap:8px;font-size:.72rem;padding:7px 10px;background:rgba(0,0,0,.25);border:1px solid var(--gbdr);border-radius:8px;margin-bottom:5px";');
+  w('var dot=document.createElement("span");dot.style.cssText="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:"+(inst.online?"#6ee7b7":"#f87171");');
+  w('var url=document.createElement("span");url.style.cssText="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--mt)";url.textContent=inst.url||inst;');
+  w('var stat=document.createElement("span");stat.style.cssText="font-size:.64rem;font-weight:600;color:"+(inst.online?"var(--ac)":"var(--er)");stat.textContent=inst.online?"Online":"Offline";');
+  w('row.appendChild(dot);row.appendChild(url);row.appendChild(stat);list.appendChild(row)})}).catch(function(){list.innerHTML=\'<div style="color:var(--er);font-size:.72rem;padding:4px 0">Could not load instance status.</div>\'})');
   w('}');
 
-  w('renderSRow("ss-", searchOrder); updateHint("searchHint", searchOrder);');
-  w('renderSRow("st-", streamOrder); updateHint("streamHint", streamOrder);');
-
-  w('function toggleIsrcSource(key) {');
-  w('  isrcToggles[key] = !isrcToggles[key];');
-  w('  var btn = document.getElementById("btn-" + key);');
-  w('  var itm = document.getElementById("itm-" + key);');
-  w('  var on = isrcToggles[key];');
-  w('  if (btn) { on ? btn.classList.add("on") : btn.classList.remove("on"); }');
-  w('  if (itm) { on ? itm.classList.add("on") : itm.classList.remove("on"); }');
-  w('  var warn = itm ? itm.querySelector(".itwarn") : null;');
-  w('  if (warn) warn.style.display = (!on) ? "block" : "none";');
-  w('}');
-
-
-
-  w('function checkHifiHealth(){');
-  w('  var list=document.getElementById("hifiInstList");');
-  w('  if(!list)return;');
-  w('  list.innerHTML=\'<div style="color:var(--muted);font-size:.75rem">Checking\u2026</div>\';');
-  w('  fetch("/instances").then(function(r){return r.json();}).then(function(data){');
-  w('    list.innerHTML="";');
-  w('    if(!data.instances||!data.instances.length){list.innerHTML=\'<div style="color:var(--muted);font-size:.75rem">No instances configured.</div>\';return;}');
-  w('    data.instances.forEach(function(inst){');
-  w('      var row=document.createElement("div");');
-  w('      row.style.cssText="display:flex;align-items:center;gap:8px;font-size:.72rem;padding:7px 10px;background:var(--bg);border:1px solid var(--bdr);border-radius:8px";');
-  w('      var dot=document.createElement("span");');
-  w('      dot.style.cssText="width:7px;height:7px;border-radius:50%;flex-shrink:0;background:"+(inst.online?"#4a9a4a":"#c04040");');
-  w('      var urlSpan=document.createElement("span");');
-  w('      urlSpan.style.cssText="flex:1;color:var(--muted);font-family:monospace;overflow:hidden;text-overflow:ellipsis;white-space:nowrap";');
-  w('      var raw=(inst.inst||inst.url||"").replace(/^https?:\\/\\//,"").replace(/\\/$/,"");');
-  w('      var dashIdx=raw.indexOf("-");');
-  w('      var dotIdx=raw.lastIndexOf(".");');
-  w('      var masked;');
-  w('      if(dashIdx>0&&dotIdx>dashIdx){masked=raw.slice(0,dashIdx+5)+"\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"+raw.slice(dotIdx);}');
-  w('      else{masked=raw.slice(0,4)+"\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"+raw.slice(dotIdx>0?dotIdx:"");}');
-  w('      urlSpan.textContent=masked;');
-  w('      row.appendChild(dot);row.appendChild(urlSpan);');
-  w('      if(inst.online){var ms=document.createElement("span");ms.style.cssText="color:var(--faint);margin-left:auto;font-size:.65rem";ms.textContent=(inst.latency||inst.ms||0)+"ms";row.appendChild(ms);}');
-  w('      list.appendChild(row);');
-  w('    });');
-  w('  }).catch(function(){list.innerHTML=\'<div style="color:#c04040;font-size:.72rem">Could not reach server</div>\';});');
-  w('}');
-  w('checkHifiHealth();');
-
-  w('<\/script>');
-  w('<\/body>');
-  w('<\/html>');
+  w('</script>');
+  w('</body></html>');
 
   return S.join('\n');
 }
