@@ -120,12 +120,19 @@ const axios = {
 // ─── Token / Config Parsing ──────────────────────────────────────────────────
 function parseToken(tokenStr) {
   if (!tokenStr || tokenStr === 'noop') return {};
+  // Strip optional ~addonName suffix before JSON decode
+  var raw = tokenStr.includes('~') ? tokenStr.split('~')[0] : tokenStr;
   try {
-    const json = decodeBase64Url(tokenStr);
-    return JSON.parse(json);
+    const json = decodeBase64Url(raw);
+    const parsed = JSON.parse(json);
+    // Re-attach embedded addon name if present
+    if (tokenStr.includes('~') && !parsed.addon_name) {
+      try { parsed.addon_name = decodeBase64Url(tokenStr.split('~')[1]); } catch {}
+    }
+    return parsed;
   } catch {
     try {
-      const json = decodeBase64(tokenStr);
+      const json = decodeBase64(raw);
       return JSON.parse(json);
     } catch { return {}; }
   }
@@ -2886,11 +2893,14 @@ async function somaFmSearch(query) {
 
 function buildManifest(token, type) {
   const prefix = `com.eclipse.universal${token ? '.' + token.slice(0, 8) : ''}`;
+  // Parse token to get custom addon name if set
+  const cfg = token ? parseToken(token) : {};
+  const customName = (cfg.addon_name && cfg.addon_name.trim()) ? cfg.addon_name.trim() : null;
 
   if (type === 'podcast') {
     return {
       id: prefix + '.podcast',
-      name: 'Podcasts',
+      name: customName ? customName + ' — Podcasts' : 'Podcasts',
       version: '1.4.0',
       description: 'Podcast episodes and series from Podcast Index, Taddy, and Apple Podcasts',
       icon: 'https://www.jermelpresident.com/wp-content/uploads/2020/10/ApplePodcastHP.jpg',
@@ -2903,7 +2913,7 @@ function buildManifest(token, type) {
   if (type === 'audiobook') {
     return {
       id: prefix + '.audiobook',
-      name: 'Audiobooks',
+      name: customName ? customName + ' — Audiobooks' : 'Audiobooks',
       version: '1.4.0',
       description: 'Public domain audiobooks from LibriVox and Internet Archive',
       icon: 'https://play-lh.googleusercontent.com/-x0uIYaNWONIRefvL7u4pi75rh4fi5441J0EelEpoOaGRZbAPdhRqKxBu-cvvCV5dw',
@@ -2916,7 +2926,7 @@ function buildManifest(token, type) {
   if (type === 'radio') {
     return {
       id: prefix + '.radio',
-      name: 'Radio',
+      name: customName ? customName + ' — Radio' : 'Radio',
       version: '1.4.0',
       description: 'Live internet radio from Radio Browser (250 k+ stations) and SomaFM',
       icon: 'https://img.freepik.com/premium-vector/radio-icon-vector-logo-template_917138-1337.jpg',
@@ -2929,7 +2939,7 @@ function buildManifest(token, type) {
   // Default: music
   return {
     id: prefix,
-    name: 'All In One',
+    name: customName || 'All In One',
     version: '1.4.0',
     description: 'All-in-one: HiFi music, SoundCloud, Internet Archive, Podcasts, Audiobooks, and Live Radio',
     icon: 'https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcTueIUOQATc6lrir4FpwhFl9P656MBFPkvOV03N5P3zlA&s=10',
@@ -5359,22 +5369,13 @@ async function handleArtist(c) {
         const arData = arRes.data || {};
         if (!arData?.id && !arData?.name) continue;
         const artistName = arData.name || '';
-        // Use picture hash to build canonical Qobuz square CDN URL (_600.jpg)
-        // This bypasses image.large which can be a landscape promo photo on some proxies
-        let cover = null;
-        if (arData.picture && typeof arData.picture === 'string' && arData.picture.length > 5) {
-          // picture is a hash like "ab12cd34ef..." - build canonical square URL
+        // Artist cover: prefer image fields (full URL), fallback to picture hash → CDN URL
+        let cover = arData.image?.large || arData.image?.thumbnail || arData.image?.small || null;
+        if (!cover && arData.picture && typeof arData.picture === 'string' && arData.picture.length > 5) {
+          // picture is a hash → build canonical square CDN URL
           cover = `https://static.qobuz.com/images/artists/covers/${arData.picture}_600.jpg`;
-        } else {
-          // Fallback: try image fields, normalize any CDN URL to _600.jpg square
-          const _raw = arData.image?.large || arData.image?.thumbnail || arData.image?.small || null;
-          if (_raw && _raw.includes('/images/artists/covers/')) {
-            cover = _raw.replace(/(_org|_\d+)(\.jpg)$/i, '_600$2');
-            if (!/_\d+\.jpg$/i.test(cover)) cover = cover.replace(/\.jpg$/i, '_600.jpg');
-          } else {
-            cover = _raw || (arData.images && arData.images[0]) || null;
-          }
         }
+        if (!cover && arData.images && arData.images.length) cover = arData.images[0];
 
         // Run search queries in parallel: general, EP/Single, compilation, live
         // to maximise album type coverage since proxy has no dedicated albums endpoint
@@ -6235,6 +6236,11 @@ function buildConfigPage(baseUrl, env) {
   w('<div class="panel glass" data-panel="5">');
   w('<div class="panel-head"><div><div class="panel-title">Your addon URLs</div><div class="panel-desc">Copy these into Eclipse to install your addon.</div></div></div>');
   w('<div class="summary-grid" id="summaryGrid"></div>');
+  w('<div class="field-group" style="margin-bottom:14px">');
+  w('<label class="field-label" style="display:block;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin-bottom:6px">Addon Name <span style="font-weight:400;text-transform:none;opacity:.5">(optional)</span></label>');
+  w('<input type="text" id="addonNameInput" placeholder="My Eclipse Addon" maxlength="40" style="width:100%;background:var(--glass-bg);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);font-size:13px;padding:10px 12px;outline:none;margin-bottom:6px" />');
+  w('<div style="font-size:11px;color:var(--muted);opacity:.6">Shown in Eclipse\'s connections list. Leave blank to use the default name.</div>');
+  w('</div>');
   w('<div id="genStatus" class="status"></div>');
   w('<button class="btn btn-primary" id="genBtn" style="width:100%;margin-bottom:12px" onclick="generateUrls()"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>Generate My Addon URLs</button>');
   w('<div class="outbox" id="outbox"></div>');
@@ -6310,7 +6316,7 @@ function buildConfigPage(baseUrl, env) {
 
   w('function renderSummary(){var grid=document.getElementById("summaryGrid");if(!grid)return;var contentList=Object.keys(state.content).filter(function(k){return state.content[k]}).map(function(k){return k[0].toUpperCase()+k.slice(1)});if(!contentList.length)contentList=["Music only"];var html="";html+=\'<div class="sum-card"><span class="sum-label">Content</span><div class="sum-value">\'+contentList.join(" &middot; ")+\'</div></div>\';html+=\'<div class="sum-card"><span class="sum-label">Search sources</span>\';state.searchOrder.forEach(function(x){html+=\'<div class="sum-row"><div class="sum-dot\'+(x.on?"":" off")+\'"></div><div class="sum-source-name\'+(x.on?"":" off")+\'">\'+SOURCES[x.s].name+\'</div></div>\'});html+=\'</div>\';html+=\'<div class="sum-card"><span class="sum-label">Stream sources</span>\';state.streamOrder.forEach(function(x){html+=\'<div class="sum-row"><div class="sum-dot\'+(x.on?"":" off")+\'"></div><div class="sum-source-name\'+(x.on?"":" off")+\'">\'+SOURCES[x.s].name+\'</div></div>\'});html+=\'</div>\';html+=\'<div class="sum-card"><span class="sum-label">Qobuz quality</span><div class="sum-value accent">\'+QOBUZ_TIER_LABELS[state.qobuzQuality]+\'</div></div>\';grid.innerHTML=html}');
 
-  w('function generateUrls(){var btn=document.getElementById("genBtn");btn.disabled=true;btn.textContent="Generating\u2026";showStatus("genStatus","","");var body={vercelUrl:BASE_URL||window.location.origin,hifi:(document.getElementById("hifiInst")||{}).value||"",sc:(document.getElementById("scId")||{}).value||"",sc_oauth:(document.getElementById("scOauth")||{}).value||"",pi_key:(document.getElementById("piKey")||{}).value||"",pi_secret:(document.getElementById("piSecret")||{}).value||"",taddy_key:(document.getElementById("taddyKey")||{}).value||"",taddy_uid:(document.getElementById("taddyUid")||{}).value||"",qobuz_token:(document.getElementById("qobuzUserToken")||{}).value||"",qobuz_secret:(document.getElementById("qobuzSecret")||{}).value||"",qobuz_app_id:(document.getElementById("qobuzAppId")||{}).value||"",deezer_arl:(document.getElementById("deezerArl")||{}).value||"",q:state.qobuzQuality==="AUTO"?null:state.qobuzQuality,no_podcast:!state.content.podcast,no_audiobook:!state.content.audiobook,no_radio:!state.content.radio,no_explicit:!state.content.explicit,no_musicbrainz:!isrcToggles.musicbrainz,no_theaudiodb:!isrcToggles.theaudiodb,no_deezer_isrc:!isrcToggles.deezer_isrc,no_qobuz_isrc:!isrcToggles.qobuz_isrc,search_order:state.searchOrder.filter(function(x){return x.on}).map(function(x){return x.s}),stream_order:state.streamOrder.filter(function(x){return x.on}).map(function(x){return x.s}),blocked_isrcs:(document.getElementById("blockedIsrcs")||{}).value?((document.getElementById("blockedIsrcs")||{}).value.split("\\n").map(function(s){return s.trim()}).filter(Boolean)):[]};fetch("/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json()}).then(function(data){if(data.error)throw new Error(data.error);var outbox=document.getElementById("outbox");outbox.innerHTML="";outbox.style.display="block";var urls=data.urls||[];if(!urls.length){if(data.manifestUrl)urls.push({label:"🎵 Music",url:data.manifestUrl});if(data.podcastManifestUrl&&!body.no_podcast)urls.push({label:"🎤 Podcasts — install separately for podcast player (±15s skip, speed control)",url:data.podcastManifestUrl});if(data.audiobookManifestUrl&&!body.no_audiobook)urls.push({label:"📚 Audiobooks — install separately for audiobook player (±30s skip, speed control)",url:data.audiobookManifestUrl});if(data.radioManifestUrl&&!body.no_radio)urls.push({label:"📻 Live Radio — install separately for radio-only addon (Radio Browser + SomaFM)",url:data.radioManifestUrl});}urls.forEach(function(u){var label=u.label||u.type||"Addon";var url=u.url||u.manifestUrl||"";var div=document.createElement("div");div.className="url-card";div.innerHTML=\'<div class="url-label">\'+label+\'</div><div class="url-row"><div class="url-box">\'+url+\'</div><button class="copy-btn" onclick="copyText(this.previousElementSibling.textContent,this)">Copy</button></div>\';outbox.appendChild(div)});showStatus("genStatus","Done! Copy your install URLs above.","ok")}).catch(function(e){showStatus("genStatus","Error: "+e.message,"err")}).finally(function(){btn.disabled=false;btn.innerHTML=\'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> Generate My Addon URLs\'})}');
+  w('function generateUrls(){var btn=document.getElementById("genBtn");btn.disabled=true;btn.textContent="Generating\u2026";showStatus("genStatus","","");var body={vercelUrl:BASE_URL||window.location.origin,hifi:(document.getElementById("hifiInst")||{}).value||"",sc:(document.getElementById("scId")||{}).value||"",sc_oauth:(document.getElementById("scOauth")||{}).value||"",pi_key:(document.getElementById("piKey")||{}).value||"",pi_secret:(document.getElementById("piSecret")||{}).value||"",taddy_key:(document.getElementById("taddyKey")||{}).value||"",taddy_uid:(document.getElementById("taddyUid")||{}).value||"",qobuz_token:(document.getElementById("qobuzUserToken")||{}).value||"",qobuz_secret:(document.getElementById("qobuzSecret")||{}).value||"",qobuz_app_id:(document.getElementById("qobuzAppId")||{}).value||"",deezer_arl:(document.getElementById("deezerArl")||{}).value||"",q:state.qobuzQuality==="AUTO"?null:state.qobuzQuality,no_podcast:!state.content.podcast,no_audiobook:!state.content.audiobook,no_radio:!state.content.radio,no_explicit:!state.content.explicit,no_musicbrainz:!isrcToggles.musicbrainz,no_theaudiodb:!isrcToggles.theaudiodb,no_deezer_isrc:!isrcToggles.deezer_isrc,no_qobuz_isrc:!isrcToggles.qobuz_isrc,search_order:state.searchOrder.filter(function(x){return x.on}).map(function(x){return x.s}),stream_order:state.streamOrder.filter(function(x){return x.on}).map(function(x){return x.s}),blocked_isrcs:(document.getElementById("blockedIsrcs")||{}).value?((document.getElementById("blockedIsrcs")||{}).value.split("\\n").map(function(s){return s.trim()}).filter(Boolean)):[],addon_name:(document.getElementById("addonNameInput")||{}).value?(document.getElementById("addonNameInput")||{}).value.trim():""};fetch("/generate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json()}).then(function(data){if(data.error)throw new Error(data.error);var outbox=document.getElementById("outbox");outbox.innerHTML="";outbox.style.display="block";var urls=data.urls||[];if(!urls.length){if(data.manifestUrl)urls.push({label:"🎵 Music",url:data.manifestUrl});if(data.podcastManifestUrl&&!body.no_podcast)urls.push({label:"🎤 Podcasts — install separately for podcast player (±15s skip, speed control)",url:data.podcastManifestUrl});if(data.audiobookManifestUrl&&!body.no_audiobook)urls.push({label:"📚 Audiobooks — install separately for audiobook player (±30s skip, speed control)",url:data.audiobookManifestUrl});if(data.radioManifestUrl&&!body.no_radio)urls.push({label:"📻 Live Radio — install separately for radio-only addon (Radio Browser + SomaFM)",url:data.radioManifestUrl});}urls.forEach(function(u){var label=u.label||u.type||"Addon";var url=u.url||u.manifestUrl||"";var div=document.createElement("div");div.className="url-card";div.innerHTML=\'<div class="url-label">\'+label+\'</div><div class="url-row"><div class="url-box">\'+url+\'</div><button class="copy-btn" onclick="copyText(this.previousElementSibling.textContent,this)">Copy</button></div>\';outbox.appendChild(div)});showStatus("genStatus","Done! Copy your install URLs above.","ok")}).catch(function(e){showStatus("genStatus","Error: "+e.message,"err")}).finally(function(){btn.disabled=false;btn.innerHTML=\'<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg> Generate My Addon URLs\'})}');
 
   w('function doRefresh(){var raw=(document.getElementById("existingUrl")||{}).value;if(!raw){showStatus("refStatus","Paste your existing URL first.","err");return}fetch("/refresh",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({existingUrl:raw})}).then(function(r){if(!r.ok)throw new Error("HTTP "+r.status);return r.json()}).then(function(data){if(data.error)throw new Error(data.error);document.getElementById("urlRef").textContent=data.manifestUrl;document.getElementById("refBox").style.display="block";showStatus("refStatus","Refreshed!","ok")}).catch(function(e){showStatus("refStatus","Error: "+e.message,"err")})}');
 
@@ -6376,6 +6382,8 @@ app.post('/generate', async function(c) {
   if (b.qobuz_secret)     cfg.qobuz_secret     = b.qobuz_secret;
   if (b.qobuz_app_id)     cfg.qobuz_app_id     = b.qobuz_app_id;
   if (b.deezer_arl)       cfg.deezer_arl       = b.deezer_arl;
+  if (b.addon_name && typeof b.addon_name === 'string' && b.addon_name.trim())
+    cfg.addon_name = b.addon_name.trim().slice(0, 40);
 
   // Always generate a tokenized URL, even when no optional keys are set.
   // This keeps podcast/audiobook installs on the token-prefixed route shape:
@@ -6384,6 +6392,10 @@ app.post('/generate', async function(c) {
   // and avoids the bare /podcast/manifest.json path the user reported as unreliable.
   var token = encodeBase64Url(JSON.stringify(cfg));
   if (!token) token = 'e30';
+  // Append ~base64url(addonName) so Eclipse shows a custom connection name
+  if (cfg.addon_name) {
+    token = token + '~' + encodeBase64Url(cfg.addon_name);
+  }
 
   return c.json({
     manifestUrl:          vercel + '/' + token + '/manifest.json',
