@@ -3074,13 +3074,13 @@ async function qobuzGet(url, params, timeout = 7000) {
 const _rlWindows = new Map(); // "ip:type" -> { count, windowStart }
 
 const RL_CFG = {
-  stream:   { window: 60_000, max: 40  },
-  search:   { window: 60_000, max: 25  },
-  catalog:  { window: 60_000, max: 20  },
-  resolve:  { window: 60_000, max: 20  },
-  dzProxy:  { window: 60_000, max: 30  },
-  manifest: { window: 60_000, max: 8   },
-  global:   { window: 60_000, max: 80  },
+  stream:   { window: 60_000, max: 120 },
+  search:   { window: 60_000, max: 100 },  // raised: 25 was too low, blocked legitimate podcast searches
+  catalog:  { window: 60_000, max: 80  },
+  resolve:  { window: 60_000, max: 60  },
+  dzProxy:  { window: 60_000, max: 60  },
+  manifest: { window: 60_000, max: 60  },  // raised: 8 was too low, blocked manifest installs
+  global:   { window: 60_000, max: 200 },
 };
 
 // CF Workers: setInterval is not allowed in global scope.
@@ -3580,8 +3580,6 @@ app.get('/:token/search', handleSearch);
 
 // ─── Podcast-only search (/podcast/search) ───────────────────────────────────
 async function handlePodcastSearch(c) {
-  const _rlResPs = await applyRateLimit(c, 'search');
-  if (_rlResPs) return _rlResPs;
   const query = c.req.query('q') || '';
   if (!query || query.trim().length < 2) return c.json({ tracks: [], albums: [], artists: [], playlists: [] });
   const cfg = getConfig(c);
@@ -3646,8 +3644,6 @@ async function handlePodcastSearch(c) {
 
 // ─── Audiobook-only search (/audiobook/search) ───────────────────────────────
 async function handleAudiobookSearch(c) {
-  const _rlResAs = await applyRateLimit(c, 'search');
-  if (_rlResAs) return _rlResAs;
   const query = c.req.query('q') || '';
   if (!query) return c.json({ tracks: [], albums: [], artists: [], playlists: [] });
   const cfg = getConfig(c);
