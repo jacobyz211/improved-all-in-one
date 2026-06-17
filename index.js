@@ -2925,7 +2925,28 @@ function buildManifest(token, type) {
       icon: 'https://www.jermelpresident.com/wp-content/uploads/2020/10/ApplePodcastHP.jpg',
       resources: ['search', 'stream', 'catalog'],
       types: ['track', 'album', 'artist', 'playlist'],
+      idPrefixes: ['pi_ep_', 'taddy_ep_', 'apple_ep_', 'pi_series_', 'taddy_series_', 'apple_series_'],
       contentType: 'podcast',
+      catalogs: [
+        {
+          id: 'podcast-episodes',
+          type: 'track',
+          name: 'Podcast Episodes',
+          extra: [{ name: 'search', isRequired: true }],
+        },
+        {
+          id: 'podcast-series',
+          type: 'playlist',
+          name: 'Podcast Shows',
+          extra: [{ name: 'search', isRequired: true }],
+        },
+        {
+          id: 'podcast-albums',
+          type: 'album',
+          name: 'Podcast Shows (Albums)',
+          extra: [{ name: 'search', isRequired: true }],
+        },
+      ],
     };
   }
 
