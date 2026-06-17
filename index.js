@@ -2920,7 +2920,7 @@ function buildManifest(token, type) {
     return {
       id: prefix + '.podcast',
       name: customName ? customName + ' — Podcasts' : 'Podcasts',
-      version: '1.4.0',
+      version: '1.4.1',
       description: 'Podcast episodes and series from Podcast Index, Taddy, and Apple Podcasts',
       icon: 'https://www.jermelpresident.com/wp-content/uploads/2020/10/ApplePodcastHP.jpg',
       resources: ['search', 'stream', 'catalog'],
@@ -2932,19 +2932,19 @@ function buildManifest(token, type) {
           id: 'podcast-episodes',
           type: 'track',
           name: 'Podcast Episodes',
-          extra: [{ name: 'search', isRequired: true }],
+          extra: [{ name: 'search' }],
         },
         {
           id: 'podcast-series',
           type: 'playlist',
           name: 'Podcast Shows',
-          extra: [{ name: 'search', isRequired: true }],
+          extra: [{ name: 'search' }],
         },
         {
           id: 'podcast-albums',
           type: 'album',
           name: 'Podcast Shows (Albums)',
-          extra: [{ name: 'search', isRequired: true }],
+          extra: [{ name: 'search' }],
         },
       ],
     };
@@ -3730,6 +3730,71 @@ async function handleAudiobookSearch(c) {
 // ─── Sub-routes for podcast manifest base URL ────────────────────────────────
 app.get('/podcast/search',              handlePodcastSearch);
 app.get('/:token/podcast/search',       handlePodcastSearch);
+
+// ─── Podcast catalog routes (Eclipse calls /catalog/{type}/{id}.json?search=q) ─
+async function handlePodcastCatalog(c) {
+  const query = c.req.query('search') || c.req.query('q') || '';
+  if (!query || query.trim().length < 1) {
+    return c.json({ tracks: [], albums: [], playlists: [] });
+  }
+  const cfg = getConfig(c);
+  const catalogId = c.req.param('id') || '';
+  const cacheKey = `catalog:podcast:${catalogId}:${c.req.param('token') || 'noop'}:${query}`;
+  const cached = await cacheGet(cacheKey);
+  if (cached) return c.json(cached);
+
+  const [podcastData, taddyData, appleData] = await Promise.allSettled([
+    piSearchEpisodes(query, cfg.piKey, cfg.piSecret),
+    taddySearch(query, cfg.taddyKey, cfg.taddyUid),
+    appleSearch(query),
+  ]);
+
+  const get = r => (r.status === 'fulfilled' ? r.value : null) || {};
+  const piResult    = get(podcastData);
+  const taddyResult = get(taddyData);
+  const appleResult = get(appleData);
+
+  // Merge episodes (dedupe by title)
+  const episodeTitles = new Set();
+  const allEpisodes = [];
+  for (const ep of [...(piResult.episodes||[]), ...(taddyResult.episodes||[]), ...(appleResult.episodes||[])]) {
+    const key = ep.title?.toLowerCase().slice(0, 40);
+    if (!episodeTitles.has(key)) { episodeTitles.add(key); allEpisodes.push(ep); }
+  }
+  // Merge series/playlists (dedupe by title)
+  const seriesTitles = new Set();
+  const allSeries = [];
+  for (const s of [...(piResult.playlists||[]), ...(taddyResult.playlists||[]), ...(appleResult.playlists||[])]) {
+    const key = s.title?.toLowerCase().slice(0, 40);
+    if (!seriesTitles.has(key)) { seriesTitles.add(key); allSeries.push(s); }
+  }
+  // Merge podcast show albums (dedupe by id)
+  const podcastAlbumSet = new Set();
+  const podcastAlbums = [];
+  for (const a of [...(piResult.albums||[]), ...(taddyResult.albums||[]), ...(appleResult.albums||[])]) {
+    if (!podcastAlbumSet.has(a.id)) { podcastAlbumSet.add(a.id); podcastAlbums.push(a); }
+  }
+
+  let result;
+  if (catalogId === 'podcast-episodes') {
+    result = { tracks: allEpisodes.slice(0, 40) };
+  } else if (catalogId === 'podcast-series') {
+    result = { playlists: allSeries.slice(0, 20) };
+  } else if (catalogId === 'podcast-albums') {
+    result = { albums: podcastAlbums.slice(0, 12) };
+  } else {
+    result = {
+      tracks:    allEpisodes.slice(0, 40),
+      albums:    podcastAlbums.slice(0, 12),
+      playlists: allSeries.slice(0, 20),
+    };
+  }
+  await cacheSet(cacheKey, result, 180);
+  return c.json(result);
+}
+
+app.get('/podcast/catalog/:type/:id',           handlePodcastCatalog);
+app.get('/:token/podcast/catalog/:type/:id',    handlePodcastCatalog);
 app.get('/podcast/stream/:id',          handleStream);
 app.get('/:token/podcast/stream/:id',   handleStream);
 app.get('/podcast/album/:id',           handleAlbumWithHifi);
