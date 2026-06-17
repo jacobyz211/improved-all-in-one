@@ -3625,7 +3625,17 @@ async function handlePodcastSearch(c) {
   // ── Albums: iTunes show albums + PI feeds + Taddy podcasts ───────────────
   const allAlbums = [];
   const seenAlbumId = new Set();
-  for (const a of [...itunesAlbums, ...piFeeds.map(f => ({ id: 'pi_' + String(f.id || f.feedId || ''), title: String(f.title || '').trim(), artist: String(f.author || f.ownerName || '').trim(), artworkURL: f.image || f.artwork || f.artworkUrl || null, trackCount: f.episodeCount || null, year: f.newestItemPublishTime ? String(new Date(f.newestItemPublishTime * 1000).getFullYear()) : null, source: 'pi', _isPodcast: true }))]]) {
+  const piFeedAlbums = piFeeds.map(f => ({
+    id: 'pi_' + String(f.id || f.feedId || ''),
+    title: String(f.title || '').trim(),
+    artist: String(f.author || f.ownerName || '').trim(),
+    artworkURL: f.image || f.artwork || f.artworkUrl || null,
+    trackCount: f.episodeCount || null,
+    year: f.newestItemPublishTime ? String(new Date(f.newestItemPublishTime * 1000).getFullYear()) : null,
+    source: 'pi',
+    _isPodcast: true,
+  }));
+  for (const a of [...itunesAlbums, ...piFeedAlbums]) {
     if (a.id && !seenAlbumId.has(a.id)) { seenAlbumId.add(a.id); allAlbums.push(a); }
   }
   // Taddy playlists as albums
