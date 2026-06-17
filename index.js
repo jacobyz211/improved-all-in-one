@@ -389,7 +389,7 @@ async function qobuzNativeStream(trackId, formatId, env) {
     '&track_id='+trackId+'&format_id='+formatId+
     '&intent=stream&request_ts='+ts+'&request_sig='+sig;
   const ctrl=new AbortController();
-  const timer=setTimeout(()=>ctrl.abort(),7000); // 7s — faster fallback to proxies
+  const timer=setTimeout(()=>ctrl.abort(),7000);
   try {
     const r=await fetch(url,{headers:{'User-Agent':UA},signal:ctrl.signal});
     clearTimeout(timer);
@@ -635,7 +635,7 @@ async function qobuzSearch(query) {
         id:         `qobuzalbum_${a.id}`,
         title:      a.title || 'Unknown Album',
         artist:     a.artist?.name || 'Unknown',
-        artworkURL: a.image?.large || a.image?.small || null,
+        artworkURL: a.image?.thumbnail || a.image?.small || a.image?.large || null,
         year:       safeYear(a.release_date_original),
         source:     'qobuz',
       }));
@@ -656,7 +656,7 @@ async function qobuzSearch(query) {
           }
           // Priority 2: a.picture is a bare hash → construct static URL
           if (a.picture && a.picture.length > 5 && !a.picture.startsWith('http')) {
-            return `https://static.qobuz.com/images/artists/covers/${a.picture}_600.jpg`;
+            return `https://static.qobuz.com/images/artists/covers/${a.picture}_300.jpg`;
           }
           // Priority 3: a.picture is already a full URL (rare proxy variants)
           if (a.picture && a.picture.startsWith('http')) return a.picture;
@@ -954,8 +954,7 @@ async function hifiStream(id, extraInstances, preferredQuality) {
   // Each tier is tried fully before falling to the next, so LOSSLESS is always
   // attempted before HIGH or LOW (fixes the bug where LOW won the race).
   async function tryInstance(inst, ql) {
-    // 2.5s timeout — warm Render instances respond in ~300ms, 2.5s covers most cases
-    // and lets phase 2 kick in sooner on cold-start scenarios
+    // 3.5s timeout — render.com free tier has cold starts up to 3s on first wake
     try {
       const r = await axios.get(`${inst}/track/`, {
         params: { id: origId, quality: ql },
@@ -1797,7 +1796,7 @@ const DEEZER_API = 'https://api.deezer.com'; // public API for metadata only
 
 // ── In-memory session cache (ARL prefix → {sid, apiToken, licenseToken, userId}) ──
 const _DZ_SESSION_CACHE = new Map();
-function _dzSessionSet(arlKey, val) { _DZ_SESSION_CACHE.set(arlKey, { val, exp: Date.now() + 1200000 }); } // 20min TTL (Deezer sessions valid ~1hr)
+function _dzSessionSet(arlKey, val) { _DZ_SESSION_CACHE.set(arlKey, { val, exp: Date.now() + 1200000 }); } // 20min TTL
 function _dzSessionGet(arlKey) { const e = _DZ_SESSION_CACHE.get(arlKey); if (!e) return null; if (Date.now() > e.exp) { _DZ_SESSION_CACHE.delete(arlKey); return null; } return e.val; }
 
 // ── In-memory stream cache (trackId → {url, cipher, blowfishKey, quality}) ──
@@ -2093,14 +2092,11 @@ function dzBfF(x, S) {
 }
 
 // ── BF key expansion cache — expanded keys are reused across requests ────────
-// Deezer uses the same blowfish key for the same track, so we cache expanded
-// keys to eliminate re-expansion on every /dz-proxy chunk request.
 const _DZ_BF_EXPANDED = new Map();
 
 // ── Expand BF key SYNCHRONOUSLY (no yields) — ~0.3ms on V8, safe for CF ────
-// Yields were added to stay under a 10ms CPU budget per microtask, but they
-// introduce 50-200ms of latency before the first byte of audio. The actual
-// expansion is fast enough (~0.3-0.5ms) that yields are unnecessary.
+// Yields were added to stay under a 10ms CPU budget, but they add 50-200ms of
+// latency before the first audio byte. Expansion is fast enough without them.
 function dzBfExpandKeySync(keyStr) {
   const cached = _DZ_BF_EXPANDED.get(keyStr);
   if (cached) return cached;
@@ -2122,18 +2118,10 @@ function dzBfExpandKeySync(keyStr) {
   }
   const result = { P, S };
   _DZ_BF_EXPANDED.set(keyStr, result);
-  // Evict oldest entries if cache grows too large (safety net for long-running workers)
-  if (_DZ_BF_EXPANDED.size > 500) {
-    const firstKey = _DZ_BF_EXPANDED.keys().next().value;
-    _DZ_BF_EXPANDED.delete(firstKey);
-  }
+  if (_DZ_BF_EXPANDED.size > 500) { _DZ_BF_EXPANDED.delete(_DZ_BF_EXPANDED.keys().next().value); }
   return result;
 }
-
-// Kept as async for backward compat — resolves synchronously from cache
-async function dzBfExpandKey(keyStr) {
-  return dzBfExpandKeySync(keyStr);
-}
+async function dzBfExpandKey(keyStr) { return dzBfExpandKeySync(keyStr); }
 
 // ── Fast BF-CBC decrypt using pre-expanded {P,S} — IV=[0,1,2,3,4,5,6,7] ─────
 function dzBfDecryptBlockFast(data, { P, S }) {
@@ -2163,17 +2151,13 @@ async function dzGetPremiumStreamInfo(trackId, arl, env) {
     if (session) {
       ({ sid, apiToken, licenseToken, userId } = session);
     } else {
-      // Ping and getUserData run sequentially (SID needed for getUserData cookie)
-      // but we cache the result aggressively so this only runs once per 10 minutes.
       sid          = await dzPing(arl);
       const userRaw = await dzGw('deezer.getUserData', {}, arl, sid, 'null');
       apiToken     = userRaw?.results?.checkForm || 'null';
       licenseToken = userRaw?.results?.USER?.OPTIONS?.license_token || null;
       userId       = userRaw?.results?.USER?.USER_ID || 0;
       if (userId && userId !== 0) {
-        // Extend session TTL to 10 minutes (was implicit ~10min via _dzSessionSet)
         _dzSessionSet(arlKey, { sid, apiToken, licenseToken, userId });
-        console.log(`[deezer] Session established for userId=${userId}`);
       }
     }
 
@@ -2189,13 +2173,11 @@ async function dzGetPremiumStreamInfo(trackId, arl, env) {
       }
     } catch {}
 
-    // Run getListData and getData in parallel — use whichever returns valid track data first
     const [listRaw, singleRaw] = await Promise.all([
       dzGw('song.getListData', { sng_ids: [String(trackId)] }, arl, sid, apiToken),
       dzGw('song.getData', { SNG_ID: String(trackId) }, arl, sid, apiToken),
     ]);
     let song = listRaw?.results?.data?.[0];
-    // Prefer getListData (has TRACK_TOKEN), fall back to getData
     if (!song?.TRACK_TOKEN || !song?.MD5_ORIGIN) {
       const fromSingle = singleRaw?.results;
       if (fromSingle?.MD5_ORIGIN) song = fromSingle;
@@ -2274,11 +2256,8 @@ async function dzGetPremiumStreamInfo(trackId, arl, env) {
 
     if (!streamUrl) { console.warn('[deezer] No stream URL for track', trackId); return null; }
 
-    // Pre-expand the Blowfish key immediately so /dz-proxy hits the cache on first request
-    // This eliminates the ~0.3ms expansion from the critical path of first-byte latency
-    if (streamCipher === 'BF_CBC_STRIPE' && blowfishKey) {
-      dzBfExpandKeySync(blowfishKey);
-    }
+    // Pre-expand BF key immediately so /dz-proxy hits the expansion cache instantly
+    if (streamCipher === 'BF_CBC_STRIPE' && blowfishKey) dzBfExpandKeySync(blowfishKey);
 
     // Cache in Upstash (4min TTL)
     try {
@@ -2851,8 +2830,7 @@ async function handleDzProxy(c) {
   }});
   if (!alignedRes.ok && alignedRes.status !== 206) return new Response('CDN error: ' + alignedRes.status, { status: 502 });
 
-  // Sync expansion — cached after first call (~0.3ms), essentially instant on repeat
-  const expandedBf = dzBfExpandKeySync(bfKey);
+  const expandedBf = dzBfExpandKeySync(bfKey); // sync — ~0ms after first call
   let chunkIndex   = chunkStart;
   let leftover     = new Uint8Array(0);
   let skipped      = 0;
@@ -5704,7 +5682,7 @@ async function handleArtist(c) {
         // The proxy /artist/:id only returns basic info — no albums, no tracks.
         // Fetch artist info + 4 parallel search queries to cover all release types.
         const arRes = await axios.get(`${inst}/artist/${qobuzArtistId}`, {
-          params: { limit: 25 },
+          params: { limit: 10 }, // artist proxy: just need basic info; albums come from search
           headers: { 'User-Agent': UA },
           timeout: 8000,
         });
@@ -5715,7 +5693,7 @@ async function handleArtist(c) {
         let cover = arData.image?.large || arData.image?.thumbnail || arData.image?.small || null;
         if (!cover && arData.picture && typeof arData.picture === 'string' && arData.picture.length > 5) {
           // picture is a hash → build canonical square CDN URL
-          cover = `https://static.qobuz.com/images/artists/covers/${arData.picture}_600.jpg`;
+          cover = `https://static.qobuz.com/images/artists/covers/${arData.picture}_300.jpg`;
         }
         if (!cover && arData.images && arData.images.length) cover = arData.images[0];
 
@@ -5766,10 +5744,10 @@ async function handleArtist(c) {
           }
 
           // Tracks — collect from all searches, dedup by track id, hard cap at 20 total
-          if (topTracks.length < 20) {
+          if (topTracks.length < 10) {
             const rawTracks = data.tracks?.items || data.tracks || [];
             for (const t of rawTracks) {
-              if (topTracks.length >= 20) break;
+              if (topTracks.length >= 10) break;
               if (!isThisArtist(t)) continue;
               const _tkey = String(t.id);
               if (seenTrackIds.has(_tkey)) continue;
@@ -5780,7 +5758,7 @@ async function handleArtist(c) {
                 artist:     t.performer?.name || t.artist?.name || artistName,
                 album:      t.album?.title || '',
                 duration:   t.duration || undefined,
-                artworkURL: t.album?.image?.large || t.album?.image?.thumbnail || t.album?.image?.small || cover,
+                artworkURL: t.album?.image?.thumbnail || t.album?.image?.small || t.album?.image?.large || cover,
                 format:     'flac',
                 source:     'qobuz',
               });
@@ -5798,7 +5776,7 @@ async function handleArtist(c) {
             if (!yb) return -1;
             return yb - ya;
           })
-          .slice(0, 200) // FIX: raised from 80 so large catalogs show all albums/EPs/singles
+          .slice(0, 50) // 50 albums max — prevents runaway width in Eclipse artist page
           .map(a => ({
             id:         `qobuzalbum_${a.id}`,
             title:      a.title || 'Unknown Album',
