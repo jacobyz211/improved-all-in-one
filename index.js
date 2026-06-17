@@ -648,10 +648,10 @@ async function qobuzSearch(query) {
         // Qobuz search: artist.image.large  or artist.picture (300x300 jpg path)
         artworkURL: (() => {
           // Priority 1: full URL from image.large / thumbnail / small (most reliable from proxy)
-          const fromImage = a.image?.large || a.image?.thumbnail || a.image?.small || null;
+          const fromImage = a.image?.thumbnail || a.image?.small || a.image?.large || null;
           if (fromImage) {
             return fromImage.includes('/images/artists/covers/')
-              ? fromImage.replace(/(_org|_\d+)(\.jpg)$/i, '_600$2')
+              ? fromImage.replace(/(_org|_\d+)(\.jpg)$/i, '_300$2')
               : fromImage;
           }
           // Priority 2: a.picture is a bare hash → construct static URL
@@ -5690,9 +5690,15 @@ async function handleArtist(c) {
         if (!arData?.id && !arData?.name) continue;
         const artistName = arData.name || '';
         // Artist cover: prefer image fields (full URL), fallback to picture hash → CDN URL
-        let cover = arData.image?.large || arData.image?.thumbnail || arData.image?.small || null;
+        // Use thumbnail/small for artist cover — large can be 1500x1500+ causing overflow in Eclipse
+        let cover = arData.image?.thumbnail || arData.image?.small || null;
+        if (!cover && arData.image?.large) {
+          // Downscale large URL: replace any _org or _NNN suffix with _300
+          cover = arData.image.large.replace(/(_org|_\d+)(\.jpg)$/i, '_300$2');
+          if (cover === arData.image.large) cover = arData.image.large; // no suffix to replace, use as-is
+        }
         if (!cover && arData.picture && typeof arData.picture === 'string' && arData.picture.length > 5) {
-          // picture is a hash → build canonical square CDN URL
+          // picture is a bare hash → build 300px CDN URL
           cover = `https://static.qobuz.com/images/artists/covers/${arData.picture}_300.jpg`;
         }
         if (!cover && arData.images && arData.images.length) cover = arData.images[0];
@@ -5758,7 +5764,7 @@ async function handleArtist(c) {
                 artist:     t.performer?.name || t.artist?.name || artistName,
                 album:      t.album?.title || '',
                 duration:   t.duration || undefined,
-                artworkURL: t.album?.image?.thumbnail || t.album?.image?.small || t.album?.image?.large || cover,
+                artworkURL: t.album?.image?.thumbnail || t.album?.image?.small || null,
                 format:     'flac',
                 source:     'qobuz',
               });
@@ -5781,7 +5787,7 @@ async function handleArtist(c) {
             id:         `qobuzalbum_${a.id}`,
             title:      a.title || 'Unknown Album',
             artist:     artistName,
-            artworkURL: a.image?.large || a.image?.small || null,
+            artworkURL: a.image?.thumbnail || a.image?.small || null,
             year:       safeYear(a.release_date_original),
             source:     'qobuz',
           }));
