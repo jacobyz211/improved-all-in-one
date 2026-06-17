@@ -635,7 +635,7 @@ async function qobuzSearch(query) {
         id:         `qobuzalbum_${a.id}`,
         title:      a.title || 'Unknown Album',
         artist:     a.artist?.name || 'Unknown',
-        artworkURL: a.image?.thumbnail || a.image?.small || a.image?.large || null,
+        artworkURL: a.image?.small || a.image?.large || null,
         year:       safeYear(a.release_date_original),
         source:     'qobuz',
       }));
@@ -5691,7 +5691,7 @@ async function handleArtist(c) {
         const artistName = arData.name || '';
         // Artist cover: prefer image fields (full URL), fallback to picture hash → CDN URL
         // Use thumbnail/small for artist cover — large can be 1500x1500+ causing overflow in Eclipse
-        let cover = arData.image?.thumbnail || arData.image?.small || null;
+        let cover = arData.image?.small || arData.image?.large || null;
         if (!cover && arData.image?.large) {
           // Downscale large URL: replace any _org or _NNN suffix with _300
           cover = arData.image.large.replace(/(_org|_\d+)(\.jpg)$/i, '_300$2');
@@ -5764,7 +5764,7 @@ async function handleArtist(c) {
                 artist:     t.performer?.name || t.artist?.name || artistName,
                 album:      t.album?.title || '',
                 duration:   t.duration || undefined,
-                artworkURL: t.album?.image?.thumbnail || t.album?.image?.small || null,
+                artworkURL: t.album?.image?.small || t.album?.image?.large || (t.album?.image?.large ? t.album.image.large.replace(/(_org|_\d+)(\.jpg)$/i,'_300$2') : null) || null,
                 format:     'flac',
                 source:     'qobuz',
               });
@@ -5782,12 +5782,13 @@ async function handleArtist(c) {
             if (!yb) return -1;
             return yb - ya;
           })
-          .slice(0, 50) // 50 albums max — prevents runaway width in Eclipse artist page
+          .slice(0, 20) // 20 albums max — Eclipse renders albums in a grid; too many causes layout overflow
           .map(a => ({
             id:         `qobuzalbum_${a.id}`,
             title:      a.title || 'Unknown Album',
             artist:     artistName,
-            artworkURL: a.image?.thumbnail || a.image?.small || null,
+            artworkURL: a.image?.small || a.image?.large || a.image?.mega || (a.image?.large ? a.image.large.replace(/(_org|_\d+)(\.jpg)$/i,'_300$2') : null) || null,
+            trackCount: a.tracks_count || undefined,
             year:       safeYear(a.release_date_original),
             source:     'qobuz',
           }));
