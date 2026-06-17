@@ -1708,98 +1708,70 @@ async function appleSearch(query) {
   const cached = await cacheGet(cacheKey);
   if (cached) return cached;
   try {
-    // iTunes API doesn't support entity=podcastAndEpisode — run two parallel calls
-    const [showsRes, epsRes] = await Promise.allSettled([
-      axios.get('https://itunes.apple.com/search', {
-        params: { term: query, media: 'podcast', entity: 'podcast', limit: 15 },
-        timeout: 8000,
-      }),
-      axios.get('https://itunes.apple.com/search', {
-        params: { term: query, media: 'podcast', entity: 'podcastEpisode', limit: 20, explicit: 'Yes' },
-        timeout: 8000,
-      }),
-    ]);
-    const showResults = showsRes.status === 'fulfilled' ? showsRes.value.data?.results || [] : [];
-    const epResults   = epsRes.status   === 'fulfilled' ? epsRes.value.data?.results   || [] : [];
+    // Match standalone podcast repo: only search podcastEpisode, build albums/artists from results
+    const itunesResult = await (async () => {
+      try {
+        const r = await axios.get('https://itunes.apple.com/search', {
+          params: { term: query, media: 'podcast', entity: 'podcastEpisode', limit: 20, explicit: 'Yes' },
+          headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36', 'Accept': 'application/json' },
+          timeout: 12000,
+        });
+        return r.data || null;
+      } catch (e) { console.warn('[Apple] search error:', e.message); return null; }
+    })();
 
-    const playlists = [], episodes = [];
-    const seenFeed = new Set();
+    const rawEps = (itunesResult?.results || []).filter(ep => ep.kind === 'podcast-episode' && ep.episodeUrl);
 
-    // ── Shows (entity=podcast) → playlists + albums ──────────────────────────
-    for (const r of showResults) {
-      if ((r.kind === 'podcast' || r.wrapperType === 'track') && r.collectionId) {
-        if (!seenFeed.has(r.collectionId)) {
-          seenFeed.add(r.collectionId);
-          if (r.feedUrl) await cacheSet(`apple:feed_url:${r.collectionId}`, r.feedUrl, 86400);
-          playlists.push({
-            id: `apple_feed_${r.collectionId}`,
-            title: r.collectionName || r.trackName || 'Unknown Podcast',
-            description: r.description || '',
-            artworkURL: (r.artworkUrl600 || r.artworkUrl100 || '').replace('100x100', '600x600'),
-            creator: r.artistName || '', trackCount: r.trackCount || 0,
-            source: 'apple', _feedUrl: r.feedUrl || null,
-          });
-        }
-      }
-    }
+    // Build episode tracks
+    const episodes = rawEps.map(ep => {
+      const epId = `apple_ep_${ep.trackId}`;
+      cacheSet(`apple:ep:stream:${epId}`, ep.episodeUrl, 3600).catch(() => {});
+      if (ep.feedUrl && ep.collectionId) cacheSet(`apple:feed_url:${ep.collectionId}`, ep.feedUrl, 86400).catch(() => {});
+      const art = (ep.artworkUrl600 || ep.artworkUrl160 || '').replace(/\/\d+x\d+(bb|cc)\./, '/600x600bb.');
+      return {
+        id: epId,
+        title: String(ep.trackName || 'Unknown Episode').replace(/\s+/g, ' ').trim(),
+        artist: String(ep.collectionName || ep.artistName || 'Unknown Podcast').replace(/\s+/g, ' ').trim(),
+        album: String(ep.collectionName || '').replace(/\s+/g, ' ').trim(),
+        duration: ep.trackTimeMillis ? Math.floor(ep.trackTimeMillis / 1000) : null,
+        artworkURL: art || null,
+        streamURL: ep.episodeUrl,
+        format: (() => { const u = (ep.episodeUrl || '').toLowerCase().split('?')[0]; if (u.endsWith('.m4a') || u.includes('/m4a/')) return 'm4a'; if (u.endsWith('.aac')) return 'aac'; if (u.endsWith('.ogg') || u.endsWith('.opus')) return 'ogg'; return 'mp3'; })(),
+        source: 'apple',
+      };
+    });
 
-    // ── Episodes (entity=podcastEpisode) → tracks + derive albums/artists ────
+    // Build albums (podcast shows) from episode collectionIds
     const albumMap = new Map();
     const artistMap = new Map();
-    for (const r of epResults) {
-      if (r.kind !== 'podcast-episode' || !r.episodeUrl) continue; // skip episodes without a stream URL
-      const epId = `apple_ep_${r.trackId}`;
-      await cacheSet(`apple:ep:stream:${epId}`, r.episodeUrl, 3600);
-      if (r.feedUrl && r.collectionId) await cacheSet(`apple:feed_url:${r.collectionId}`, r.feedUrl, 86400);
-      const art = (r.artworkUrl600 || r.artworkUrl100 || '').replace('100x100', '600x600');
-      episodes.push({
-        id: epId, title: r.trackName || 'Unknown Episode',
-        artist: r.artistName || r.collectionName || 'Unknown Podcast',
-        album: r.collectionName || '',
-        duration: r.trackTimeMillis ? Math.floor(r.trackTimeMillis / 1000) : 0,
-        artworkURL: art,
-        format: 'mp3', streamURL: r.episodeUrl, source: 'apple',
-      });
-      // Build album (podcast show) entry from episode metadata
-      const cid = r.collectionId ? String(r.collectionId) : null;
-      const cname = r.collectionName || r.artistName || '';
+    rawEps.forEach(ep => {
+      const cid   = ep.collectionId ? String(ep.collectionId) : null;
+      const cname = String(ep.collectionName || ep.artistName || '').replace(/\s+/g, ' ').trim();
+      const aname = String(ep.artistName || ep.collectionName || '').replace(/\s+/g, ' ').trim();
+      const art   = (ep.artworkUrl600 || ep.artworkUrl160 || '').replace(/\/\d+x\d+(bb|cc)\./, '/600x600bb.');
       if (cid && cname && !albumMap.has(cid)) {
         albumMap.set(cid, {
-          id: `apple_feed_${cid}`, title: cname,
-          artist: r.artistName || cname, artworkURL: art,
-          trackCount: null, year: r.releaseDate ? new Date(r.releaseDate).getFullYear() : 0,
+          id: `apple_feed_${cid}`, title: cname, artist: aname, artworkURL: art || null,
+          trackCount: null, year: ep.releaseDate ? String(new Date(ep.releaseDate).getFullYear()) : null,
           source: 'apple', _isPodcast: true,
         });
-        // Also add to playlists if not already there
-        if (!seenFeed.has(r.collectionId)) {
-          seenFeed.add(r.collectionId);
-          if (r.feedUrl) await cacheSet(`apple:feed_url:${r.collectionId}`, r.feedUrl, 86400);
-          playlists.push({
-            id: `apple_feed_${cid}`, title: cname, description: '',
-            artworkURL: art, creator: r.artistName || '', trackCount: null,
-            source: 'apple', _feedUrl: r.feedUrl || null,
-          });
-        }
       }
-      // Build artist entry from episode metadata
-      const aname = r.artistName || r.collectionName || '';
       const akey = aname.toLowerCase();
       if (aname && !artistMap.has(akey)) {
-        artistMap.set(akey, {
-          id: `apple_artist_${Buffer ? Buffer.from(aname).toString('base64') : btoa(unescape(encodeURIComponent(aname)))}`,
-          name: aname, artworkURL: art, source: 'apple',
-        });
+        let aId;
+        try { aId = `itartist_${btoa(unescape(encodeURIComponent(aname)))}`; } catch { aId = `itartist_${aname.replace(/[^a-z0-9]/gi,'_')}`; }
+        artistMap.set(akey, { id: aId, name: aname, artworkURL: art || null, genres: [], source: 'apple' });
       }
-    }
+    });
 
-    // Merge show-derived albums with episode-derived albums (shows take priority)
-    const showAlbums = playlists.map(p => ({
-      id: p.id, title: p.title, artist: p.creator,
-      artworkURL: p.artworkURL, trackCount: p.trackCount,
-      year: 0, source: 'apple', _isPodcast: true,
+    // Build playlists from albums
+    const playlists = Array.from(albumMap.values()).map(a => ({
+      id: a.id, title: a.title, creator: a.artist, artworkURL: a.artworkURL,
+      trackCount: a.trackCount, description: '', source: 'apple',
+      _feedUrl: null,
     }));
-    const epAlbums = Array.from(albumMap.values()).filter(a => !showAlbums.some(s => s.id === a.id));
-    const albums = [...showAlbums, ...epAlbums];
+
+    const albums  = Array.from(albumMap.values());
     const artists = Array.from(artistMap.values());
 
     const result = { playlists, albums, episodes, artists };
@@ -1807,9 +1779,14 @@ async function appleSearch(query) {
     return result;
   } catch (e) {
     console.warn('[Apple] search error:', e.message);
-    return { playlists: [], albums: [], episodes: [] };
+    return { playlists: [], albums: [], episodes: [], artists: [] };
   }
 }
+
+
+
+
+
 
 
 
@@ -3603,75 +3580,106 @@ app.get('/:token/search', handleSearch);
 
 // ─── Podcast-only search (/podcast/search) ───────────────────────────────────
 async function handlePodcastSearch(c) {
-  const query = c.req.query('q') || '';
-  if (!query || query.trim().length < 2) return c.json({ tracks: [], albums: [], artists: [], playlists: [] });
+  const query = (c.req.query('q') || '').replace(/\s+/g, ' ').trim();
+  if (!query || query.length < 2) return c.json({ tracks: [], albums: [], artists: [], playlists: [] });
   const cfg = getConfig(c);
   const cacheKey = `search:podcast:${c.req.param('token') || 'noop'}:${query}`;
   const cached = await cacheGet(cacheKey);
   if (cached) return c.json(cached);
 
-  // Always search all podcast sources regardless of noPodcast flag —
-  // this is the podcast-specific manifest route, so podcasts are always wanted
-  const [podcastData, taddyData, appleData] = await Promise.allSettled([
-    piSearchEpisodes(query, cfg.piKey, cfg.piSecret),
+  const [piData, taddyData, itunesData] = await Promise.allSettled([
+    cfg.piKey && cfg.piSecret ? piSearchEpisodes(query, cfg.piKey, cfg.piSecret) : Promise.resolve(null),
     taddySearch(query, cfg.taddyKey, cfg.taddyUid),
     appleSearch(query),
   ]);
 
-  const get = r => (r.status === 'fulfilled' ? r.value : null) || {};
+  const piResult     = piData.status    === 'fulfilled' ? piData.value    : null;
+  const taddyResult  = taddyData.status === 'fulfilled' ? taddyData.value : null;
+  const itunesResult = itunesData.status === 'fulfilled' ? itunesData.value : null;
 
-  const piResult    = get(podcastData);
-  const taddyResult = get(taddyData);
-  const appleResult = get(appleData);
+  // ── PI results ────────────────────────────────────────────────────────────
+  const piFeeds    = piResult?.feeds    || [];
+  const piEpisodes = piResult?.episodes || [];
 
-  // Merge episodes (dedupe by title)
-  const episodeTitles = new Set();
-  const allEpisodes = [];
-  for (const ep of [...(piResult.episodes||[]), ...(taddyResult.episodes||[]), ...(appleResult.episodes||[])]) {
-    const key = ep.title?.toLowerCase().slice(0, 40);
-    if (!episodeTitles.has(key)) { episodeTitles.add(key); allEpisodes.push(ep); }
+  // ── Taddy results ─────────────────────────────────────────────────────────
+  const taddyPodcasts = taddyResult?.searchForTerm?.podcastSeries || taddyResult?.playlists?.map ? [] : [];
+  // taddySearch in all-in-one returns {episodes, playlists, albums} format — handle both
+  const taddyEpisodes = taddyResult?.episodes || [];
+  const taddyPlaylists = taddyResult?.playlists || [];
+
+  // ── iTunes/Apple results ──────────────────────────────────────────────────
+  const itunesEpisodes  = itunesResult?.episodes  || [];
+  const itunesAlbums    = itunesResult?.albums    || [];
+  const itunesArtists   = itunesResult?.artists   || [];
+  const itunesPlaylists = itunesResult?.playlists || [];
+
+  // ── Tracks: iTunes episodes first (have direct streamURL), then PI, then Taddy ──
+  const allTracks = [];
+  const seenTrackTitle = new Set();
+  for (const ep of [...itunesEpisodes, ...piEpisodes, ...taddyEpisodes]) {
+    if (!ep || !ep.streamURL) continue;
+    const key = (ep.title || '').toLowerCase().slice(0, 40);
+    if (!seenTrackTitle.has(key)) { seenTrackTitle.add(key); allTracks.push(ep); }
   }
 
-  // Merge series/playlists (dedupe by title)
-  const seriesTitles = new Set();
-  const allSeries = [];
-  for (const s of [...(piResult.playlists||[]), ...(taddyResult.playlists||[]), ...(appleResult.playlists||[])]) {
-    const key = s.title?.toLowerCase().slice(0, 40);
-    if (!seriesTitles.has(key)) { seriesTitles.add(key); allSeries.push(s); }
+  // ── Albums: iTunes show albums + PI feeds + Taddy podcasts ───────────────
+  const allAlbums = [];
+  const seenAlbumId = new Set();
+  for (const a of [...itunesAlbums, ...piFeeds.map(f => ({ id: 'pi_' + String(f.id || f.feedId || ''), title: String(f.title || '').trim(), artist: String(f.author || f.ownerName || '').trim(), artworkURL: f.image || f.artwork || f.artworkUrl || null, trackCount: f.episodeCount || null, year: f.newestItemPublishTime ? String(new Date(f.newestItemPublishTime * 1000).getFullYear()) : null, source: 'pi', _isPodcast: true }))]]) {
+    if (a.id && !seenAlbumId.has(a.id)) { seenAlbumId.add(a.id); allAlbums.push(a); }
+  }
+  // Taddy playlists as albums
+  for (const p of taddyPlaylists) {
+    const a = { id: p.id, title: p.title, artist: p.creator || '', artworkURL: p.artworkURL || null, trackCount: p.trackCount || null, year: null, source: 'taddy', _isPodcast: true };
+    if (a.id && !seenAlbumId.has(a.id)) { seenAlbumId.add(a.id); allAlbums.push(a); }
   }
 
-  // Merge podcast show albums (dedupe by id)
-  const podcastAlbumSet = new Set();
-  const podcastAlbums = [];
-  for (const a of [...(piResult.albums||[]), ...(taddyResult.albums||[]), ...(appleResult.albums||[])]) {
-    if (!podcastAlbumSet.has(a.id)) { podcastAlbumSet.add(a.id); podcastAlbums.push(a); }
+  // ── Artists: from iTunes + PI feed authors + Taddy ───────────────────────
+  const allArtists = [];
+  const seenArtistName = new Set();
+  // iTunes artists first
+  for (const a of itunesArtists) {
+    const key = (a.name || '').toLowerCase();
+    if (key && !seenArtistName.has(key)) { seenArtistName.add(key); allArtists.push(a); }
+  }
+  // PI feed authors
+  for (const f of piFeeds) {
+    const name = String(f.author || f.ownerName || '').replace(/\s+/g, ' ').trim();
+    const key = name.toLowerCase();
+    if (!key || seenArtistName.has(key)) continue;
+    seenArtistName.add(key);
+    let aId; try { aId = `pi_author_${btoa(unescape(encodeURIComponent(name)))}`; } catch { aId = `pi_author_${name.replace(/[^a-z0-9]/gi,'_')}`; }
+    allArtists.push({ id: aId, name, artworkURL: f.image || f.artwork || null, genres: f.categories ? Object.values(f.categories).slice(0, 2) : [], source: 'pi' });
   }
 
-  // Build artist entries from podcast series + apple artist results
-  const podArtists = allSeries.slice(0, 8).map(s => ({
-    id:         s.id,
-    name:       s.title,
-    artworkURL: s.artworkURL || null,
-    source:     s.source || 'pi',
-  }));
-  // Merge in Apple-derived artists (podcast hosts/creators) — dedupe by name
-  const podArtistNames = new Set(podArtists.map(a => a.name?.toLowerCase()));
-  for (const a of (appleResult.artists || [])) {
-    if (a.name && !podArtistNames.has(a.name.toLowerCase())) {
-      podArtistNames.add(a.name.toLowerCase());
-      podArtists.push(a);
-    }
+  // ── Playlists: iTunes playlists + PI rss feeds + Taddy ───────────────────
+  const allPlaylists = [];
+  const seenPlaylistId = new Set();
+  for (const p of [...itunesPlaylists, ...taddyPlaylists]) {
+    if (p.id && !seenPlaylistId.has(p.id)) { seenPlaylistId.add(p.id); allPlaylists.push(p); }
+  }
+  // PI feeds as playlists (with RSS feed URL encoded as ID so /playlist/:id can fetch them)
+  for (const f of piFeeds) {
+    if (!f.url) continue;
+    let feedId;
+    try { feedId = 'rss_' + btoa(unescape(encodeURIComponent(f.url))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); } catch { continue; }
+    if (seenPlaylistId.has(feedId)) continue;
+    seenPlaylistId.add(feedId);
+    // Cache feed URL so /podcast/playlist/:id can look it up
+    cacheSet(`rss_feed_url:${feedId}`, f.url, 86400).catch(() => {});
+    allPlaylists.push({ id: feedId, title: String(f.title || '').trim(), creator: String(f.author || f.ownerName || '').trim(), artworkURL: f.image || f.artwork || null, trackCount: f.episodeCount || null, description: String(f.description || '').slice(0, 200), source: 'pi' });
   }
 
   const result = {
-    tracks:    allEpisodes.slice(0, 40),
-    albums:    podcastAlbums.slice(0, 12),
-    artists:   podArtists.slice(0, 12),
-    playlists: allSeries.slice(0, 20),
+    tracks:    allTracks.slice(0, 30),
+    albums:    allAlbums.slice(0, 15),
+    artists:   allArtists.slice(0, 6),
+    playlists: allPlaylists.slice(0, 8),
   };
   await cacheSet(cacheKey, result, 180);
   return c.json(result);
 }
+
 
 // ─── Audiobook-only search (/audiobook/search) ───────────────────────────────
 async function handleAudiobookSearch(c) {
