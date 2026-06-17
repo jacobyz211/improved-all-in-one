@@ -1725,7 +1725,7 @@ async function appleSearch(query) {
     const playlists = [], episodes = [];
     const seenFeed = new Set();
     for (const r of results) {
-      if (r.kind === 'podcast' || (r.wrapperType === 'track' && r.collectionType === 'Podcast')) {
+      if (r.kind === 'podcast' || r.collectionType === 'Podcast') {
         if (!seenFeed.has(r.collectionId)) {
           seenFeed.add(r.collectionId);
           if (r.feedUrl) await cacheSet(`apple:feed_url:${r.collectionId}`, r.feedUrl, 86400);
@@ -4981,7 +4981,7 @@ async function handleAlbumWithHifi(c) {
         timeout: 10000,
       });
       const results = lu.data?.results || [];
-      const show = results.find(r => r.wrapperType === 'collection' || r.collectionType === 'Podcast');
+      const show = results.find(r => r.kind === 'podcast' || r.wrapperType === 'collection' || r.collectionType === 'Podcast');
       const eps  = results.filter(r => r.kind === 'podcast-episode');
       const tracks = eps.map((r, i) => {
         const epId = `apple_ep_${r.trackId}`;
