@@ -4400,9 +4400,57 @@ async function handleStream(c) {
     return c.json({ error: 'Radio stream: use streamURL from search result' });
   }
 
-  // Podcast episodes (pi_ep_, taddy_ep_) have streamURL in search results
-  if (id.startsWith('pi_ep_') || id.startsWith('taddy_ep_')) {
-    return c.json({ error: 'Podcast stream: use streamURL from search result' });
+  // ── Podcast Index episode stream ──────────────────────────────────────────
+  if (id.startsWith('pi_ep_')) {
+    const piCached = await cacheGet(`pi:ep:stream:${id}`);
+    if (piCached) return c.json({ url: piCached, format: detectFormat(piCached), quality: 'variable' });
+    const epId = id.replace('pi_ep_', '');
+    const cfg2 = getConfig(c);
+    if (cfg2.piKey && cfg2.piSecret) {
+      try {
+        const _h = await podcastIndexHeaders(cfg2.piKey, cfg2.piSecret);
+        const lu = await axios.get('https://api.podcastindex.org/api/1.0/episodes/byid', {
+          params: { id: epId },
+          headers: _h,
+          timeout: 8000,
+        });
+        const ep = lu.data?.episode;
+        const url = ep?.enclosureUrl || ep?.enclosure?.url;
+        if (url) {
+          await cacheSet(`pi:ep:stream:${id}`, url, 3600);
+          return c.json({ url, format: detectFormat(url), quality: 'variable' });
+        }
+      } catch (e) { console.warn('[PI stream]', e.message); }
+    }
+    return c.json({ error: 'Podcast Index episode stream not found: ' + id });
+  }
+
+  // ── Taddy episode stream ────────────────────────────────────────────────────
+  if (id.startsWith('taddy_ep_')) {
+    const tCached = await cacheGet(`taddy:ep:stream:${id}`);
+    if (tCached) return c.json({ url: tCached, format: detectFormat(tCached), quality: 'variable' });
+    const epUuid = id.replace('taddy_ep_', '');
+    const cfg3 = getConfig(c);
+    if (cfg3.taddyKey && cfg3.taddyUid) {
+      try {
+        const gql = `query { getPodcastEpisode(uuid: "${epUuid}") { uuid name audioUrl duration imageUrl podcastSeries { uuid name imageUrl } } }`;
+        const r = await axios.post('https://api.taddy.org', { query: gql }, {
+          headers: {
+            'Content-Type': 'application/json',
+            'X-USER-ID': String(cfg3.taddyUid),
+            'X-API-KEY': cfg3.taddyKey,
+            'User-Agent': 'EclipseAllInOne/1.0',
+          },
+          timeout: 10000,
+        });
+        const ep = r.data?.data?.getPodcastEpisode;
+        if (ep?.audioUrl) {
+          await cacheSet(`taddy:ep:stream:${id}`, ep.audioUrl, 3600);
+          return c.json({ url: ep.audioUrl, format: detectFormat(ep.audioUrl), quality: 'variable' });
+        }
+      } catch (e) { console.warn('[Taddy stream]', e.message); }
+    }
+    return c.json({ error: 'Taddy episode stream not found: ' + id });
   }
 
   // ── Apple Podcast episode stream ────────────────────────────────────────────
