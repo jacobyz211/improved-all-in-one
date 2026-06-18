@@ -194,10 +194,10 @@ function getConfig(c) {
           : []),
     scClientId:   cfg.sc       || c.env.SC_CLIENT_ID    || null,
     scOAuthToken: cfg.sc_oauth || c.env.SC_OAUTH_TOKEN  || null,
-    piKey: cfg.pi_key || c.env.PI_KEY || null,
-    piSecret: cfg.pi_secret || c.env.PI_SECRET || null,
-    taddyKey: cfg.taddy_key || c.env.TADDY_KEY || null,
-    taddyUid: cfg.taddy_uid || c.env.TADDY_UID || null,
+    piKey: (cfg.pi_key || c.env.PI_KEY || '').trim() || null,
+    piSecret: (cfg.pi_secret || c.env.PI_SECRET || '').trim() || null,
+    taddyKey: (cfg.taddy_key || c.env.TADDY_KEY || '').trim() || null,
+    taddyUid: (cfg.taddy_uid || c.env.TADDY_UID || '').trim() || null,
     preferredQuality: VALID_QUALITIES.includes(cfg.q) ? cfg.q : null,
     // Source flags — undefined/missing means "enabled" (backward-compatible)
     noHifi:      !!(cfg.no_hifi      === true || cfg.no_hifi      === 1 || cfg.no_hifi      === "true"),
@@ -1438,6 +1438,9 @@ async function librivoxGetChapters(bookId, rssUrl) {
 
 // ─── Podcast Index ────────────────────────────────────────────────────────────
 async function podcastIndexHeaders(key, secret) {
+  // Trim keys to prevent whitespace from corrupting the HMAC hash
+  key = String(key || '').trim();
+  secret = String(secret || '').trim();
   const ts = Math.floor(Date.now() / 1000).toString();
   const msgBuffer = new TextEncoder().encode(key + secret + ts);
   const hashBuffer = await crypto.subtle.digest('SHA-1', msgBuffer);
@@ -1517,7 +1520,7 @@ async function piSearchEpisodes(query, key, secret) {
     await cacheSet(cacheKey, result, 600);
     return result;
   } catch (e) {
-    console.warn('[PI] search error:', e.message);
+    console.warn('[PI] search error:', e.message, 'status:', e?.response?.status || 'N/A', 'key_set:', !!(key && secret));
     return { playlists: [], albums: [], episodes: [] };
   }
 }
@@ -1550,6 +1553,9 @@ async function piGetEpisodes(feedId, key, secret) {
 
 // ─── Taddy GraphQL ────────────────────────────────────────────────────────────
 async function taddySearch(query, apiKey, userId) {
+  // Trim to prevent whitespace from breaking auth headers
+  apiKey = String(apiKey || '').trim();
+  userId = String(userId || '').trim();
   if (!apiKey || !userId) return { playlists: [], albums: [], episodes: [] };
   const cacheKey = `taddy:search:${query}`;
   const cached = await cacheGet(cacheKey);
@@ -1608,12 +1614,14 @@ async function taddySearch(query, apiKey, userId) {
     await cacheSet(cacheKey, result, 600);
     return result;
   } catch (e) {
-    console.warn('[Taddy] search error:', e.message);
+    console.warn('[Taddy] search error:', e.message, 'status:', e?.response?.status || 'N/A', 'key_set:', !!(apiKey && userId));
     return { playlists: [], albums: [], episodes: [] };
   }
 }
 
 async function taddyGetEpisodes(seriesUuid, apiKey, userId) {
+  apiKey = String(apiKey || '').trim();
+  userId = String(userId || '').trim();
   if (!apiKey || !userId) return [];
   const cacheKey = `taddy:series:${seriesUuid}`;
   const cached = await cacheGet(cacheKey);
@@ -1703,21 +1711,49 @@ async function appleGetFeed(feedUrl, collectionId) {
 }
 
 // ─── Apple Podcasts Search (iTunes API — completely free, no key) ─────────────
+// In-flight dedup map for Apple Podcasts: prevents concurrent identical queries all hitting iTunes
+const _appleInflight = new Map();
+
 async function appleSearch(query) {
   const cacheKey = `apple:search:${query}`;
   const cached = await cacheGet(cacheKey);
   if (cached) return cached;
+
+  // Deduplicate concurrent identical queries — return the same promise to all callers
+  if (_appleInflight.has(cacheKey)) return _appleInflight.get(cacheKey);
+
+  const promise = _appleSearchInner(query, cacheKey);
+  _appleInflight.set(cacheKey, promise);
+  promise.finally(() => _appleInflight.delete(cacheKey));
+  return promise;
+}
+
+async function _appleSearchInner(query, cacheKey) {
   try {
     // Match standalone podcast repo: only search podcastEpisode, build albums/artists from results
     const itunesResult = await (async () => {
       try {
+        // Small random jitter (0-400ms) to spread burst requests and avoid shared-IP throttling
+        await new Promise(r => setTimeout(r, Math.floor(Math.random() * 400)));
         const r = await axios.get('https://itunes.apple.com/search', {
           params: { term: query, media: 'podcast', entity: 'podcastEpisode', limit: 20, explicit: 'Yes' },
-          headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36', 'Accept': 'application/json' },
+          headers: {
+            // Use an iTunes client UA — Apple rate-limits browser-UA requests more aggressively
+            'User-Agent': 'iTunes/12.12.4 (Macintosh; OS X 12.7.6; Intel) AppleWebKit/7619.2.8.10.5',
+            'Accept': 'application/json',
+            'Accept-Language': 'en-US,en;q=0.9',
+          },
           timeout: 12000,
         });
         return r.data || null;
-      } catch (e) { console.warn('[Apple] search error:', e.message); return null; }
+      } catch (e) {
+        if (e?.response?.status === 429) {
+          console.warn('[Apple] rate-limited (429) — returning empty result');
+          return null;
+        }
+        console.warn('[Apple] search error:', e.message, 'status:', e?.response?.status);
+        return null;
+      }
     })();
 
     const rawEps = (itunesResult?.results || []).filter(ep => ep.kind === 'podcast-episode' && ep.episodeUrl);
@@ -6687,10 +6723,10 @@ app.post('/generate', async function(c) {
   if (b.hifi)      cfg.hifi      = b.hifi;
   if (b.sc)        cfg.sc        = b.sc;
   if (b.sc_oauth)  cfg.sc_oauth  = b.sc_oauth;
-  if (b.pi_key)    cfg.pi_key    = b.pi_key;
-  if (b.pi_secret) cfg.pi_secret = b.pi_secret;
-  if (b.taddy_key) cfg.taddy_key = b.taddy_key;
-  if (b.taddy_uid) cfg.taddy_uid = b.taddy_uid;
+  if (b.pi_key)    cfg.pi_key    = String(b.pi_key).trim();
+  if (b.pi_secret) cfg.pi_secret = String(b.pi_secret).trim();
+  if (b.taddy_key) cfg.taddy_key = String(b.taddy_key).trim();
+  if (b.taddy_uid) cfg.taddy_uid = String(b.taddy_uid).trim();
   if (b.q && VALID_QUALITIES.includes(b.q)) cfg.q = b.q;
   // Source disable flags
   if (b.no_hifi)      cfg.no_hifi      = true;
