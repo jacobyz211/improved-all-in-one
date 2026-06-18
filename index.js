@@ -1748,8 +1748,23 @@ async function _appleSearchInner(query, cacheKey) {
         return r.data || null;
       } catch (e) {
         if (e?.response?.status === 429) {
-          console.warn('[Apple] rate-limited (429) — returning empty result');
-          return null;
+          // Rate-limited: wait 1s then retry once with a different UA string
+          console.warn('[Apple] rate-limited (429) — retrying after 1s');
+          await new Promise(r => setTimeout(r, 1000 + Math.floor(Math.random() * 500)));
+          try {
+            const r2 = await axios.get('https://itunes.apple.com/search', {
+              params: { term: query, media: 'podcast', entity: 'podcastEpisode', limit: 20, explicit: 'Yes' },
+              headers: {
+                'User-Agent': 'AppleCoreMedia/1.0.0.21G115 (Macintosh; U; Intel Mac OS X 12_6; en_us)',
+                'Accept': 'application/json',
+              },
+              timeout: 12000,
+            });
+            return r2.data || null;
+          } catch (e2) {
+            console.warn('[Apple] retry also failed:', e2.message, '— returning empty result');
+            return null;
+          }
         }
         console.warn('[Apple] search error:', e.message, 'status:', e?.response?.status);
         return null;
@@ -3647,11 +3662,13 @@ async function handlePodcastSearch(c) {
   const itunesResult = itunesData.status === 'fulfilled' ? itunesData.value : null;
 
   // ── PI results ────────────────────────────────────────────────────────────
-  const piFeeds    = piResult?.feeds    || [];
+  // piSearchEpisodes returns { playlists, albums, episodes } — playlists ARE the feeds
+  const piFeeds    = piResult?.playlists || piResult?.albums || [];
   const piEpisodes = piResult?.episodes || [];
 
   // ── Taddy results ─────────────────────────────────────────────────────────
-  const taddyPodcasts = taddyResult?.searchForTerm?.podcastSeries || taddyResult?.playlists?.map ? [] : [];
+  // taddySearch returns {episodes, playlists, albums} — access playlists directly
+  const taddyPodcasts = taddyResult?.playlists || [];
   // taddySearch in all-in-one returns {episodes, playlists, albums} format — handle both
   const taddyEpisodes = taddyResult?.episodes || [];
   const taddyPlaylists = taddyResult?.playlists || [];
@@ -3674,15 +3691,18 @@ async function handlePodcastSearch(c) {
   // ── Albums: iTunes show albums + PI feeds + Taddy podcasts ───────────────
   const allAlbums = [];
   const seenAlbumId = new Set();
+  // piFeeds are already formatted playlist objects: { id, title, artist, artworkURL, _feedId, ... }
   const piFeedAlbums = piFeeds.map(f => ({
-    id: 'pi_' + String(f.id || f.feedId || ''),
+    id: f.id || ('pi_feed_' + String(f._feedId || f.feedId || '')),
     title: String(f.title || '').trim(),
-    artist: String(f.author || f.ownerName || '').trim(),
-    artworkURL: f.image || f.artwork || f.artworkUrl || null,
-    trackCount: f.episodeCount || null,
-    year: f.newestItemPublishTime ? String(new Date(f.newestItemPublishTime * 1000).getFullYear()) : null,
+    artist: String(f.artist || f.author || f.creator || f.ownerName || '').trim(),
+    artworkURL: f.artworkURL || f.image || f.artwork || f.artworkUrl || null,
+    trackCount: f.trackCount || f.episodeCount || null,
+    year: f.year || (f.newestItemPublishTime ? String(new Date(f.newestItemPublishTime * 1000).getFullYear()) : null),
     source: 'pi',
     _isPodcast: true,
+    _feedId: f._feedId || f.feedId || null,
+    _feedUrl: f._feedUrl || f.url || null,
   }));
   for (const a of [...itunesAlbums, ...piFeedAlbums]) {
     if (a.id && !seenAlbumId.has(a.id)) { seenAlbumId.add(a.id); allAlbums.push(a); }
@@ -3719,14 +3739,22 @@ async function handlePodcastSearch(c) {
   }
   // PI feeds as playlists (with RSS feed URL encoded as ID so /playlist/:id can fetch them)
   for (const f of piFeeds) {
-    if (!f.url) continue;
-    let feedId;
-    try { feedId = 'rss_' + btoa(unescape(encodeURIComponent(f.url))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); } catch { continue; }
+    // piSearchEpisodes playlist objects already have a well-formed id and _feedUrl
+    const _fUrl = f._feedUrl || f.url || null;
+    // If the feed already has an rss_ id, use it directly; otherwise generate one from URL
+    let feedId = (f.id && String(f.id).startsWith('rss_')) ? f.id : null;
+    if (!feedId && _fUrl) {
+      try { feedId = 'rss_' + btoa(unescape(encodeURIComponent(_fUrl))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); } catch { continue; }
+    } else if (!feedId) {
+      // No URL but we have a pi_feed_* id — use it as the playlist id directly
+      feedId = f.id || null;
+    }
+    if (!feedId) continue;
     if (seenPlaylistId.has(feedId)) continue;
     seenPlaylistId.add(feedId);
     // Cache feed URL so /podcast/playlist/:id can look it up
-    cacheSet(`rss_feed_url:${feedId}`, f.url, 86400).catch(() => {});
-    allPlaylists.push({ id: feedId, title: String(f.title || '').trim(), creator: String(f.author || f.ownerName || '').trim(), artworkURL: f.image || f.artwork || null, trackCount: f.episodeCount || null, description: String(f.description || '').slice(0, 200), source: 'pi' });
+    if (_fUrl) cacheSet(`rss_feed_url:${feedId}`, _fUrl, 86400).catch(() => {});
+    allPlaylists.push({ id: feedId, title: String(f.title || '').trim(), creator: String(f.artist || f.author || f.creator || f.ownerName || '').trim(), artworkURL: f.artworkURL || f.image || f.artwork || null, trackCount: f.trackCount || f.episodeCount || null, description: String(f.description || '').slice(0, 200), source: 'pi' });
   }
 
   const result = {
