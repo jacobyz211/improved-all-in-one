@@ -3377,7 +3377,7 @@ async function handleSearch(c) {
   const qLow = query.toLowerCase();
   const isPodcastQuery = /podcast|episode|rogan|lex fridman|serial|npr|radiolab|conan|armchair|smartless|call her daddy|pardon my take|crime junkie|huberman|theo von|apple podcast/i.test(qLow)
     || (allEpisodes.length > 0 && hifiTrackList.length === 0);
-  const isRadioQuery    = /\bfm\b|radio|station|lofi|lo-fi|chillhop|chillout|ambient|bbc|rnz/i.test(qLow);
+  const isRadioQuery    = /\bradio\b|\bfm radio\b|\binternet radio\b|\bsomafm\b|\bbbc radio\b/i.test(qLow);
   const isAudiobookQuery = /audiobook|librivox|sherlock|austen|dickens|tolkien|public domain/i.test(qLow);
 
   // Build ordered music track pool respecting user-selected search priority.
@@ -6919,17 +6919,24 @@ async function runKeepalive() {
 }
 
 // ─── 8spine-source.json ───────────────────────────────────────────────────────
-// Eclipse calls this to discover all sub-manifests (podcast, audiobook, radio).
+// Eclipse calls this endpoint to discover all sub-manifests for this addon.
 function handleSpineSource(c) {
   const token  = c.req.param('token') || '';
   const base   = getBaseUrl(c);
-  const prefix = token ? `${base}/${token}` : base;
-  return c.json([
-    { manifest_url: `${prefix}/manifest.json`           },
-    { manifest_url: `${prefix}/podcast/manifest.json`   },
-    { manifest_url: `${prefix}/audiobook/manifest.json` },
-    { manifest_url: `${prefix}/radio/manifest.json`     },
-  ]);
+  const sources = token
+    ? [
+        { manifest_url: `${base}/${token}/manifest.json`           },
+        { manifest_url: `${base}/${token}/podcast/manifest.json`   },
+        { manifest_url: `${base}/${token}/audiobook/manifest.json` },
+        { manifest_url: `${base}/${token}/radio/manifest.json`     },
+      ]
+    : [
+        { manifest_url: `${base}/manifest.json`           },
+        { manifest_url: `${base}/podcast/manifest.json`   },
+        { manifest_url: `${base}/audiobook/manifest.json` },
+        { manifest_url: `${base}/radio/manifest.json`     },
+      ];
+  return c.json(sources);
 }
 
 app.get('/8spine-source.json',        handleSpineSource);
