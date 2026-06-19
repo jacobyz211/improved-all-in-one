@@ -6918,6 +6918,33 @@ async function runKeepalive() {
   console.log('[keepalive] pinged', KEEPALIVE_TARGETS.length, 'instances');
 }
 
+// ─── Base URL helper ──────────────────────────────────────────────────────────
+function getBaseUrl(c) {
+  const proto = c.req.header('x-forwarded-proto') || 'https';
+  const host  = c.req.header('x-forwarded-host')
+             || c.req.header('host')
+             || new URL(c.req.url).host;
+  return `${proto}://${host}`;
+}
+
+// ─── 8spine-source.json ───────────────────────────────────────────────────────
+// Eclipse calls this to discover all sub-manifests (podcast, audiobook, radio).
+function handleSpineSource(c) {
+  const token  = c.req.param('token') || '';
+  const base   = getBaseUrl(c);
+  const prefix = token ? `${base}/${token}` : base;
+  return c.json([
+    { manifest_url: `${prefix}/manifest.json`           },
+    { manifest_url: `${prefix}/podcast/manifest.json`   },
+    { manifest_url: `${prefix}/audiobook/manifest.json` },
+    { manifest_url: `${prefix}/radio/manifest.json`     },
+  ]);
+}
+
+app.get('/8spine-source.json',        handleSpineSource);
+app.get('/:token/8spine-source.json', handleSpineSource);
+
+
 export default {
   fetch: app.fetch.bind(app),
   async scheduled(event, env, ctx) {
