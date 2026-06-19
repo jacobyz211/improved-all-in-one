@@ -6918,15 +6918,6 @@ async function runKeepalive() {
   console.log('[keepalive] pinged', KEEPALIVE_TARGETS.length, 'instances');
 }
 
-// ─── Base URL helper ──────────────────────────────────────────────────────────
-function getBaseUrl(c) {
-  const proto = c.req.header('x-forwarded-proto') || 'https';
-  const host  = c.req.header('x-forwarded-host')
-             || c.req.header('host')
-             || new URL(c.req.url).host;
-  return `${proto}://${host}`;
-}
-
 // ─── 8spine-source.json ───────────────────────────────────────────────────────
 // Eclipse calls this to discover all sub-manifests (podcast, audiobook, radio).
 function handleSpineSource(c) {
