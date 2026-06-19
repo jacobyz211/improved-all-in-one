@@ -3377,7 +3377,7 @@ async function handleSearch(c) {
   const qLow = query.toLowerCase();
   const isPodcastQuery = /podcast|episode|rogan|lex fridman|serial|npr|radiolab|conan|armchair|smartless|call her daddy|pardon my take|crime junkie|huberman|theo von|apple podcast/i.test(qLow)
     || (allEpisodes.length > 0 && hifiTrackList.length === 0);
-  const isRadioQuery    = /\bradio\b|\bfm radio\b|\binternet radio\b|\bsomafm\b|\bbbc radio\b/i.test(qLow);
+  const isRadioQuery    = /^(radio|internet radio|live radio|fm radio|somafm|soma fm|bbc radio|rnz radio)$/i.test(qLow.trim()) || /\bstation\b.*\bradio\b|\bradio\b.*\bstation\b/i.test(qLow);
   const isAudiobookQuery = /audiobook|librivox|sherlock|austen|dickens|tolkien|public domain/i.test(qLow);
 
   // Build ordered music track pool respecting user-selected search priority.
@@ -3607,7 +3607,7 @@ async function handleSearch(c) {
     allAlbums  = [...podcastAlbums, ...allBooks, ...orderedMusicAlbums];
     allArtists = effectiveMusicOrder.flatMap(k => ({ hifi: hifiArtistList, qobuz: qobuzArtists, deezer: deezerRes?.artists || [], sc: [], ia: [] })[k] || []);
   } else if (isRadioQuery) {
-    allTracks  = [...radio, ...orderedMusicTracks, ...allEpisodes];
+    allTracks  = [...orderedMusicTracks, ...radio, ...allEpisodes];
     allAlbums  = [...orderedMusicAlbums, ...allBooks, ...podcastAlbums];
     allArtists = effectiveMusicOrder.flatMap(k => ({ hifi: hifiArtistList, qobuz: qobuzArtists, deezer: deezerRes?.artists || [], sc: [], ia: [] })[k] || []);
   } else if (isAudiobookQuery) {
@@ -6918,29 +6918,66 @@ async function runKeepalive() {
   console.log('[keepalive] pinged', KEEPALIVE_TARGETS.length, 'instances');
 }
 
-// ─── 8spine-source.json ───────────────────────────────────────────────────────
-// Eclipse calls this endpoint to discover all sub-manifests for this addon.
-function handleSpineSource(c) {
-  const token  = c.req.param('token') || '';
-  const base   = getBaseUrl(c);
-  const sources = token
-    ? [
-        { manifest_url: `${base}/${token}/manifest.json`           },
-        { manifest_url: `${base}/${token}/podcast/manifest.json`   },
-        { manifest_url: `${base}/${token}/audiobook/manifest.json` },
-        { manifest_url: `${base}/${token}/radio/manifest.json`     },
-      ]
-    : [
-        { manifest_url: `${base}/manifest.json`           },
-        { manifest_url: `${base}/podcast/manifest.json`   },
-        { manifest_url: `${base}/audiobook/manifest.json` },
-        { manifest_url: `${base}/radio/manifest.json`     },
-      ];
-  return c.json(sources);
-}
+// ─── 8spine-source.json ─────────────────────────────────────────────────────
+// Returns a merged category map of all available 8spine modules,
+// fetching from extra spine sources and deduplicating by id.
+app.get('/8spine', async (c) => {
+  const base = getBaseUrl(c);
+  return c.json({
+    id: 'eclipse-all-in-one',
+    name: 'Improved-All-In-One',
+    author: 'Eclipse',
+    version: '1.4.0',
+    description: 'HiFi, Qobuz, SoundCloud, Internet Archive, Podcasts, Audiobooks and Radio in one addon.',
+    download: base + '/8spine.js',
+  });
+});
 
-app.get('/8spine-source.json',        handleSpineSource);
-app.get('/:token/8spine-source.json', handleSpineSource);
+app.get('/8spine.js', (c) => c.text('// 8spine module not available on this deployment'));
+
+app.get('/8spine-source.json', async (c) => {
+  const base = getBaseUrl(c);
+
+  const ourEntry = {
+    id: 'eclipse-all-in-one',
+    name: 'Improved-All-In-One',
+    author: 'Eclipse',
+    version: '1.4.0',
+    description: 'HiFi, Qobuz, SoundCloud, Internet Archive, Podcasts, Audiobooks and Radio in one addon.',
+    labels: ['High Quality', 'Multi-Source', 'Radio', 'Settings'],
+    download: base + '/8spine.js',
+  };
+
+  // Extra 8spine sources to merge in (add yours here)
+  const EXTRA_SPINE_SOURCES = [
+    'https://monochrome.rickyaddons.dpdns.org/8spine-source.json',
+    'https://eclipse3.cyrusna29.workers.dev/8spine-source.json',
+    'https://qobuz-tidal-eclipse.cyrusna29.workers.dev/8spine-source.json',
+  ];
+
+  const merged = { 'category:music': [ourEntry] };
+
+  const results = await Promise.all(
+    EXTRA_SPINE_SOURCES.map(url =>
+      fetch(url, { headers: { 'Accept': 'application/json' } })
+        .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+        .catch(() => null)
+    )
+  );
+
+  for (const ext of results) {
+    if (!ext || typeof ext !== 'object') continue;
+    for (const [cat, items] of Object.entries(ext)) {
+      if (!Array.isArray(items)) continue;
+      if (!merged[cat]) merged[cat] = [];
+      for (const item of items) {
+        if (!merged[cat].find(e => e.id === item.id)) merged[cat].push(item);
+      }
+    }
+  }
+
+  return c.json(merged);
+});
 
 
 export default {
