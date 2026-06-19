@@ -6833,7 +6833,7 @@ app.get('/8spine', async function(c) {
     name: 'All-In-Eclipse',
     author: 'Ricky',
     version: '1.0.7',
-    description: 'Qobuz, HiFi, SoundCloud, Internet Archive, Podcasts, Audiobooks and Radio in one module.',
+    description: 'Qobuz, HiFi, SoundCloud, Internet Archive, Podcasts, Audiobooks and Radio',
     download: base + '/8spine.js'
   });
 });
@@ -6850,7 +6850,7 @@ app.get('/8spine-source.json', async function(c) {
     name: 'All-In-Eclipse',
     author: 'Ricky',
     version: '1.0.7',
-    description: 'Qobuz, HiFi, SoundCloud, Internet Archive, Podcasts, Audiobooks and Radio in one module.',
+    description: 'Qobuz, HiFi, SoundCloud, Internet Archive, Podcasts, Audiobooks and Radio',
     labels: ['High Quality', 'Multi-Source', 'Radio', 'Settings'],
     download: base + '/8spine.js'
   };
