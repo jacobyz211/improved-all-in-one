@@ -5473,13 +5473,16 @@ async function handleArtist(c) {
       // Covers all known HiFi API v2.x instance response shapes
       // FIX: 3s timeouts (was 8s) — Promise.allSettled waits for ALL; slow instances
       // were blocking the entire artist page for up to 8 seconds.
-      const [infoRes, discRes, albumsRes, topTracksRes, albumsRes2, discRes2] = await Promise.allSettled([
+      const [infoRes, discRes, albumsRes, topTracksRes, albumsRes2, discRes2, albAlbumsRes, albEpsRes, albCompRes] = await Promise.allSettled([
         axios.get(`${inst}/artist/`, { params: { id: artistId }, headers: { 'User-Agent': UA }, timeout: 3000 }),
         axios.get(`${inst}/artist/`, { params: { f: artistId, skip_tracks: false }, headers: { 'User-Agent': UA }, timeout: 3000 }),
         axios.get(`${inst}/artist/albums/`, { params: { id: artistId, limit: 100, offset: 0 }, headers: { 'User-Agent': UA }, timeout: 3000 }),
-        axios.get(`${inst}/artist/toptracks/`, { params: { id: artistId, limit: 20 }, headers: { 'User-Agent': UA }, timeout: 3000 }),
+        axios.get(`${inst}/artist/toptracks/`, { params: { id: artistId, limit: 30 }, headers: { 'User-Agent': UA }, timeout: 3000 }),
         axios.get(`${inst}/artist/albums/`, { params: { artistId, limit: 100 }, headers: { 'User-Agent': UA }, timeout: 3000 }),
         axios.get(`${inst}/artist/discography/`, { params: { id: artistId, limit: 50 }, headers: { 'User-Agent': UA }, timeout: 3000 }),
+        axios.get(`${inst}/artist/albums/`, { params: { id: artistId, filter: 'ALBUMS',       limit: 100 }, headers: { 'User-Agent': UA }, timeout: 3000 }),
+        axios.get(`${inst}/artist/albums/`, { params: { id: artistId, filter: 'EPSSINGLES',   limit: 100 }, headers: { 'User-Agent': UA }, timeout: 3000 }),
+        axios.get(`${inst}/artist/albums/`, { params: { id: artistId, filter: 'COMPILATIONS', limit: 100 }, headers: { 'User-Agent': UA }, timeout: 3000 }),
       ]);
 
       // ── Artist info ──────────────────────────────────────────────────────────
@@ -5531,7 +5534,7 @@ async function handleArtist(c) {
         addAlbums(Array.isArray(dd2.albums) ? dd2.albums : (dd2.albums?.items || []));
         addAlbums(Array.isArray(dd2.items) ? dd2.items : []);
       }
-      for (const aRes of [albumsRes, albumsRes2]) {
+      for (const aRes of [albumsRes, albumsRes2, albAlbumsRes, albEpsRes, albCompRes]) {
         if (aRes.status === 'fulfilled') {
           const ad = aRes.value.data?.data || aRes.value.data;
           addAlbums(Array.isArray(ad) ? ad : (ad?.items || []));
@@ -5648,9 +5651,10 @@ async function handleArtist(c) {
           ).filter(t => t?.id);
         } catch (_tte) { /* path-param toptracks not supported on this instance */ }
       }
-      // Final fallback: discography tracks (not popularity-ordered)
+      // Final fallback: discography tracks, sorted by popularity
       if (!topTracksRawArr.length) {
-        topTracksRawArr = Object.values(trackMap);
+        topTracksRawArr = Object.values(trackMap)
+          .sort((a, b) => (b.popularity || 0) - (a.popularity || 0));
       }
       const topTracks = buildTopTracksArr(topTracksRawArr).slice(0, 20);
 
@@ -5670,7 +5674,7 @@ async function handleArtist(c) {
           title:      a.title || 'Unknown Album',
           artist:     artistName,
           artworkURL: a.cover ? coverUrl(a.cover, 320) : undefined,
-          year:       safeYear(a.releaseDate || a.release_date || a.streamStartDate || a.stream_start_date || a.year),
+          year:       safeYear(a.releaseDate || a.release_date || a.streamStartDate || a.stream_start_date || a.year) || undefined,
           source:     'hifi',
         }));
 
