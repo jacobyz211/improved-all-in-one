@@ -743,31 +743,30 @@ async function hifiSearch(query, instances) {
   const HIFI_TIMEOUT = 7000;
   const inst = list[0];
 
-  let data = null;
+  let data = null, artistData = null;
   try {
-    // Race all instances in parallel — first success wins
-    data = await Promise.any(list.map(i =>
-      axios.get(`${i}/search`, { params: { s: query, limit: 50, offset: 0 }, headers: { 'User-Agent': UA, Accept: 'application/json' }, timeout: HIFI_TIMEOUT })
-        .then(r => {
-          if (r.status === 200 && r.data) return r.data;
-          throw new Error('bad');
-        })
-    ));
+    [data, artistData] = await Promise.all([
+      Promise.any(list.map(i =>
+        axios.get(`${i}/search`, { params: { s: query, limit: 50, offset: 0 }, headers: { 'User-Agent': UA }, timeout: HIFI_TIMEOUT })
+          .then(r => { if (r.status === 200 && r.data) return r.data; throw new Error('bad'); })
+      )),
+      axios.get(`${inst}/search`, { params: { s: query, type: 'ARTISTS', limit: 10 }, headers: { 'User-Agent': UA }, timeout: HIFI_TIMEOUT })
+        .then(r => r.data).catch(() => null),
+    ]);
   } catch(e) {
     return { tracks: [], albums: [], artists: [] };
   }
 
-  try {
-    // Support all known HiFi API response shapes (same as monochrome)
-    const items = data?.data?.items || data?.items || data?.tracks?.items || data?.data?.tracks?.items || [];
+  if (!data) return { tracks: [], albums: [], artists: [] };
 
+  try {
+    const items = data?.data?.items || data?.items || data?.tracks?.items || data?.data?.tracks?.items || [];
     const instB64 = encodeBase64Url(inst);
     const albumMap = {}, artistMap = {}, artistHits = {}, tracks = [];
 
     for (const t of items) {
       if (!t?.id) continue;
 
-      // Build artist map from ALL items (geo-restricted artists still appear)
       for (const a of (t.artists || (t.artist ? [t.artist] : []))) {
         if (!a?.id) continue;
         const arid = String(a.id);
@@ -791,7 +790,6 @@ async function hifiSearch(query, instances) {
         ? `https://resources.tidal.com/images/${t.album.cover.replace(/-/g, '/')}/1280x1280.jpg`
         : undefined;
 
-      // Use same artist resolution as monochrome's trackArtist()
       const tArtistName = (() => {
         if (t.artists && t.artists.length) return t.artists.map(a => a.name).join(', ');
         if (t.artist && t.artist.name) return t.artist.name;
@@ -815,7 +813,6 @@ async function hifiSearch(query, instances) {
         _origId: origId,
       });
 
-      // Cache track metadata for stream handler
       cacheSet(`hifi:track:meta:${instB64}_${origId}`, {
         title: t.title || 'Unknown',
         artist: tArtistName,
@@ -830,13 +827,31 @@ async function hifiSearch(query, instances) {
           title: t.album.title || 'Unknown Album',
           artist: tArtistName,
           artworkURL,
-          year: t.album.releaseDate ? String(t.album.releaseDate).slice(0, 4) : undefined,
+          year: safeYear(t.album.releaseDate || t.album.streamStartDate || t.releaseDate) || undefined,
           _source: 'hifi',
         };
       }
     }
 
-    // Sort artists: relevance first (monochrome's artistRelevance logic)
+    // Merge dedicated artist-type search results (fixes geo-restricted artists like Drake/Travis Scott)
+    const arItems = artistData?.data?.artists?.items || artistData?.data?.items
+      || artistData?.artists?.items || artistData?.items || [];
+    for (const a of arItems) {
+      if (!a?.id || !a?.name) continue;
+      const key = String(a.id);
+      if (!artistMap[key]) {
+        artistMap[key] = {
+          id: `hifi_artist_${instB64}_${a.id}`,
+          name: a.name,
+          artworkURL: a.picture
+            ? `https://resources.tidal.com/images/${a.picture.replace(/-/g, '/')}/320x320.jpg`
+            : undefined,
+          _source: 'hifi',
+        };
+      }
+      artistHits[key] = (artistHits[key] || 0) + 10; // boost dedicated artist results to top
+    }
+
     const artistList = Object.keys(artistMap)
       .sort((a, b) => {
         const ra = artistRelevance(artistMap[a].name, query) * 100 + (artistHits[a] || 0);
