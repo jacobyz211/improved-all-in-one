@@ -275,6 +275,8 @@ const DEFAULT_HIFI_INSTANCES = [
 ];
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36';
 
+const DEEZER_API = 'https://api.deezer.com/';
+
 const QOBUZ_INSTANCES = [
   'https://qobuz-api1.onrender.com',
   'https://trypt-hifi-dl-456461932686.us-west1.run.app',
