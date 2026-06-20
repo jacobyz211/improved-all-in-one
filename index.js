@@ -2277,6 +2277,20 @@ function _dzSessionSet(arlKey, data) {
   _dzSessionCache.set(arlKey, { data, exp: Date.now() + 55 * 60 * 1000 });
 }
 
+// ── Deezer stream-URL cache (in-memory, keyed by numeric trackId) ─────────────
+const _dzStreamCache = new Map();
+function _dzStreamGet(trackId) {
+  const v = _dzStreamCache.get(String(trackId));
+  if (!v) return null;
+  if (v.exp && v.exp < Date.now()) { _dzStreamCache.delete(String(trackId)); return null; }
+  return v.data;
+}
+function _dzStreamSet(trackId, data) {
+  // Stream URLs expire after 25 minutes (Deezer CDN tokens last ~30 min)
+  const ttl = data?.expiresAt ? Math.max(60, Math.floor((data.expiresAt - Date.now() / 1000))) : 1500;
+  _dzStreamCache.set(String(trackId), { data, exp: Date.now() + Math.min(ttl, 1500) * 1000 });
+}
+
 // ── Get premium stream info from Deezer private API ──────────────────────────
 // Returns { url, cipher, blowfishKey, quality, expiresAt } or null
 async function dzGetPremiumStreamInfo(trackId, arl, env) {
