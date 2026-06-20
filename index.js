@@ -2264,6 +2264,19 @@ function dzBfDecryptBlockFast(data, { P, S }) {
   return out;
 }
 
+
+// ── Deezer session cache (in-memory, keyed by first 16 chars of ARL) ──────────
+const _dzSessionCache = new Map();
+function _dzSessionGet(arlKey) {
+  const v = _dzSessionCache.get(arlKey);
+  if (!v) return null;
+  if (v.exp && v.exp < Date.now()) { _dzSessionCache.delete(arlKey); return null; }
+  return v.data;
+}
+function _dzSessionSet(arlKey, data) {
+  _dzSessionCache.set(arlKey, { data, exp: Date.now() + 55 * 60 * 1000 });
+}
+
 // ── Get premium stream info from Deezer private API ──────────────────────────
 // Returns { url, cipher, blowfishKey, quality, expiresAt } or null
 async function dzGetPremiumStreamInfo(trackId, arl, env) {
@@ -6987,7 +7000,7 @@ app.get('/8spine-source.json', async function(c) {
 // ─── Catch-all token info ─────────────────────────────────────────────────────
 app.get('/:token', function(c) {
   var t = c.req.param('token');
-  if (['health','favicon.ico','generate','refresh','search','stream','album','playlist','manifest.json'].includes(t)) return next();
+  if (['health','favicon.ico','generate','refresh','search','stream','album','playlist','manifest.json'].includes(t)) return c.json({ error: 'Invalid token' }, 400);
   return c.json({ name: 'Eclipse Universal Addon', version: '1.3.0', token: t, status: 'running' });
 });
 
