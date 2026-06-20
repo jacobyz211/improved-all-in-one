@@ -5,13 +5,21 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 # Optional: set defaults here, or pass via token URL instead
-# HIFIINSTANCES = "https://your-instance.com"
-# SCCLIENTID = ""
+# HIFI_INSTANCES = "https://your-instance.com"
+# SC_CLIENT_ID = ""
 
-# Uncomment if using Upstash Redis for caching/rate limiting
-# [[kv_namespaces]]
-# binding = "KV"
-# id = "your-kv-id"
+# Upstash Redis — used for stream URLs, track metadata, Deezer sessions
+# (keeps working exactly as before)
+# [vars]
+# UPSTASH_REDIS_REST_URL = ""
+# UPSTASH_REDIS_REST_TOKEN = ""
+
+# Cloudflare KV — used for ISRC/ID mappings (fast edge cache, never expires early)
+# Run: npx wrangler kv:namespace create ISRC_CACHE
+# Then paste the id below:
+[[kv_namespaces]]
+binding = "KV"
+id = "your-kv-namespace-id"
 
 [observability]
 enabled = true
