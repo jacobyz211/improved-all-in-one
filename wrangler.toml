@@ -19,7 +19,7 @@ compatibility_flags = ["nodejs_compat"]
 # Then paste the id below:
 [[kv_namespaces]]
 binding = "KV"
-id = "your-kv-namespace-id"
+id = "8903748dc59b43ba870f056923d84839"
 
 [observability]
 enabled = true
