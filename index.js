@@ -5545,7 +5545,7 @@ async function handleArtist(c) {
           if (!a?.id) continue;
           const _ak = String(a.id);
           if (albumMap[_ak]) continue;
-          const _rd = a.releaseDate || a.release_date || a.streamStartDate || a.stream_start_date || '';
+          const _rd = a.releaseDate || a.release_date || a.streamStartDate || a.stream_start_date || a.year || '';
           const _aNorm = `${(a.title||'').toLowerCase().replace(/[^a-z0-9]/g,'')}:${_rd.slice(0,4)}`;
           if (_aNorm.length > 1 && albumTitleSeen.has(_aNorm)) continue;
           if (_aNorm.length > 1) albumTitleSeen.add(_aNorm);
@@ -5637,7 +5637,7 @@ async function handleArtist(c) {
               id: t.album.id, title: t.album.title, cover: t.album.cover,
               // FIX: t.album.releaseDate is often null on track objects; fall back to
               // streamStartDate (ISO string) or track-level releaseDate
-              releaseDate: t.album.releaseDate || t.album.streamStartDate || t.releaseDate || null,
+              releaseDate: t.album.releaseDate || t.album.release_date || t.album.streamStartDate || t.album.stream_start_date || t.album.year || t.releaseDate || null,
               source: 'hifi',
             };
             if (!trackMap[String(t.id)] && t.streamReady !== false) trackMap[String(t.id)] = t;
@@ -5711,7 +5711,7 @@ async function handleArtist(c) {
           title:      a.title || 'Unknown Album',
           artist:     artistName,
           artworkURL: a.cover ? coverUrl(a.cover, 320) : undefined,
-          year:       safeYear(a.releaseDate || a.release_date || a.streamStartDate || a.stream_start_date),
+          year:       safeYear(a.releaseDate || a.release_date || a.streamStartDate || a.stream_start_date || a.year),
           source:     'hifi',
         }));
 
