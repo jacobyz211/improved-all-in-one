@@ -182,6 +182,17 @@ async function upstashCmd(env, ...args) {
   } catch { return null; }
 }
 
+// ─── Cloudflare KV — ISRC/ID mapping cache (fast edge reads) ─────────────────
+async function kvGet(env, key) {
+  if (!env?.KV) return null;
+  try { return await env.KV.get(key, { type: 'json' }); } catch { return null; }
+}
+
+async function kvSet(env, key, value, ttlSeconds = 86400) {
+  if (!env?.KV) return;
+  try { await env.KV.put(key, JSON.stringify(value), { expirationTtl: ttlSeconds }); } catch {}
+}
+
 function getConfig(c) {
   const token = c.req.param('token') || '';
   const cfg = parseToken(token);
@@ -491,16 +502,20 @@ async function qobuzStream(trackId, env, preferredQuality) {
 // ONLY returns a result if the Qobuz item's own .isrc field matches exactly —
 // if the proxy doesn't support ISRC search syntax the result is silently discarded.
 // Confirmed hits cached 24h; misses cached 30 min.
-async function qobuzFindByIsrc(isrc) {
+async function qobuzFindByIsrc(isrc, env) {
   if (!isrc) return null;
   const normIsrc = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
   const wantIsrc = normIsrc(isrc);
   if (!wantIsrc) return null;
 
   const cacheKey = 'qisrc:' + wantIsrc;
-  const cached = await cacheGet(cacheKey);
-  if (cached === 'MISS') return null;
-  if (cached) return cached;
+  // Check in-memory first (fastest), then KV (fast edge), Upstash skipped for ISRCs
+  const memCached = await cacheGet(cacheKey);
+  if (memCached === 'MISS') return null;
+  if (memCached) return memCached;
+  const kvCached = await kvGet(env, cacheKey);
+  if (kvCached === 'MISS') { await cacheSet(cacheKey, 'MISS', 1800); return null; }
+  if (kvCached) { await cacheSet(cacheKey, kvCached, 3600); return kvCached; }
 
   for (const inst of QOBUZ_INSTANCES) {
     try {
@@ -510,19 +525,21 @@ async function qobuzFindByIsrc(isrc) {
       const match = items.find(t => t.isrc && normIsrc(t.isrc) === wantIsrc);
       if (match && match.id) {
         await cacheSet(cacheKey, match, 86400); // confirmed ISRC match — cache 24h
+        await kvSet(env, cacheKey, match, 86400); // persist to KV for cross-isolate edge reads
         console.log(`[Qobuz ISRC] HIT ${isrc} -> id=${match.id} "${match.title}"`);
         return match;
       }
     } catch(e) { continue; } // instance down — circuit breaker handles it via qobuzStream
   }
   await cacheSet(cacheKey, 'MISS', 1800); // miss cached 30 min
+  await kvSet(env, cacheKey, 'MISS', 1800); // persist miss to KV too
   return null;
 }
 
 async function qobuzFindBestTrack(title, artist, isrc, _env, expectedDuration) {
   // 1. ISRC fast path
   if (isrc) {
-    const byIsrc = await qobuzFindByIsrc(isrc);
+    const byIsrc = await qobuzFindByIsrc(isrc, _env);
     if (byIsrc) return byIsrc;
     console.log(`[Qobuz ISRC] no confirmed match for ${isrc} — falling back to title search`);
   }
@@ -538,7 +555,7 @@ async function qobuzFindBestTrack(title, artist, isrc, _env, expectedDuration) {
       const _mbIsrc = _mbRec?.isrcs?.[0];
       if (_mbIsrc) {
         console.log(`[MusicBrainz] enriched ISRC for "${title}" -> ${_mbIsrc}`);
-        const byMbIsrc = await qobuzFindByIsrc(_mbIsrc);
+        const byMbIsrc = await qobuzFindByIsrc(_mbIsrc, _env);
         if (byMbIsrc) return byMbIsrc;
         isrc = _mbIsrc; // carry ISRC forward for cache key enrichment
       }
@@ -555,7 +572,7 @@ async function qobuzFindBestTrack(title, artist, isrc, _env, expectedDuration) {
       const _tadbIsrc = _tadbTrack?.strMusicBrainzID;
       if (_tadbIsrc) {
         console.log(`[TheAudioDB] enriched ISRC for "${title}" -> ${_tadbIsrc}`);
-        const byTadbIsrc = await qobuzFindByIsrc(_tadbIsrc);
+        const byTadbIsrc = await qobuzFindByIsrc(_tadbIsrc, _env);
         if (byTadbIsrc) return byTadbIsrc;
       }
     } catch(e) { /* non-fatal */ }
@@ -4754,7 +4771,7 @@ async function handleStream(c) {
     if (_dzQFirst && (dzIsrc || dzTitle2)) {
       try {
         const qTrack = dzIsrc
-          ? await qobuzFindByIsrc(dzIsrc)
+          ? await qobuzFindByIsrc(dzIsrc, c.env)
           : await qobuzFindBestTrack(dzTitle2, dzArtist2, null, c.env, _dzCachedMeta?.duration);
         if (qTrack?.id) {
           const qStream = await qobuzStream(qTrack.id, c.env, cfg.preferredQuality);
@@ -4786,7 +4803,7 @@ async function handleStream(c) {
       // Deezer excluded from streamOrder — go straight to other sources
       if (!_dzEffNoQobuz && dzTitle2) {
         try {
-          const qTrack = dzIsrc ? await qobuzFindByIsrc(dzIsrc) : await qobuzFindBestTrack(dzTitle2, dzArtist2, dzIsrc, c.env);
+          const qTrack = dzIsrc ? await qobuzFindByIsrc(dzIsrc, c.env) : await qobuzFindBestTrack(dzTitle2, dzArtist2, dzIsrc, c.env);
           if (qTrack?.id) { const qStream = await qobuzStream(qTrack.id, c.env, cfg.preferredQuality); if (qStream) { console.log(`[Deezer→Qobuz skip] ${dzTitle2}`); return c.json(qStream); } }
         } catch(e) { console.warn('[Deezer→Qobuz skip]', e.message); }
       }
@@ -4843,7 +4860,7 @@ async function handleStream(c) {
         if (_fbSrc === 'qobuz' && !_dzEffNoQobuz) {
           try {
             const qTrack = dzIsrc
-              ? await qobuzFindByIsrc(dzIsrc)
+              ? await qobuzFindByIsrc(dzIsrc, c.env)
               : (dzTitle2 ? await qobuzFindBestTrack(dzTitle2, dzArtist2, null, c.env) : null);
             if (qTrack?.id) {
               const qStream = await qobuzStream(qTrack.id, c.env, cfg.preferredQuality);
@@ -4911,7 +4928,7 @@ async function handleStream(c) {
     // 0. ISRC fast path — try Qobuz exact match before any search
     if (qIsrc && !cfg.noQobuz) {
       try {
-        const qTrack = await qobuzFindByIsrc(qIsrc);
+        const qTrack = await qobuzFindByIsrc(qIsrc, c.env);
         if (qTrack?.id) {
           const qStream = await qobuzStream(qTrack.id, c.env, cfg.preferredQuality);
           if (qStream) { console.log(`[Social→Qobuz ISRC] ${qIsrc} → ${qTrack.id}`); statHit('qobuz'); return c.json({ ...qStream, fallback: 'qobuz_isrc' }); }
