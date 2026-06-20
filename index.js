@@ -2286,8 +2286,7 @@ function _dzStreamGet(trackId) {
   return v.data;
 }
 function _dzStreamSet(trackId, data) {
-  // Stream URLs expire after 25 minutes (Deezer CDN tokens last ~30 min)
-  const ttl = data?.expiresAt ? Math.max(60, Math.floor((data.expiresAt - Date.now() / 1000))) : 1500;
+  const ttl = data?.expiresAt ? Math.max(60, Math.floor(data.expiresAt - Date.now() / 1000)) : 1500;
   _dzStreamCache.set(String(trackId), { data, exp: Date.now() + Math.min(ttl, 1500) * 1000 });
 }
 
@@ -4848,21 +4847,30 @@ async function handleStream(c) {
     // Deezer IS in streamOrder (or no explicit order) — try it directly first
     if (!dzSkipDeezer) {
       // ISRC fast path: if we have an ISRC, confirm the correct Deezer track ID first
+      // Race ISRC correction lookup against direct stream in parallel.
+      // If ISRC resolves to a DIFFERENT id, prefer that — otherwise use direct result.
       if (dzIsrc) {
-        try {
-          const dzByIsrc = await deezerFindByIsrc(dzIsrc);
-          if (dzByIsrc?.numericId && dzByIsrc.numericId !== dzId) {
-            // ISRC lookup returned a different (correct) track — stream that one instead
-            const isrcStream = await deezerStream(dzByIsrc.numericId, c.env, c.req, dzIsrc);
+        const [isrcResult, directResult] = await Promise.allSettled([
+          deezerFindByIsrc(dzIsrc).catch(() => null),
+          deezerStream(dzId, c.env, c.req, dzIsrc || null).catch(() => null),
+        ]);
+        const byIsrc = isrcResult.status === 'fulfilled' ? isrcResult.value : null;
+        const direct = directResult.status === 'fulfilled' ? directResult.value : null;
+        // If ISRC pointed to a different (corrected) track ID, stream that instead
+        if (byIsrc?.numericId && byIsrc.numericId !== dzId) {
+          try {
+            const isrcStream = await deezerStream(byIsrc.numericId, c.env, c.req, dzIsrc);
             if (isrcStream) {
-              console.log(`[Deezer] ISRC-confirmed stream ${dzIsrc} -> id=${dzByIsrc.numericId} (URL had id=${dzId})`);
+              console.log(`[Deezer] ISRC-confirmed stream ${dzIsrc} -> id=${byIsrc.numericId} (URL had id=${dzId})`);
               return c.json(isrcStream);
             }
-          }
-        } catch (e) { console.warn('[Deezer ISRC fast path]', e.message); }
+          } catch (e) { console.warn('[Deezer ISRC fast path]', e.message); }
+        }
+        if (direct) return c.json(direct);
+      } else {
+        const s = await deezerStream(dzId, c.env, c.req, null);
+        if (s) return c.json(s);
       }
-      const s = await deezerStream(dzId, c.env, c.req, dzIsrc || null);
-      if (s) return c.json(s);
       console.log(`[Deezer direct] stream failed for ${dzId} — falling back to upgrade sources`);
       // Deezer failed — walk full streamOrder for best available source
       const _dzFbOrder = cfg.streamOrder && cfg.streamOrder.length
