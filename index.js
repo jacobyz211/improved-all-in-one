@@ -1560,7 +1560,7 @@ async function taddySearch(query, apiKey, userId) {
   const cacheKey = `taddy:search:${query}`;
   const cached = await cacheGet(cacheKey);
   if (cached) return cached;
-  const gql = `query { search(term: "${query.replace(/[\\'"\`\n\r{}[\]]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100)}", filterForTypes: [PODCASTSERIES, PODCASTEPISODE], limitPerPage: 8) { searchId podcastSeries { uuid name imageUrl rssUrl episodes(limitPerPage: 5) { uuid name audioUrl duration imageUrl } } podcastEpisodes { uuid name audioUrl duration imageUrl podcastSeries { uuid name imageUrl } } } }`;
+  const gql = `query { search(term: "${query.replace(/[\\'"`\n\r{}[\]]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100)}", filterForTypes: [PODCASTSERIES, PODCASTEPISODE], limitPerPage: 8) { searchId podcastSeries { uuid name imageUrl rssUrl episodes(limitPerPage: 5) { uuid name audioUrl duration imageUrl } } podcastEpisodes { uuid name audioUrl duration imageUrl podcastSeries { uuid name imageUrl } } } }`;
   try {
     const res = await axios.post('https://api.taddy.org', { query: gql }, {
       headers: {
@@ -1788,7 +1788,7 @@ async function _appleSearchInner(query, cacheKey) {
         } catch (e) {
           if (e?.response?.status === 429) {
             _appleRecord429();
-            console.warn(\`[Apple] rate-limited (429) on attempt \${attempt + 1}/3 — query: \${query}\`);
+            console.warn(`[Apple] rate-limited (429) on attempt \${attempt + 1}/3 — query: \${query}`);
             if (attempt === 2) {
               console.warn('[Apple] all 3 attempts 429d — returning empty, circuit may trip');
               return null;
