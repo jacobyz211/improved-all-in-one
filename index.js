@@ -1466,12 +1466,12 @@ async function piSearchEpisodes(query, key, secret) {
       axios.get('https://api.podcastindex.org/api/1.0/search/byterm', {
         params: { q: query, max: 10, fulltext: true },
         headers: _piHdrs,
-        timeout: 5000,
+        timeout: 8000,
       }),
-      axios.get('https://api.podcastindex.org/api/1.0/search/byterm', {
-        params: { q: query, max: 10, fulltext: true, type: 'episode' },
+      axios.get('https://api.podcastindex.org/api/1.0/episodes/search', {
+        params: { q: query, max: 20, fulltext: true },
         headers: _piHdrs,
-        timeout: 5000,
+        timeout: 8000,
       }),
     ]);
     const feeds = feedsRes.status === 'fulfilled' ? (feedsRes.value.data?.feeds || []) : [];
@@ -1487,7 +1487,27 @@ async function piSearchEpisodes(query, key, secret) {
       _feedId: f.id,
       _feedUrl: f.url,
     }));
-    const episodes = (epRes.status === 'fulfilled' ? (epRes.value.data?.items || epRes.value.data?.episodes || []) : []).map(e => ({
+    const _rawEps = epRes.status === 'fulfilled'
+      ? (epRes.value.data?.items || epRes.value.data?.episodes || [])
+      : [];
+    // If episode search returned nothing but we have feeds, pull episodes from top feed
+    let _feedEps = [];
+    if (_rawEps.length === 0 && feeds.length > 0 && key && secret) {
+      try {
+        const _topFeed = feeds[0];
+        const _fEpHdrs = await podcastIndexHeaders(key, secret);
+        const _fEpRes = await axios.get('https://api.podcastindex.org/api/1.0/episodes/byfeedid', {
+          params: { id: _topFeed.id, max: 20 },
+          headers: _fEpHdrs,
+          timeout: 6000,
+        });
+        _feedEps = (_fEpRes.data?.items || []).map(e => ({ ...e, feedTitle: e.feedTitle || _topFeed.title, image: e.image || e.feedImage || _topFeed.artwork || _topFeed.image }));
+      } catch (e2) { /* non-fatal */ }
+    }
+    // Deduplicate by id before mapping (rawEps take priority over feedEps)
+    const _seenPiEpId = new Set(_rawEps.map(e => String(e.id)));
+    const _deduped = [..._rawEps, ..._feedEps.filter(e => !_seenPiEpId.has(String(e.id)))];
+    const episodes = _deduped.map(e => ({
       id: `pi_ep_${e.id}`,
       title: e.title || 'Unknown Episode',
       artist: e.feedTitle || e.author || 'Unknown Podcast',
@@ -1498,6 +1518,10 @@ async function piSearchEpisodes(query, key, secret) {
       streamURL: e.enclosureUrl || e.enclosure?.url || '',
       _source: 'pi',
     }));
+    // Pre-cache stream URLs so handleStream resolves without re-fetching PI API
+    for (const ep of episodes) {
+      if (ep.streamURL) cacheSet(`pi:ep:stream:${ep.id}`, ep.streamURL, 3600);
+    }
     for (const f of feeds) {
       await cacheSet(`pi:series_info:${f.id}`, {
         title: f.title || 'Unknown Podcast',
@@ -1582,7 +1606,21 @@ async function taddySearch(query, apiKey, userId) {
       _uuid: s.uuid,
       _episodes: s.episodes || [],
     }));
-    const episodes = (data?.podcastEpisodes || []).map(e => ({
+    // Build episodes: standalone podcastEpisodes + episodes embedded in each series
+    const _seriesEps = (data?.podcastSeries || []).flatMap(s =>
+      (s.episodes || []).map(e => ({
+        id: `taddy_ep_${e.uuid}`,
+        title: e.name || 'Unknown Episode',
+        artist: s.name || 'Unknown Podcast',
+        album: s.name || '',
+        duration: e.duration || 0,
+        artworkURL: e.imageUrl || s.imageUrl || '',
+        format: 'mp3',
+        streamURL: e.audioUrl || '',
+        _source: 'taddy',
+      }))
+    );
+    const _directEps = (data?.podcastEpisodes || []).map(e => ({
       id: `taddy_ep_${e.uuid}`,
       title: e.name || 'Unknown Episode',
       artist: e.podcastSeries?.name || 'Unknown Podcast',
@@ -1593,6 +1631,13 @@ async function taddySearch(query, apiKey, userId) {
       streamURL: e.audioUrl || '',
       _source: 'taddy',
     }));
+    // Deduplicate by uuid, prefer directEps (richer metadata)
+    const _seenTaddyUuid = new Set(_directEps.map(e => e.id));
+    const episodes = [..._directEps, ..._seriesEps.filter(e => !_seenTaddyUuid.has(e.id))];
+    // Pre-cache stream URLs for Taddy episodes too
+    for (const ep of episodes) {
+      if (ep.streamURL) cacheSet(`taddy:ep:stream:${ep.id}`, ep.streamURL, 3600);
+    }
     for (const s of (data?.podcastSeries || [])) {
       await cacheSet(`taddy:series_info:${s.uuid}`, {
         title: s.name || 'Unknown Podcast',
@@ -1731,26 +1776,33 @@ async function appleSearch(query) {
 // ─── Apple iTunes podcast search ─────────────────────────────────────────────
 // Global circuit-breaker: if Apple 429s us, skip it for 60s to avoid spam.
 // This prevents Cloudflare's shared IP from getting hammered after a rate-limit hit.
-const _appleCB = { trippedUntil: 0, consecutive429s: 0 };
+const _appleCB = { trippedUntil: 0, consecutive429s: 0, consecutive403s: 0 };
 function _appleCircuitOpen() {
   if (Date.now() < _appleCB.trippedUntil) return true;
   if (_appleCB.consecutive429s >= 2) {
-    _appleCB.trippedUntil = Date.now() + 60000; // 60s cooldown
+    _appleCB.trippedUntil = Date.now() + 300000; // 5 min cooldown for repeated 429s
     _appleCB.consecutive429s = 0;
-    console.warn('[Apple] circuit breaker OPEN — skipping Apple for 60s');
+    console.warn('[Apple] circuit breaker OPEN (429) — skipping Apple for 5 min');
+    return true;
+  }
+  if (_appleCB.consecutive403s >= 1) {
+    _appleCB.trippedUntil = Date.now() + 120000; // 2 min cooldown for 403 CF IP block
+    _appleCB.consecutive403s = 0;
+    console.warn('[Apple] circuit breaker OPEN (403 CF block) — skipping Apple for 2 min');
     return true;
   }
   return false;
 }
-function _appleRecordSuccess() { _appleCB.consecutive429s = 0; }
+function _appleRecordSuccess() { _appleCB.consecutive429s = 0; _appleCB.consecutive403s = 0; }
 function _appleRecord429()     { _appleCB.consecutive429s++; }
+function _appleRecord403()     { _appleCB.consecutive403s++; }
 
 // Rotate UA strings so each retry looks like a different client
 const _APPLE_UAS = [
-  'iTunes/12.12.4 (Macintosh; OS X 12.7.6; Intel) AppleWebKit/7619.2.8.10.5',
-  'AppleCoreMedia/1.0.0.21G115 (Macintosh; U; Intel Mac OS X 12_6; en_us)',
-  'iTunes/14.2 (Windows; Microsoft Windows 10 x64 Business Edition (Build 19041)) AppleWebKit/7610.1.10.12',
-  'Podcasts/1600.5 CFNetwork/1335.0.3 Darwin/21.6.0',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_4) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15',
 ];
 
 async function _appleSearchInner(query, cacheKey) {
@@ -1778,8 +1830,6 @@ async function _appleSearchInner(query, cacheKey) {
             params: { term: query, media: 'podcast', entity: 'podcastEpisode', limit: 20, explicit: 'Yes' },
             headers: {
               'User-Agent': ua,
-              'Accept': 'application/json',
-              'Accept-Language': 'en-US,en;q=0.9',
             },
             timeout: 10000,
           });
@@ -1788,12 +1838,17 @@ async function _appleSearchInner(query, cacheKey) {
         } catch (e) {
           if (e?.response?.status === 429) {
             _appleRecord429();
-            console.warn(`[Apple] rate-limited (429) on attempt \${attempt + 1}/3 — query: \${query}`);
+            console.warn(`[Apple] rate-limited (429) on attempt ${attempt + 1}/3 — query: ${query}`);
             if (attempt === 2) {
               console.warn('[Apple] all 3 attempts 429d — returning empty, circuit may trip');
               return null;
             }
             // continue to next attempt with longer delay
+          } else if (e?.response?.status === 403) {
+            // CF Worker datacenter IP blocked by Apple — don't retry, trip the circuit
+            _appleRecord403();
+            console.warn('[Apple] 403 blocked (CF IP) — tripping circuit, skipping Apple search');
+            return null;
           } else {
             console.warn('[Apple] search error:', e.message, 'status:', e?.response?.status);
             return null; // non-429 errors don't retry
@@ -3677,11 +3732,15 @@ async function handlePodcastSearch(c) {
   const itunesResult = itunesData.status === 'fulfilled' ? itunesData.value : null;
 
   // Log source hit counts so you can confirm PI is working
-  console.log(`[podcast/search] query="${query}" PI=${hasPi ? (piResult?.episodes?.length??0)+'ep '+(piResult?.playlists?.length??0)+'feeds' : 'disabled'} Taddy=${taddyResult?.episodes?.length??0}ep Apple=${itunesResult?.episodes?.length??0}ep`);
+  console.log(`[podcast/search] query="${query}" PI=${hasPi ? (piResult?.episodes?.length??0)+'ep '+(piResult?.playlists?.length??0)+'feeds' : 'disabled (no pi_key/pi_secret in token)'} Taddy=${taddyResult?.episodes?.length??0}ep Apple=${itunesResult?.episodes?.length??0}ep token=${(c.req.param('token')||'none').slice(0,12)}`);
 
   // ── PI results ────────────────────────────────────────────────────────────
   const piFeeds    = piResult?.playlists || piResult?.albums || [];
   const piEpisodes = piResult?.episodes || [];
+  // Pre-cache PI episode stream URLs so /stream/:id resolves without re-fetching PI API
+  for (const ep of piEpisodes) {
+    if (ep?.id && ep?.streamURL) cacheSet(`pi:ep:stream:${ep.id}`, ep.streamURL, 3600);
+  }
 
   // ── Taddy results ─────────────────────────────────────────────────────────
   const taddyEpisodes  = taddyResult?.episodes  || [];
@@ -4636,6 +4695,7 @@ async function handleStream(c) {
       try {
         const lu = await axios.get('https://itunes.apple.com/lookup', {
           params: { id: trackId, media: 'podcast', entity: 'podcastEpisode', limit: 1 },
+          headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36' },
           timeout: 5000,
         });
         const ep = (lu.data?.results || []).find(r => r.kind === 'podcast-episode' || r.wrapperType === 'track');
@@ -6942,6 +7002,10 @@ async function runKeepalive() {
   );
   console.log('[keepalive] pinged', KEEPALIVE_TARGETS.length, 'instances');
 }
+
+// ─── 404 catch-all & favicon ─────────────────────────────────────────────────
+app.get('/favicon.ico', c => new Response(null, { status: 204 }));
+app.notFound(c => c.json({ error: 'Not found' }, 404));
 
 export default {
   fetch: app.fetch.bind(app),
