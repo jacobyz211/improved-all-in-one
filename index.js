@@ -5545,7 +5545,8 @@ async function handleArtist(c) {
           if (!a?.id) continue;
           const _ak = String(a.id);
           if (albumMap[_ak]) continue;
-          const _aNorm = `${(a.title||'').toLowerCase().replace(/[^a-z0-9]/g,'')}:${(a.releaseDate||'').slice(0,4)}`;
+          const _rd = a.releaseDate || a.release_date || a.streamStartDate || a.stream_start_date || '';
+          const _aNorm = `${(a.title||'').toLowerCase().replace(/[^a-z0-9]/g,'')}:${_rd.slice(0,4)}`;
           if (_aNorm.length > 1 && albumTitleSeen.has(_aNorm)) continue;
           if (_aNorm.length > 1) albumTitleSeen.add(_aNorm);
           albumMap[_ak] = a;
@@ -5647,9 +5648,10 @@ async function handleArtist(c) {
       const artistName = artistInfo.name || 'Unknown Artist';
       const artworkURL = artistInfo.picture ? coverUrl(artistInfo.picture, 480) : undefined;
 
-      const topTracks = Object.values(trackMap)
-        .filter(t => t.streamReady !== false)
-        .slice(0, 20)
+      // FIX: Build topTracks from dedicated toptracks endpoint first (popularity-ranked),
+      // fall back to trackMap (discography) only if toptracks endpoint returned nothing.
+      const buildTopTracksArr = (rawArr) => rawArr
+        .filter(t => t?.id && t.streamReady !== false)
         .map(t => ({
           id:         `hifi_${instB64}_${t.id}`,
           title:      t.title || 'Unknown',
@@ -5662,11 +5664,23 @@ async function handleArtist(c) {
           format:     'flac',
         }));
 
+      // Prefer dedicated /artist/toptracks/ order (popularity-ranked by Tidal)
+      let topTracksRawArr = [];
+      if (topTracksRes.status === 'fulfilled') {
+        const td = topTracksRes.value.data?.data || topTracksRes.value.data || {};
+        topTracksRawArr = td.items || td.tracks || (Array.isArray(td) ? td : []);
+      }
+      // Fall back to discography tracks if toptracks endpoint returned nothing
+      if (!topTracksRawArr.length) {
+        topTracksRawArr = Object.values(trackMap);
+      }
+      const topTracks = buildTopTracksArr(topTracksRawArr).slice(0, 20);
+
       const albums = Object.values(albumMap)
         // FIX: sort by numeric year descending; null/0 years go to the end
         .sort((a, b) => {
-          const ya = safeYear(a.releaseDate || a.streamStartDate);
-          const yb = safeYear(b.releaseDate || b.streamStartDate);
+          const ya = safeYear(a.releaseDate || a.release_date || a.streamStartDate || a.stream_start_date);
+          const yb = safeYear(b.releaseDate || b.release_date || b.streamStartDate || b.stream_start_date);
           if (!ya && !yb) return 0;
           if (!ya) return 1;  // a has no year → push to end
           if (!yb) return -1; // b has no year → push to end
@@ -5678,7 +5692,7 @@ async function handleArtist(c) {
           title:      a.title || 'Unknown Album',
           artist:     artistName,
           artworkURL: a.cover ? coverUrl(a.cover, 320) : undefined,
-          year:       safeYear(a.releaseDate || a.streamStartDate),
+          year:       safeYear(a.releaseDate || a.release_date || a.streamStartDate || a.stream_start_date),
           source:     'hifi',
         }));
 
