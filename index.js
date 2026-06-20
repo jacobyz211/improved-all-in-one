@@ -5665,12 +5665,31 @@ async function handleArtist(c) {
         }));
 
       // Prefer dedicated /artist/toptracks/ order (popularity-ranked by Tidal)
+      // FIX: unwrap {item: trackObj} wrapper that the HiFi proxy returns (same as hifiAlbum)
+      // and handle all known response shapes across proxy versions
+      const unwrapTracks = (arr) => (Array.isArray(arr) ? arr : []).map(i => i.item || i);
       let topTracksRawArr = [];
       if (topTracksRes.status === 'fulfilled') {
         const td = topTracksRes.value.data?.data || topTracksRes.value.data || {};
-        topTracksRawArr = td.items || td.tracks || (Array.isArray(td) ? td : []);
+        // Try all known response shapes, unwrapping {item: track} wrappers in each
+        topTracksRawArr = unwrapTracks(
+          td.items || td.tracks?.items || td.topTracks?.items ||
+          td.tracks || (Array.isArray(td) ? td : [])
+        ).filter(t => t?.id);
       }
-      // Fall back to discography tracks if toptracks endpoint returned nothing
+      // If toptracks endpoint failed or returned nothing, try a second path-param style URL
+      if (!topTracksRawArr.length) {
+        try {
+          const ttRes2 = await axios.get(`${inst}/artist/${artistId}/toptracks`, {
+            params: { limit: 20 }, headers: { 'User-Agent': UA }, timeout: 4000,
+          });
+          const td2 = ttRes2.data?.data || ttRes2.data || {};
+          topTracksRawArr = unwrapTracks(
+            td2.items || td2.tracks?.items || td2.tracks || (Array.isArray(td2) ? td2 : [])
+          ).filter(t => t?.id);
+        } catch (_tte) { /* path-param toptracks not supported on this instance */ }
+      }
+      // Final fallback: discography tracks (not popularity-ordered)
       if (!topTracksRawArr.length) {
         topTracksRawArr = Object.values(trackMap);
       }
