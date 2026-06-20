@@ -1728,48 +1728,82 @@ async function appleSearch(query) {
   return promise;
 }
 
+// ─── Apple iTunes podcast search ─────────────────────────────────────────────
+// Global circuit-breaker: if Apple 429s us, skip it for 60s to avoid spam.
+// This prevents Cloudflare's shared IP from getting hammered after a rate-limit hit.
+const _appleCB = { trippedUntil: 0, consecutive429s: 0 };
+function _appleCircuitOpen() {
+  if (Date.now() < _appleCB.trippedUntil) return true;
+  if (_appleCB.consecutive429s >= 2) {
+    _appleCB.trippedUntil = Date.now() + 60000; // 60s cooldown
+    _appleCB.consecutive429s = 0;
+    console.warn('[Apple] circuit breaker OPEN — skipping Apple for 60s');
+    return true;
+  }
+  return false;
+}
+function _appleRecordSuccess() { _appleCB.consecutive429s = 0; }
+function _appleRecord429()     { _appleCB.consecutive429s++; }
+
+// Rotate UA strings so each retry looks like a different client
+const _APPLE_UAS = [
+  'iTunes/12.12.4 (Macintosh; OS X 12.7.6; Intel) AppleWebKit/7619.2.8.10.5',
+  'AppleCoreMedia/1.0.0.21G115 (Macintosh; U; Intel Mac OS X 12_6; en_us)',
+  'iTunes/14.2 (Windows; Microsoft Windows 10 x64 Business Edition (Build 19041)) AppleWebKit/7610.1.10.12',
+  'Podcasts/1600.5 CFNetwork/1335.0.3 Darwin/21.6.0',
+];
+
 async function _appleSearchInner(query, cacheKey) {
+  // If circuit breaker is open, skip Apple entirely and return empty
+  if (_appleCircuitOpen()) {
+    console.warn('[Apple] circuit breaker open — skipping iTunes for query:', query);
+    return { playlists: [], albums: [], episodes: [], artists: [] };
+  }
+
   try {
-    // Match standalone podcast repo: only search podcastEpisode, build albums/artists from results
+    // Staggered jitter: 100-600ms to spread burst requests from Cloudflare's shared IP
+    await new Promise(r => setTimeout(r, 100 + Math.floor(Math.random() * 500)));
+
     const itunesResult = await (async () => {
-      try {
-        // Small random jitter (0-400ms) to spread burst requests and avoid shared-IP throttling
-        await new Promise(r => setTimeout(r, Math.floor(Math.random() * 400)));
-        const r = await axios.get('https://itunes.apple.com/search', {
-          params: { term: query, media: 'podcast', entity: 'podcastEpisode', limit: 20, explicit: 'Yes' },
-          headers: {
-            // Use an iTunes client UA — Apple rate-limits browser-UA requests more aggressively
-            'User-Agent': 'iTunes/12.12.4 (Macintosh; OS X 12.7.6; Intel) AppleWebKit/7619.2.8.10.5',
-            'Accept': 'application/json',
-            'Accept-Language': 'en-US,en;q=0.9',
-          },
-          timeout: 12000,
-        });
-        return r.data || null;
-      } catch (e) {
-        if (e?.response?.status === 429) {
-          // Rate-limited: wait 1s then retry once with a different UA string
-          console.warn('[Apple] rate-limited (429) — retrying after 1s');
-          await new Promise(r => setTimeout(r, 1000 + Math.floor(Math.random() * 500)));
-          try {
-            const r2 = await axios.get('https://itunes.apple.com/search', {
-              params: { term: query, media: 'podcast', entity: 'podcastEpisode', limit: 20, explicit: 'Yes' },
-              headers: {
-                'User-Agent': 'AppleCoreMedia/1.0.0.21G115 (Macintosh; U; Intel Mac OS X 12_6; en_us)',
-                'Accept': 'application/json',
-              },
-              timeout: 12000,
-            });
-            return r2.data || null;
-          } catch (e2) {
-            console.warn('[Apple] retry also failed:', e2.message, '— returning empty result');
-            return null;
+      // Try up to 3 times with different UAs and increasing backoff
+      const delays = [0, 1500, 3000];
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) {
+          if (_appleCircuitOpen()) return null; // circuit tripped mid-retry, abort
+          await new Promise(r => setTimeout(r, delays[attempt] + Math.floor(Math.random() * 500)));
+        }
+        try {
+          const ua = _APPLE_UAS[attempt % _APPLE_UAS.length];
+          const r = await axios.get('https://itunes.apple.com/search', {
+            params: { term: query, media: 'podcast', entity: 'podcastEpisode', limit: 20, explicit: 'Yes' },
+            headers: {
+              'User-Agent': ua,
+              'Accept': 'application/json',
+              'Accept-Language': 'en-US,en;q=0.9',
+            },
+            timeout: 10000,
+          });
+          _appleRecordSuccess();
+          return r.data || null;
+        } catch (e) {
+          if (e?.response?.status === 429) {
+            _appleRecord429();
+            console.warn(\`[Apple] rate-limited (429) on attempt \${attempt + 1}/3 — query: \${query}\`);
+            if (attempt === 2) {
+              console.warn('[Apple] all 3 attempts 429d — returning empty, circuit may trip');
+              return null;
+            }
+            // continue to next attempt with longer delay
+          } else {
+            console.warn('[Apple] search error:', e.message, 'status:', e?.response?.status);
+            return null; // non-429 errors don't retry
           }
         }
-        console.warn('[Apple] search error:', e.message, 'status:', e?.response?.status);
-        return null;
       }
+      return null;
     })();
+
+    if (!itunesResult) return { playlists: [], albums: [], episodes: [], artists: [] };
 
     const rawEps = (itunesResult?.results || []).filter(ep => ep.kind === 'podcast-episode' && ep.episodeUrl);
 
@@ -1834,28 +1868,6 @@ async function _appleSearchInner(query, cacheKey) {
   }
 }
 
-
-
-
-
-
-
-
-
-// ─── Deezer (ARL-based, direct decryption — no proxy addon needed) ───────────
-const DEEZER_API = 'https://api.deezer.com'; // public API for metadata only
-
-// ── In-memory session cache (ARL prefix → {sid, apiToken, licenseToken, userId}) ──
-const _DZ_SESSION_CACHE = new Map();
-function _dzSessionSet(arlKey, val) { _DZ_SESSION_CACHE.set(arlKey, { val, exp: Date.now() + 1200000 }); } // 20min TTL
-function _dzSessionGet(arlKey) { const e = _DZ_SESSION_CACHE.get(arlKey); if (!e) return null; if (Date.now() > e.exp) { _DZ_SESSION_CACHE.delete(arlKey); return null; } return e.val; }
-
-// ── In-memory stream cache (trackId → {url, cipher, blowfishKey, quality}) ──
-const _DZ_STREAM_CACHE = new Map();
-function _dzStreamSet(k, v) { _DZ_STREAM_CACHE.set(k, { v, exp: Date.now() + 240000 }); }
-function _dzStreamGet(k) { const e = _DZ_STREAM_CACHE.get(k); if (!e) return null; if (Date.now() > e.exp) { _DZ_STREAM_CACHE.delete(k); return null; } return e.v; }
-
-// ── Deezer gateway POST helper ────────────────────────────────────────────────
 async function dzGw(method, params, arl, sid, apiToken) {
   const res = await fetch(
     `https://www.deezer.com/ajax/gw-light.php?method=${method}&input=3&api_version=1.0&api_token=${encodeURIComponent(apiToken || 'null')}`,
@@ -3651,8 +3663,11 @@ async function handlePodcastSearch(c) {
   const cached = await cacheGet(cacheKey);
   if (cached) return c.json(cached);
 
+  const hasPi = !!(cfg.piKey && cfg.piSecret);
+
+  // Run all three in parallel. PI is the primary source when keys are set.
   const [piData, taddyData, itunesData] = await Promise.allSettled([
-    cfg.piKey && cfg.piSecret ? piSearchEpisodes(query, cfg.piKey, cfg.piSecret) : Promise.resolve(null),
+    hasPi ? piSearchEpisodes(query, cfg.piKey, cfg.piSecret) : Promise.resolve(null),
     taddySearch(query, cfg.taddyKey, cfg.taddyUid),
     appleSearch(query),
   ]);
@@ -3661,16 +3676,15 @@ async function handlePodcastSearch(c) {
   const taddyResult  = taddyData.status === 'fulfilled' ? taddyData.value : null;
   const itunesResult = itunesData.status === 'fulfilled' ? itunesData.value : null;
 
+  // Log source hit counts so you can confirm PI is working
+  console.log(`[podcast/search] query="${query}" PI=${hasPi ? (piResult?.episodes?.length??0)+'ep '+(piResult?.playlists?.length??0)+'feeds' : 'disabled'} Taddy=${taddyResult?.episodes?.length??0}ep Apple=${itunesResult?.episodes?.length??0}ep`);
+
   // ── PI results ────────────────────────────────────────────────────────────
-  // piSearchEpisodes returns { playlists, albums, episodes } — playlists ARE the feeds
   const piFeeds    = piResult?.playlists || piResult?.albums || [];
   const piEpisodes = piResult?.episodes || [];
 
   // ── Taddy results ─────────────────────────────────────────────────────────
-  // taddySearch returns {episodes, playlists, albums} — access playlists directly
-  const taddyPodcasts = taddyResult?.playlists || [];
-  // taddySearch in all-in-one returns {episodes, playlists, albums} format — handle both
-  const taddyEpisodes = taddyResult?.episodes || [];
+  const taddyEpisodes  = taddyResult?.episodes  || [];
   const taddyPlaylists = taddyResult?.playlists || [];
 
   // ── iTunes/Apple results ──────────────────────────────────────────────────
@@ -3679,19 +3693,26 @@ async function handlePodcastSearch(c) {
   const itunesArtists   = itunesResult?.artists   || [];
   const itunesPlaylists = itunesResult?.playlists || [];
 
-  // ── Tracks: iTunes episodes first (have direct streamURL), then PI, then Taddy ──
+  // ── Tracks: PI first when keys set (most reliable), then Apple, then Taddy ──
+  // When PI keys are present, PI episodes go first so results appear even if Apple 429s.
+  // When no PI keys, Apple episodes go first (original behaviour).
+  const episodeOrder = hasPi
+    ? [...piEpisodes, ...itunesEpisodes, ...taddyEpisodes]
+    : [...itunesEpisodes, ...piEpisodes, ...taddyEpisodes];
+
   const allTracks = [];
   const seenTrackTitle = new Set();
-  for (const ep of [...itunesEpisodes, ...piEpisodes, ...taddyEpisodes]) {
+  for (const ep of episodeOrder) {
     if (!ep || !ep.streamURL) continue;
     const key = (ep.title || '').toLowerCase().slice(0, 40);
     if (!seenTrackTitle.has(key)) { seenTrackTitle.add(key); allTracks.push(ep); }
   }
 
-  // ── Albums: iTunes show albums + PI feeds + Taddy podcasts ───────────────
+  // ── Albums: PI feeds first when keys set, then Apple, then Taddy ─────────
   const allAlbums = [];
   const seenAlbumId = new Set();
-  // piFeeds are already formatted playlist objects: { id, title, artist, artworkURL, _feedId, ... }
+
+  // PI feed albums
   const piFeedAlbums = piFeeds.map(f => ({
     id: f.id || ('pi_feed_' + String(f._feedId || f.feedId || '')),
     title: String(f.title || '').trim(),
@@ -3704,7 +3725,13 @@ async function handlePodcastSearch(c) {
     _feedId: f._feedId || f.feedId || null,
     _feedUrl: f._feedUrl || f.url || null,
   }));
-  for (const a of [...itunesAlbums, ...piFeedAlbums]) {
+
+  // Album merge order: PI first when keys set
+  const albumOrder = hasPi
+    ? [...piFeedAlbums, ...itunesAlbums]
+    : [...itunesAlbums, ...piFeedAlbums];
+
+  for (const a of albumOrder) {
     if (a.id && !seenAlbumId.has(a.id)) { seenAlbumId.add(a.id); allAlbums.push(a); }
   }
   // Taddy playlists as albums
@@ -3713,14 +3740,10 @@ async function handlePodcastSearch(c) {
     if (a.id && !seenAlbumId.has(a.id)) { seenAlbumId.add(a.id); allAlbums.push(a); }
   }
 
-  // ── Artists: from iTunes + PI feed authors + Taddy ───────────────────────
+  // ── Artists: PI authors first when keys set, then iTunes ─────────────────
   const allArtists = [];
   const seenArtistName = new Set();
-  // iTunes artists first
-  for (const a of itunesArtists) {
-    const key = (a.name || '').toLowerCase();
-    if (key && !seenArtistName.has(key)) { seenArtistName.add(key); allArtists.push(a); }
-  }
+
   // PI feed authors
   for (const f of piFeeds) {
     const name = String(f.author || f.ownerName || '').replace(/\s+/g, ' ').trim();
@@ -3730,31 +3753,35 @@ async function handlePodcastSearch(c) {
     let aId; try { aId = `pi_author_${btoa(unescape(encodeURIComponent(name)))}`; } catch { aId = `pi_author_${name.replace(/[^a-z0-9]/gi,'_')}`; }
     allArtists.push({ id: aId, name, artworkURL: f.image || f.artwork || null, genres: f.categories ? Object.values(f.categories).slice(0, 2) : [], source: 'pi' });
   }
+  // iTunes artists
+  for (const a of itunesArtists) {
+    const key = (a.name || '').toLowerCase();
+    if (key && !seenArtistName.has(key)) { seenArtistName.add(key); allArtists.push(a); }
+  }
 
-  // ── Playlists: iTunes playlists + PI rss feeds + Taddy ───────────────────
+  // ── Playlists: PI rss feeds first when keys set, then Apple, then Taddy ──
   const allPlaylists = [];
   const seenPlaylistId = new Set();
-  for (const p of [...itunesPlaylists, ...taddyPlaylists]) {
-    if (p.id && !seenPlaylistId.has(p.id)) { seenPlaylistId.add(p.id); allPlaylists.push(p); }
-  }
-  // PI feeds as playlists (with RSS feed URL encoded as ID so /playlist/:id can fetch them)
+
+  // PI feeds as playlists
   for (const f of piFeeds) {
-    // piSearchEpisodes playlist objects already have a well-formed id and _feedUrl
     const _fUrl = f._feedUrl || f.url || null;
-    // If the feed already has an rss_ id, use it directly; otherwise generate one from URL
     let feedId = (f.id && String(f.id).startsWith('rss_')) ? f.id : null;
     if (!feedId && _fUrl) {
       try { feedId = 'rss_' + btoa(unescape(encodeURIComponent(_fUrl))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,''); } catch { continue; }
     } else if (!feedId) {
-      // No URL but we have a pi_feed_* id — use it as the playlist id directly
       feedId = f.id || null;
     }
     if (!feedId) continue;
     if (seenPlaylistId.has(feedId)) continue;
     seenPlaylistId.add(feedId);
-    // Cache feed URL so /podcast/playlist/:id can look it up
     if (_fUrl) cacheSet(`rss_feed_url:${feedId}`, _fUrl, 86400).catch(() => {});
     allPlaylists.push({ id: feedId, title: String(f.title || '').trim(), creator: String(f.artist || f.author || f.creator || f.ownerName || '').trim(), artworkURL: f.artworkURL || f.image || f.artwork || null, trackCount: f.trackCount || f.episodeCount || null, description: String(f.description || '').slice(0, 200), source: 'pi' });
+  }
+
+  // Apple + Taddy playlists after PI
+  for (const p of [...itunesPlaylists, ...taddyPlaylists]) {
+    if (p.id && !seenPlaylistId.has(p.id)) { seenPlaylistId.add(p.id); allPlaylists.push(p); }
   }
 
   const result = {
@@ -3767,8 +3794,6 @@ async function handlePodcastSearch(c) {
   return c.json(result);
 }
 
-
-// ─── Audiobook-only search (/audiobook/search) ───────────────────────────────
 async function handleAudiobookSearch(c) {
   const query = c.req.query('q') || '';
   if (!query) return c.json({ tracks: [], albums: [], artists: [], playlists: [] });
