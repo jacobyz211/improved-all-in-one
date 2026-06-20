@@ -30,132 +30,60 @@ const memCache = new Map();
 const jsonHeaders = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
 const textHeaders = { 'content-type': 'text/html; charset=utf-8' };
 
+// ─── TTL presets ──────────────────────────────────────────────────────────────
+const TTL = {
+  // Stable metadata — safe for KV (long-lived, rarely or never changes)
+  ISRC_HIT:      86400, // 24h  — confirmed ISRC→id mappings
+  ISRC_MISS:      1800, // 30m  — negative ISRC lookups
+  TRACK_MATCH:    3600, // 1h   — fuzzy title/artist→track match results
+  TRACK_META:     3600, // 1h   — lightweight title/artist/isrc/duration blobs
+  ALBUM:          3600, // 1h   — album/artist/playlist detail pages
+  MB_ISRC:       86400, // 24h  — MusicBrainz ISRC enrichment (permanent)
+  TADB_ISRC:     86400, // 24h  — TheAudioDB ISRC enrichment (permanent)
+  PODCAST_FEED:    600, // 10m  — podcast feed episode lists
+  LIBRIVOX:       3600, // 1h   — LibriVox chapter lists
+  IA_FILES:       3600, // 1h   — Internet Archive file metadata
 
+  // Volatile / short-lived — Upstash ONLY, NEVER KV
+  // KV TTLs are coarse — a stale KV read would serve a dead CDN URL.
+  STREAM_URL:     1680, // 28m  — Qobuz/Deezer/HiFi CDN stream URLs (expire ~30m)
+  STREAM_CACHE:    280, // 4.5m — resolved stream result handed to client
+  DZ_STREAM:       240, // 4m   — Deezer premium stream token (ARL-based, rotates)
+  SC_STREAM:       600, // 10m  — SoundCloud stream URL
+  SC_CLIENT_ID:   3600, // 1h   — SoundCloud auto-discovered client_id (can rotate)
+  HIFI_WORKING:    300, // 5m   — HiFi instance health check
+  RADIO_HOST:      300, // 5m   — Radio Browser best host probe
+  SEARCH:          300, // 5m   — search results (all sources)
+  PI_EPISODE:     3600, // 1h   — Podcast Index episode stream URLs
+};
+
+// ─── Tier 1: In-memory (sub-ms, same isolate) ─────────────────────────────────
 async function cacheGet(key) {
   const v = memCache.get(key);
   if (!v) return null;
   if (v.exp && v.exp < Date.now()) { memCache.delete(key); return null; }
   return v.value;
 }
-
 async function cacheSet(key, value, ttl = 300) {
   memCache.set(key, { value, exp: Date.now() + ttl * 1000 });
 }
 
-// ─── Inflight deduplication ───────────────────────────────────────────────────
-// Two simultaneous requests for the same stream share ONE outbound call.
-const _inflight = new Map();
-async function dedupeCall(key, fn) {
-  if (_inflight.has(key)) return _inflight.get(key);
-  const p = Promise.resolve().then(fn).finally(() => _inflight.delete(key));
-  _inflight.set(key, p);
-  return p;
+// ─── Tier 2: Cloudflare KV (edge-global, ~1-5ms reads) ───────────────────────
+// ONLY for stable data: ISRC mappings, track/album metadata, enrichment results.
+// DO NOT store stream URLs here — they expire in 28-30 min and a stale KV read
+// would serve an already-dead CDN URL to the client.
+async function kvGet(env, key) {
+  if (!env?.KV) return null;
+  try { return await env.KV.get(key, { type: 'json' }); } catch { return null; }
+}
+async function kvSet(env, key, value, ttlSeconds = TTL.ISRC_HIT) {
+  if (!env?.KV) return;
+  try { await env.KV.put(key, JSON.stringify(value), { expirationTtl: ttlSeconds }); } catch {}
 }
 
-
-// ─── Axios-compatible fetch shim (Workers-safe) ──────────────────────────────
-function buildUrl(url, params) {
-  if (!params || Object.keys(params).length === 0) return url;
-  const u = new URL(url);
-  for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== null && v !== '') u.searchParams.set(k, String(v));
-  }
-  return u.toString();
-}
-
-const axios = {
-  get: async (url, config = {}) => {
-    const fullUrl = buildUrl(url, config.params);
-    const ctrl = new AbortController();
-    const timer = config.timeout ? setTimeout(() => ctrl.abort(), config.timeout) : null;
-    try {
-      const res = await fetch(fullUrl, {
-        method: 'GET',
-        headers: config.headers || {},
-        signal: ctrl.signal,
-        redirect: 'follow',
-      });
-      const text = await res.text();
-      const ct = res.headers.get('content-type') || '';
-      let data = text;
-      if (ct.includes('json') || text.trimStart().startsWith('{') || text.trimStart().startsWith('[')) {
-        try { data = JSON.parse(text); } catch { data = text; }
-      }
-      if (!res.ok) {
-        const err = new Error(`Request failed with status ${res.status}`);
-        err.response = { status: res.status, data, headers: res.headers };
-        throw err;
-      }
-      return { status: res.status, data, headers: res.headers };
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  },
-  post: async (url, body, config = {}) => {
-    const ctrl = new AbortController();
-    const timer = config.timeout ? setTimeout(() => ctrl.abort(), config.timeout) : null;
-    try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', ...(config.headers || {}) },
-        body: typeof body === 'string' ? body : JSON.stringify(body),
-        signal: ctrl.signal,
-        redirect: 'follow',
-      });
-      const text = await res.text();
-      let data = text;
-      try { data = JSON.parse(text); } catch { data = text; }
-      if (!res.ok) {
-        const err = new Error(`Request failed with status ${res.status}`);
-        err.response = { status: res.status, data, headers: res.headers };
-        throw err;
-      }
-      return { status: res.status, data, headers: res.headers };
-    } finally {
-      if (timer) clearTimeout(timer);
-    }
-  },
-};
-
-// ─── Token / Config Parsing ──────────────────────────────────────────────────
-function parseToken(tokenStr) {
-  if (!tokenStr || tokenStr === 'noop') return {};
-  // Strip optional ~addonName suffix before JSON decode
-  var raw = tokenStr.includes('~') ? tokenStr.split('~')[0] : tokenStr;
-  try {
-    const json = decodeBase64Url(raw);
-    const parsed = JSON.parse(json);
-    // Re-attach embedded addon name if present
-    if (tokenStr.includes('~') && !parsed.addon_name) {
-      try { parsed.addon_name = decodeBase64Url(tokenStr.split('~')[1]); } catch {}
-    }
-    return parsed;
-  } catch {
-    try {
-      const json = decodeBase64(raw);
-      return JSON.parse(json);
-    } catch { return {}; }
-  }
-}
-
-
-function decodeBase64Url(str) {
-  const s = String(str || '').replace(/-/g, '+').replace(/_/g, '/');
-  const padded = s + '='.repeat((4 - (s.length % 4 || 4)) % 4);
-  return atob(padded);
-}
-
-function decodeBase64(str) {
-  return atob(String(str || ''));
-}
-
-function encodeBase64Url(str) {
-  const bytes = new TextEncoder().encode(str);
-  let bin = '';
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
+// ─── Tier 3: Upstash Redis (cross-region, ~5-20ms) ───────────────────────────
+// Used for BOTH stable cross-region data AND all volatile stream URLs/search.
+// Stream URLs must live here (not KV) — they change every ~28-30 min.
 async function upstashCmd(env, ...args) {
   if (!env?.UPSTASH_REDIS_REST_URL || !env?.UPSTASH_REDIS_REST_TOKEN) return null;
   try {
@@ -182,16 +110,68 @@ async function upstashCmd(env, ...args) {
   } catch { return null; }
 }
 
-// ─── Cloudflare KV — ISRC/ID mapping cache (fast edge reads) ─────────────────
-async function kvGet(env, key) {
-  if (!env?.KV) return null;
-  try { return await env.KV.get(key, { type: 'json' }); } catch { return null; }
+// ─── kvGetStable / kvSetStable ────────────────────────────────────────────────
+// For STABLE metadata only: ISRC mappings, track/album data, enrichment ISRCs.
+// Read path:  mem → KV → Upstash (promotes hit up to faster tiers automatically).
+// Write path: mem + KV + Upstash concurrently.
+async function kvGetStable(env, key, opts = {}) {
+  const mem = await cacheGet(key);
+  if (mem !== null) return mem;
+
+  const kv = await kvGet(env, key);
+  if (kv !== null) {
+    await cacheSet(key, kv, opts.memTtl ?? TTL.TRACK_META);
+    return kv;
+  }
+
+  // Upstash fallback — promotes to KV so future edge reads skip Upstash
+  try {
+    const raw = await upstashCmd(env, 'GET', key);
+    if (raw !== null && raw !== undefined) {
+      let val; try { val = JSON.parse(raw); } catch { val = raw; }
+      await cacheSet(key, val, opts.memTtl ?? TTL.TRACK_META);
+      await kvSet(env, key, val, opts.kvTtl ?? TTL.ISRC_HIT);
+      return val;
+    }
+  } catch {}
+
+  return null;
 }
 
-async function kvSet(env, key, value, ttlSeconds = 86400) {
-  if (!env?.KV) return;
-  try { await env.KV.put(key, JSON.stringify(value), { expirationTtl: ttlSeconds }); } catch {}
+async function kvSetStable(env, key, value, opts = {}) {
+  const memTtl     = opts.memTtl     ?? opts.ttl ?? TTL.TRACK_META;
+  const kvTtl      = opts.kvTtl      ?? opts.ttl ?? TTL.ISRC_HIT;
+  const upstashTtl = opts.upstashTtl ?? opts.ttl ?? TTL.ISRC_HIT;
+  await Promise.all([
+    cacheSet(key, value, memTtl),
+    kvSet(env, key, value, kvTtl),
+    upstashCmd(env, 'SET', key, JSON.stringify(value), 'EX', String(upstashTtl)).catch(() => {}),
+  ]);
 }
+
+// ─── upstashGet / upstashSet ──────────────────────────────────────────────────
+// For VOLATILE data: stream URLs, search results, SC client_id, stream tokens.
+// NO kvGet/kvSet calls here — stream URLs must not persist beyond their CDN expiry.
+async function upstashGet(env, key, opts = {}) {
+  const mem = await cacheGet(key);
+  if (mem !== null) return mem;
+  try {
+    const raw = await upstashCmd(env, 'GET', key);
+    if (raw !== null && raw !== undefined) {
+      let val; try { val = JSON.parse(raw); } catch { val = raw; }
+      await cacheSet(key, val, opts.memTtl ?? TTL.STREAM_CACHE);
+      return val;
+    }
+  } catch {}
+  return null;
+}
+
+async function upstashSet(env, key, value, ttlSeconds, opts = {}) {
+  const memTtl = opts.memTtl ?? ttlSeconds ?? TTL.STREAM_CACHE;
+  await cacheSet(key, value, memTtl);
+  upstashCmd(env, 'SET', key, JSON.stringify(value), 'EX', String(ttlSeconds ?? TTL.STREAM_URL)).catch(() => {});
+}
+
 
 function getConfig(c) {
   const token = c.req.param('token') || '';
@@ -264,7 +244,7 @@ async function getSCClientId(providedId) {
         if (m) {
           _scClientIdCache = m[1];
           _scClientIdExpiry = Date.now() + 3600000;
-          await cacheSet('sc:client_id', m[1], 3600);
+          await cacheSet('sc:client_id', m[1], TTL.SC_CLIENT_ID);
           console.log('[SC] Auto-discovered client_id:', m[1].slice(0, 8) + '...');
           return m[1];
         }
@@ -444,14 +424,9 @@ async function getWorkingHiFiInstance(instances) {
 
 async function qobuzStream(trackId, env, preferredQuality) {
   const cacheKey = 'qstream:' + trackId;
-  const cached = await cacheGet(cacheKey);
-  if (cached) return cached;
-  if (env) {
-    try {
-      const _ur = await upstashCmd(env, 'GET', cacheKey);
-      if (_ur) { const _up = JSON.parse(_ur); cacheSet(cacheKey, _up, 700); return _up; }
-    } catch(e) {}
-  }
+  // VOLATILE CDN stream URL — Upstash only, never KV (URLs expire in ~30 min)
+  const _qsCached = await upstashGet(env, cacheKey, { memTtl: TTL.STREAM_CACHE });
+  if (_qsCached) return _qsCached;
 
   const fmtQuality = { 27: 'hires-192', 7: 'hires-96', 6: 'lossless', 5: '320kbps' };
   const fmtLabel   = { 27: 'flac', 7: 'flac', 6: 'flac', 5: 'mp3' };
@@ -489,8 +464,8 @@ async function qobuzStream(trackId, env, preferredQuality) {
     const hit = nativeHit || proxyHit;
     if (hit) {
       const result = { url: hit.value.url, format: fmtLabel[fmt], quality: fmtQuality[fmt], source: hit.value.source, expiresAt: Math.floor(Date.now()/1000)+1680 };
-      await cacheSet(cacheKey, result, 1680);
-      if (env) upstashCmd(env, 'SET', cacheKey, JSON.stringify(result), 'EX', 720).catch(()=>{});
+      // VOLATILE: Upstash only — 720s well under 30 min CDN expiry
+      await upstashSet(env, cacheKey, result, 720, { memTtl: TTL.STREAM_URL });
       return result;
     }
   }
@@ -509,13 +484,10 @@ async function qobuzFindByIsrc(isrc, env) {
   if (!wantIsrc) return null;
 
   const cacheKey = 'qisrc:' + wantIsrc;
-  // Check in-memory first (fastest), then KV (fast edge), Upstash skipped for ISRCs
-  const memCached = await cacheGet(cacheKey);
-  if (memCached === 'MISS') return null;
-  if (memCached) return memCached;
-  const kvCached = await kvGet(env, cacheKey);
-  if (kvCached === 'MISS') { await cacheSet(cacheKey, 'MISS', 1800); return null; }
-  if (kvCached) { await cacheSet(cacheKey, kvCached, 3600); return kvCached; }
+  // Stable ISRC mapping — mem → KV → Upstash (24h, never changes)
+  const _qiCached = await kvGetStable(env, cacheKey, { memTtl: TTL.TRACK_MATCH, kvTtl: TTL.ISRC_HIT });
+  if (_qiCached === 'MISS') return null;
+  if (_qiCached !== null) return _qiCached;
 
   for (const inst of QOBUZ_INSTANCES) {
     try {
@@ -524,15 +496,13 @@ async function qobuzFindByIsrc(isrc, env) {
       // STRICT: only accept a result if Qobuz confirms the ISRC matches exactly
       const match = items.find(t => t.isrc && normIsrc(t.isrc) === wantIsrc);
       if (match && match.id) {
-        await cacheSet(cacheKey, match, 86400); // confirmed ISRC match — cache 24h
-        await kvSet(env, cacheKey, match, 86400); // persist to KV for cross-isolate edge reads
+        await kvSetStable(env, cacheKey, match, { ttl: TTL.ISRC_HIT });
         console.log(`[Qobuz ISRC] HIT ${isrc} -> id=${match.id} "${match.title}"`);
         return match;
       }
     } catch(e) { continue; } // instance down — circuit breaker handles it via qobuzStream
   }
-  await cacheSet(cacheKey, 'MISS', 1800); // miss cached 30 min
-  await kvSet(env, cacheKey, 'MISS', 1800); // persist miss to KV too
+  await kvSetStable(env, cacheKey, 'MISS', { ttl: TTL.ISRC_MISS });
   return null;
 }
 
@@ -547,12 +517,23 @@ async function qobuzFindBestTrack(title, artist, isrc, _env, expectedDuration) {
   // MusicBrainz ISRC enrichment (can be disabled via cfg.noMusicBrainz)
   if (!isrc && title && artist && !(_env && (await getConfig(_env)).noMusicBrainz)) {
     try {
-      const _mbRes = await axios.get(
-        `https://musicbrainz.org/ws/2/recording/?query=recording:${encodeURIComponent(title)}+AND+artist:${encodeURIComponent(artist)}&fmt=json&limit=3`,
-        { headers: { 'User-Agent': 'EclipseAllInOne/1.0 (eclipse-addon)' }, timeout: 4000 }
-      );
-      const _mbRec = (_mbRes.data?.recordings || [])[0];
-      const _mbIsrc = _mbRec?.isrcs?.[0];
+      // Stable: cache 24h in KV — MusicBrainz ISRCs don't change
+      const _mbKey = `mb:isrc:${title.toLowerCase().slice(0,40)}:${(artist||'').toLowerCase().slice(0,30)}`;
+      let _mbIsrc = await kvGetStable(_env, _mbKey, { memTtl: TTL.MB_ISRC, kvTtl: TTL.MB_ISRC });
+      if (_mbIsrc === 'MISS') _mbIsrc = null;
+      if (!_mbIsrc) {
+        const _mbRes = await axios.get(
+          `https://musicbrainz.org/ws/2/recording/?query=recording:${encodeURIComponent(title)}+AND+artist:${encodeURIComponent(artist)}&fmt=json&limit=3`,
+          { headers: { 'User-Agent': 'EclipseAllInOne/1.0 (eclipse-addon)' }, timeout: 4000 }
+        );
+        const _mbRec = (_mbRes.data?.recordings || [])[0];
+        _mbIsrc = _mbRec?.isrcs?.[0] ?? null;
+        if (_mbIsrc) {
+          await kvSetStable(_env, _mbKey, _mbIsrc, { ttl: TTL.MB_ISRC });
+        } else {
+          await cacheSet(_mbKey, 'MISS', TTL.ISRC_MISS); // mem-only — don't bloat KV with misses
+        }
+      }
       if (_mbIsrc) {
         console.log(`[MusicBrainz] enriched ISRC for "${title}" -> ${_mbIsrc}`);
         const byMbIsrc = await qobuzFindByIsrc(_mbIsrc, _env);
@@ -564,12 +545,23 @@ async function qobuzFindBestTrack(title, artist, isrc, _env, expectedDuration) {
   // TheAudioDB ISRC enrichment fallback (can be disabled via cfg.noTheAudioDB)
   if (!isrc && title && artist && !(_env && (await getConfig(_env)).noTheAudioDB)) {
     try {
-      const _tadbRes = await axios.get(
-        `https://www.theaudiodb.com/api/v1/json/2/searchtrack.php?s=${encodeURIComponent(artist)}&t=${encodeURIComponent(title)}`,
-        { timeout: 4000 }
-      );
-      const _tadbTrack = (_tadbRes.data?.track || [])[0];
-      const _tadbIsrc = _tadbTrack?.strMusicBrainzID;
+      // Stable: cache 24h in KV — TheAudioDB ISRCs don't change
+      const _tadbKey = `tadb:isrc:${title.toLowerCase().slice(0,40)}:${(artist||'').toLowerCase().slice(0,30)}`;
+      let _tadbIsrc = await kvGetStable(_env, _tadbKey, { memTtl: TTL.TADB_ISRC, kvTtl: TTL.TADB_ISRC });
+      if (_tadbIsrc === 'MISS') _tadbIsrc = null;
+      if (!_tadbIsrc) {
+        const _tadbRes = await axios.get(
+          `https://www.theaudiodb.com/api/v1/json/2/searchtrack.php?s=${encodeURIComponent(artist)}&t=${encodeURIComponent(title)}`,
+          { timeout: 4000 }
+        );
+        const _tadbTrack = (_tadbRes.data?.track || [])[0];
+        _tadbIsrc = _tadbTrack?.strMusicBrainzID ?? null;
+        if (_tadbIsrc) {
+          await kvSetStable(_env, _tadbKey, _tadbIsrc, { ttl: TTL.TADB_ISRC });
+        } else {
+          await cacheSet(_tadbKey, 'MISS', TTL.ISRC_MISS);
+        }
+      }
       if (_tadbIsrc) {
         console.log(`[TheAudioDB] enriched ISRC for "${title}" -> ${_tadbIsrc}`);
         const byTadbIsrc = await qobuzFindByIsrc(_tadbIsrc, _env);
@@ -578,16 +570,10 @@ async function qobuzFindBestTrack(title, artist, isrc, _env, expectedDuration) {
     } catch(e) { /* non-fatal */ }
   }
   const cacheKey = 'qmatch:' + title.toLowerCase() + ':' + (artist||'').toLowerCase();
-  const cached = await cacheGet(cacheKey);
-  if (cached === 'MISS') return null;
-  if (cached) return cached;
-  if (_env) {
-    try {
-      const _ur = await upstashCmd(_env, 'GET', cacheKey);
-      if (_ur === 'MISS') { cacheSet(cacheKey, 'MISS', 1800); return null; }
-      if (_ur) { const _up = JSON.parse(_ur); cacheSet(cacheKey, _up, 3600); return _up; }
-    } catch(e) {}
-  }
+  // Stable track match — mem → KV → Upstash
+  const _qmCached = await kvGetStable(_env, cacheKey, { memTtl: TTL.TRACK_MATCH, kvTtl: TTL.TRACK_MATCH });
+  if (_qmCached === 'MISS') return null;
+  if (_qmCached !== null) return _qmCached;
 
   // Use ISRC scoring engine for accurate matching
   const query = artist ? (artist + ' - ' + title) : isrcFormatQuery(title);
@@ -600,14 +586,12 @@ async function qobuzFindBestTrack(title, artist, isrc, _env, expectedDuration) {
       if (!items.length) continue;
       const match = isrcFindBestMatch(items, query, expectedDuration);
       if (match.item && match.score >= 50) {
-        await cacheSet(cacheKey, match.item, 3600);
-        if (_env) upstashCmd(_env, 'SET', cacheKey, JSON.stringify(match.item), 'EX', 3600).catch(()=>{});
+        await kvSetStable(_env, cacheKey, match.item, { ttl: TTL.TRACK_MATCH });
         return match.item;
       }
     } catch(e) { continue; }
   }
-  await cacheSet(cacheKey, 'MISS', 1800);
-  if (_env) upstashCmd(_env, 'SET', cacheKey, 'MISS', 'EX', 1800).catch(()=>{});
+  await kvSetStable(_env, cacheKey, 'MISS', { ttl: TTL.ISRC_MISS });
   return null;
 }
 
@@ -829,7 +813,7 @@ async function hifiSearch(query, instances) {
         _origId: origId,
       });
       // Cache track metadata so stream handler can fall back to SC if HiFi fails
-      cacheSet(`hifi:track:meta:${instB64}_${origId}`, { title: t.title || 'Unknown', artist: artistNames, isrc: hifiIsrc, duration: t.duration ? Math.floor(t.duration) : undefined }, 3600);
+      kvSetStable(null, `hifi:track:meta:${instB64}_${origId}`, { title: t.title || 'Unknown', artist: artistNames, isrc: hifiIsrc, duration: t.duration ? Math.floor(t.duration) : undefined }, { ttl: TTL.TRACK_META });
       if (t.album?.id) {
         const aid = String(t.album.id);
         if (!albumMap[aid]) albumMap[aid] = {
@@ -2560,14 +2544,15 @@ async function deezerSearch(query) {
 }
 
 // ── deezerFindByIsrc — exact ISRC lookup via Deezer public API ──────────────
-async function deezerFindByIsrc(isrc) {
+async function deezerFindByIsrc(isrc, env) {
   if (!isrc) return null;
   const normIsrc = String(isrc).toUpperCase().replace(/[^A-Z0-9]/g, '');
   if (!normIsrc) return null;
   const cacheKey = `dzisrc:${normIsrc}`;
-  const cached = await cacheGet(cacheKey);
-  if (cached === 'MISS') return null;
-  if (cached) return cached;
+  // Stable ISRC mapping — mem → KV → Upstash
+  const _dziCached = await kvGetStable(env, cacheKey, { memTtl: TTL.TRACK_MATCH, kvTtl: TTL.ISRC_HIT });
+  if (_dziCached === 'MISS') return null;
+  if (_dziCached !== null) return _dziCached;
   try {
     const r = await axios.get(`${DEEZER_API}/search/track`, {
       params: { q: `isrc:${normIsrc}`, limit: 5 },
@@ -2590,11 +2575,11 @@ async function deezerFindByIsrc(isrc) {
         isrc: normIsrc,
         source: 'deezer',
       };
-      await cacheSet(cacheKey, result, 86400);
+      await kvSetStable(env, cacheKey, result, { ttl: TTL.ISRC_HIT });
       console.log(`[Deezer ISRC] HIT ${normIsrc} -> id=${match.id} "${match.title}"`);
       return result;
     }
-    await cacheSet(cacheKey, 'MISS', 1800);
+    await kvSetStable(env, cacheKey, 'MISS', { ttl: TTL.ISRC_MISS });
     console.log(`[Deezer ISRC] no confirmed match for ${normIsrc}`);
     return null;
   } catch (e) {
@@ -2610,7 +2595,8 @@ async function deezerStream(trackId, env, req, expectedIsrc = null) {
 
   const numericId = decodeURIComponent(String(trackId || '')).replace(/^deezer(?::|%3A)/i, '');
   const cacheKey  = `dz:stream:result:${numericId}`;
-  const cached    = await cacheGet(cacheKey);
+  // VOLATILE stream token — Upstash (cross-region) then mem fallback
+  const cached    = await upstashGet(env, cacheKey, { memTtl: TTL.STREAM_CACHE }) ?? await cacheGet(cacheKey);
   if (cached) {
     // ISRC validation on cache hit — bust cache if ISRC mismatch
     if (expectedIsrc) {
@@ -2669,7 +2655,9 @@ async function deezerStream(trackId, env, req, expectedIsrc = null) {
     }
 
     const ttl = info.expiresAt ? Math.max(60, Math.floor((info.expiresAt - Date.now()) / 1000) - 30) : 200;
+    // VOLATILE stream token — mem + Upstash only, NEVER KV
     await cacheSet(cacheKey, result, ttl);
+    upstashCmd(env, 'SET', cacheKey, JSON.stringify(result), 'EX', String(Math.min(ttl, TTL.DZ_STREAM))).catch(() => {});
     return result;
   } catch (e) {
     console.warn('Deezer stream error:', e.message);
@@ -2679,8 +2667,9 @@ async function deezerStream(trackId, env, req, expectedIsrc = null) {
 
 async function deezerAlbum(albumId) {
   const cacheKey = `dz:album:${albumId}`;
-  const cached = await cacheGet(cacheKey);
-  if (cached) return cached;
+  // Stable album data — mem → KV
+  const _dzaCached = await kvGetStable(null, cacheKey, { memTtl: TTL.ALBUM });
+  if (_dzaCached) return _dzaCached;
   try {
     const [metaRes, tracksRes] = await Promise.allSettled([
       axios.get(`${DEEZER_API}/album/${albumId}`, { headers: { 'User-Agent': UA }, timeout: 8000 }),
@@ -2700,15 +2689,15 @@ async function deezerAlbum(albumId) {
       id: `deezer:album:${albumId}`, title: meta.title || 'Unknown Album',
       artist: artistName, artworkURL, year: safeYear(meta.release_date), tracks,
     };
-    await cacheSet(cacheKey, result, 3600);
+    await kvSetStable(null, cacheKey, result, { ttl: TTL.ALBUM });
     return result;
   } catch (e) { console.warn('Deezer album error:', e.message); return null; }
 }
 
 async function deezerArtist(artistId) {
   const cacheKey = `dz:artist:${artistId}`;
-  const cached = await cacheGet(cacheKey);
-  if (cached) return cached;
+  const _dzarCached = await kvGetStable(null, cacheKey, { memTtl: TTL.ALBUM });
+  if (_dzarCached) return _dzarCached;
   try {
     const [infoRes, topRes] = await Promise.allSettled([
       axios.get(`${DEEZER_API}/artist/${artistId}`, { headers: { 'User-Agent': UA }, timeout: 8000 }),
@@ -2744,15 +2733,15 @@ async function deezerArtist(artistId) {
       artworkURL: a.cover_xl || a.cover_big || a.cover || null, year: safeYear(a.release_date), source: 'deezer',
     }));
     const result = { id: `deezer:artist:${artistId}`, name: artistName, artworkURL, topTracks, albums };
-    await cacheSet(cacheKey, result, 3600);
+    await kvSetStable(null, cacheKey, result, { ttl: TTL.ALBUM });
     return result;
   } catch (e) { console.warn('Deezer artist error:', e.message); return null; }
 }
 
 async function deezerPlaylist(playlistId) {
   const cacheKey = `dz:playlist:${playlistId}`;
-  const cached = await cacheGet(cacheKey);
-  if (cached) return cached;
+  const _dzplCached = await kvGetStable(null, cacheKey, { memTtl: TTL.ALBUM });
+  if (_dzplCached) return _dzplCached;
   try {
     const metaRes = await axios.get(`${DEEZER_API}/playlist/${playlistId}`, { headers: { 'User-Agent': UA }, timeout: 8000 });
     const meta    = metaRes.data || {};
@@ -2782,7 +2771,7 @@ async function deezerPlaylist(playlistId) {
       title: meta.title || 'Unknown Playlist', artist: meta.creator?.name || 'Deezer',
       artworkURL: meta.picture_xl || meta.picture_big || null, trackCount: totalTracks, tracks,
     };
-    await cacheSet(cacheKey, result, 3600);
+    await kvSetStable(null, cacheKey, result, { ttl: TTL.ALBUM });
     return result;
   } catch (e) { console.warn('Deezer playlist error:', e.message); return null; }
 }
