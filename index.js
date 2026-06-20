@@ -725,202 +725,146 @@ async function qobuzSearch(query) {
   return { tracks: [], albums: [], artists: [], playlists: [] };
 }
 
+function artistRelevance(name, query) {
+  var n = (name || '').toLowerCase().trim();
+  var q = (query || '').toLowerCase().trim();
+  if (n === q) return 4;
+  if (n.startsWith(q) || q.startsWith(n)) return 3;
+  if (n.includes(q) || q.includes(n)) return 2;
+  return 0;
+}
+
 async function hifiSearch(query, instances) {
   const list = (instances && instances.length) ? instances : DEFAULT_HIFI_INSTANCES;
   const cacheKey = `hifi:search:all:${query}`;
   const cached = await cacheGet(cacheKey);
   if (cached) return cached;
-  // Race all instances — first to respond wins for main search
-  // Artist searches run in parallel and we collect ALL results
-  const HIFI_TIMEOUT = 5000;
-  // Single-instance fast path: run main + artist search in parallel directly
+
+  const HIFI_TIMEOUT = 7000;
   const inst = list[0];
-  const [mainSettled, artistSettled0] = await Promise.allSettled([
-    axios.get(`${inst}/search/`, { params: { s: query, limit: 50 }, headers: { 'User-Agent': UA }, timeout: HIFI_TIMEOUT }),
-    axios.get(`${inst}/search/`, { params: { s: query, type: 'ARTISTS', limit: 10 }, headers: { 'User-Agent': UA }, timeout: HIFI_TIMEOUT }),
-  ]);
-  const mainHit = mainSettled.status === 'fulfilled' && mainSettled.value?.data
-    ? { r: mainSettled.value, inst }
-    : null;
-  const artistHits = artistSettled0.status === 'fulfilled' && artistSettled0.value?.data
-    ? [{ r: artistSettled0.value, inst }]
-    : [];
 
-  if (!mainHit) return { tracks: [], albums: [], artists: [] };
+  let data = null;
   try {
-    const mainRes  = { status: 'fulfilled', value: mainHit.r };
-    // Merge all artist responses into one synthetic result
-    const mergedArtistData = artistHits.flatMap(x => {
-      const d = x.r.data;
-      return d?.data?.artists?.items || d?.data?.artists || d?.artists?.items || d?.artists || d?.data?.items || d?.items || [];
-    });
-    const artistRes = {
-      status: 'fulfilled',
-      value: { data: { data: { artists: { items: mergedArtistData } } } },
-    };
+    // Race all instances in parallel — first success wins
+    data = await Promise.any(list.map(i =>
+      axios.get(`${i}/search`, { params: { s: query, limit: 50, offset: 0 }, headers: { 'User-Agent': UA, Accept: 'application/json' }, timeout: HIFI_TIMEOUT })
+        .then(r => {
+          if (r.status === 200 && r.data) return r.data;
+          throw new Error('bad');
+        })
+    ));
+  } catch(e) {
+    return { tracks: [], albums: [], artists: [] };
+  }
 
-    const items = mainRes.status === 'fulfilled'
-      ? (mainRes.value.data?.data?.items || mainRes.value.data?.items || mainRes.value.data?.tracks || [])
-      : [];
+  try {
+    // Support all known HiFi API response shapes (same as monochrome)
+    const items = data?.data?.items || data?.items || data?.tracks?.items || data?.data?.tracks?.items || [];
+
     const instB64 = encodeBase64Url(inst);
-    const tracks = [], albumMap = {}, artistMap = {};
+    const albumMap = {}, artistMap = {}, artistHits = {}, tracks = [];
 
     for (const t of items) {
       if (!t?.id) continue;
 
-      // Build artist map from ALL items (not just streamable) so geo-restricted
-      // artists like Travis Scott still appear in search results
+      // Build artist map from ALL items (geo-restricted artists still appear)
       for (const a of (t.artists || (t.artist ? [t.artist] : []))) {
-        if (a?.id && !artistMap[String(a.id)]) {
-          artistMap[String(a.id)] = {
+        if (!a?.id) continue;
+        const arid = String(a.id);
+        if (!artistMap[arid]) {
+          artistMap[arid] = {
             id: `hifi_artist_${instB64}_${a.id}`,
             name: a.name || 'Unknown',
             artworkURL: a.picture
               ? `https://resources.tidal.com/images/${a.picture.replace(/-/g, '/')}/320x320.jpg`
               : undefined,
             _source: 'hifi',
-            _hits: 0,
           };
         }
-        if (a?.id) artistMap[String(a.id)]._hits = (artistMap[String(a.id)]._hits || 0) + 1;
+        artistHits[arid] = (artistHits[arid] || 0) + 1;
       }
 
-      // Only streamable tracks go into track/album results
-      if (t.streamReady === false) continue;
+      if (t.streamReady === false || t.allowStreaming === false) continue;
 
       const origId = String(t.id);
       const artworkURL = t.album?.cover
         ? `https://resources.tidal.com/images/${t.album.cover.replace(/-/g, '/')}/1280x1280.jpg`
         : undefined;
-      // Artist resolution: MAIN/FEATURED first, then strip known label/distributor names
-      const _LABEL_RE = /\b(octobersveryown|ovo|republic|island|atlantic|columbia|interscope|universal|sony|warner|capitol|def jam|rca|epic|polydor|parlophone|elektra|geffen|virgin|motown|label|records|music group|entertainment|distribution|publishing|llc|inc\.?)\b/i;
-      const mainArtists = (t.artists || []).filter(a => a.type === 'MAIN' || a.type === 'FEATURED');
-      const nonLabelArtists = (t.artists || []).filter(a => a.name && !_LABEL_RE.test(a.name));
-      const artistNames = mainArtists.length
-        ? mainArtists.map(a => a.name).join(', ')
-        : nonLabelArtists.length
-          ? nonLabelArtists.map(a => a.name).join(', ')
-          : (t.artist?.name || (t.artists || []).map(a => a.name).join(', ') || 'Unknown');
-      const hifiIsrc = t.isrc ? t.isrc.toUpperCase().replace(/[^A-Z0-9]/g,'') : null;
+
+      // Use same artist resolution as monochrome's trackArtist()
+      const tArtistName = (() => {
+        if (t.artists && t.artists.length) return t.artists.map(a => a.name).join(', ');
+        if (t.artist && t.artist.name) return t.artist.name;
+        return 'Unknown';
+      })();
+
+      const hifiIsrc = t.isrc ? t.isrc.toUpperCase().replace(/[^A-Z0-9]/g, '') : null;
+
       tracks.push({
         id: `hifi_${instB64}_${origId}`,
         title: t.title || 'Unknown',
-        artist: artistNames,
+        artist: tArtistName,
         album: t.album?.title || '',
         duration: t.duration ? Math.floor(t.duration) : undefined,
         artworkURL,
         isrc: hifiIsrc || undefined,
-        format: 'flac',
-        explicit: !!(t.explicit || t.contentType === 'EXPLICIT' || (t.audioQuality && t.explicitLyrics)),
+        format: (t.audioQuality === 'HIGH' || t.audioQuality === 'LOW') ? 'aac' : 'flac',
         _source: 'hifi',
         _inst: inst,
         _instB64: instB64,
         _origId: origId,
       });
-      // Cache track metadata so stream handler can fall back to SC if HiFi fails
-      cacheSet(`hifi:track:meta:${instB64}_${origId}`, { title: t.title || 'Unknown', artist: artistNames, isrc: hifiIsrc, duration: t.duration ? Math.floor(t.duration) : undefined }, 3600);
+
+      // Cache track metadata for stream handler
+      cacheSet(`hifi:track:meta:${instB64}_${origId}`, {
+        title: t.title || 'Unknown',
+        artist: tArtistName,
+        isrc: hifiIsrc,
+        duration: t.duration ? Math.floor(t.duration) : undefined,
+      }, 3600);
+
       if (t.album?.id) {
         const aid = String(t.album.id);
         if (!albumMap[aid]) albumMap[aid] = {
           id: `hifi_album_${instB64}_${aid}`,
           title: t.album.title || 'Unknown Album',
-          artist: artistNames,
+          artist: tArtistName,
           artworkURL,
-          // FIX: releaseDate is often null on track.album objects; fall back to streamStartDate
-          year: safeYear(t.album.releaseDate || t.album.streamStartDate || t.releaseDate),
+          year: t.album.releaseDate ? String(t.album.releaseDate).slice(0, 4) : undefined,
           _source: 'hifi',
         };
       }
     }
 
-    // Merge dedicated artist search results — these return artists even when
-    // their tracks are geo-restricted (fixes Travis Scott / Drake / etc.)
-    if (artistRes.status === 'fulfilled') {
-      const arData = artistRes.value.data;
-      const arItems = arData?.data?.artists?.items || arData?.data?.artists
-        || arData?.artists?.items || arData?.artists
-        || arData?.data?.items || arData?.items || [];
-      for (const a of arItems) {
-        if (!a?.id || !a?.name) continue;
-        const key = String(a.id);
-        if (!artistMap[key]) {
-          artistMap[key] = {
-            id: `hifi_artist_${instB64}_${a.id}`,
-            name: a.name,
-            artworkURL: a.picture
-              ? `https://resources.tidal.com/images/${a.picture.replace(/-/g, '/')}/320x320.jpg`
-              : undefined,
-            _source: 'hifi',
-            _hits: 10, // boost dedicated artist results to top
-          };
-        } else {
-          artistMap[key]._hits = (artistMap[key]._hits || 0) + 10;
-          if (!artistMap[key].artworkURL && a.picture) {
-            artistMap[key].artworkURL = `https://resources.tidal.com/images/${a.picture.replace(/-/g, '/')}/320x320.jpg`;
-          }
-        }
-      }
-    }
-
-    // Sort artists: most hits first (dedicated results float to top)
-    const artistList = Object.values(artistMap)
-      .sort((a, b) => (b._hits || 0) - (a._hits || 0))
+    // Sort artists: relevance first (monochrome's artistRelevance logic)
+    const artistList = Object.keys(artistMap)
+      .sort((a, b) => {
+        const ra = artistRelevance(artistMap[a].name, query) * 100 + (artistHits[a] || 0);
+        const rb = artistRelevance(artistMap[b].name, query) * 100 + (artistHits[b] || 0);
+        return rb - ra;
+      })
       .slice(0, 5)
-      .map(({ _hits, ...a }) => a);
-
-    // Re-rank HiFi tracks using ISRC scoring engine (same "embers" fix)
-    if (tracks.length > 1) {
-      const scored = tracks.map(t => {
-        const qNorm   = normalizeStr(query);
-        const tTitle  = normalizeStr(t.title || '');
-        const tArtist = normalizeStr(t.artist || '');
-        const qWords  = qNorm.replace(/[^a-z0-9\s]/gi,' ').split(/\s+/).filter(w=>w.length>1);
-        const hasHyphen = / - /.test(qNorm);
-        const thits = qWords.filter(w=>tTitle.includes(w)).length;
-        const ahits = qWords.filter(w=>tArtist.includes(w)).length;
-        let s = thits*15 + ahits*8;
-        const cov = qWords.filter(w=>tTitle.includes(w)||tArtist.includes(w)).length;
-        if (cov===qWords.length && qWords.length>0) s+=50;
-        if (!hasHyphen && thits>0 && (qNorm===tTitle||tTitle.includes(qNorm)||qNorm.includes(tTitle))) s+=35;
-        if (!hasHyphen && tArtist && (qNorm===tArtist||tArtist.includes(qNorm)||qNorm.includes(tArtist))) s+=25;
-        if (thits>0 && ahits>0) s+=80;
-        if (tTitle===qNorm) s+=60;
-        if (!hasHyphen && thits===0 && ahits>0) s-=90;
-        if (!hasHyphen && thits===0 && qWords.length>=2) s-=40;
-        if (!/\b(cover|karaoke|tribute|instrumental|8-bit)\b/i.test(qNorm) &&
-            /\b(cover|karaoke|tribute|instrumental|8-bit)\b/i.test(t.title||'')) s-=500;
-        if (!/\b(live|remix|version|edit|mix)\b/i.test(qNorm) &&
-            /\b(live|remix|version|edit|mix)\b/i.test(t.title||'')) s-=50;
-        return { t, s };
-      });
-      scored.sort((a,b) => b.s - a.s);
-      tracks.length = 0;
-      scored.forEach(x => tracks.push(x.t));
-    }
-    // Prefer explicit versions over clean/radio-edit censored versions
-    tracks.sort((a, b) => (b.explicit ? 1 : 0) - (a.explicit ? 1 : 0));
+      .map(k => artistMap[k]);
 
     const result = {
       tracks,
-      // FIX: sort albums newest-first before slicing (was unsorted)
       albums: Object.values(albumMap)
         .sort((a, b) => {
           if (!a.year && !b.year) return 0;
           if (!a.year) return 1;
           if (!b.year) return -1;
-          return b.year - a.year;
+          return Number(b.year) - Number(a.year);
         })
         .slice(0, 8),
       artists: artistList,
     };
     await cacheSet(cacheKey, result, 300);
     return result;
-  } catch (e) {
+  } catch(e) {
     console.warn('[HiFi] search error:', e.message);
     return { tracks: [], albums: [], artists: [] };
   }
 }
-
 async function hifiStream(id, extraInstances, preferredQuality) {
   const withoutPrefix = id.slice(5);
   const firstUnderscore = withoutPrefix.indexOf('_');
