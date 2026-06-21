@@ -6731,22 +6731,15 @@ function buildConfigPage(baseUrl, env) {
   // ── PANEL 4: Quality
   w('<div class="panel glass" data-panel="4">');
   w('<div class="panel-head"><div><div class="panel-title">Audio quality</div><div class="panel-desc">Sets the preferred streaming quality for Qobuz.</div></div></div>');
-  w('<div id="qualityModeToggle" class="mode-toggle">');
-  w('<button class="mode-btn on" data-mode="general" onclick="setQualityMode(\'general\')">General<span class="mode-btn-sub">One quality for all</span></button>');
-  w('<button class="mode-btn" data-mode="perstream" onclick="setQualityMode(\'perstream\')">Per-stream<span class="mode-btn-sub">Coming soon</span><span class="mode-btn-soon">SOON</span></button>');
-  w('</div>');
-  w('<div id="generalQualitySection">');
   w('<div class="quality-pills" id="qualityPills">');
   w('<button class="quality-pill" data-q="HIGH" onclick="setQuality(this)"><span class="quality-pill-name">High</span><span class="quality-pill-desc">320 kbps MP3</span></button>');
   w('<button class="quality-pill" data-q="LOSSLESS" onclick="setQuality(this)"><span class="quality-pill-name">Lossless</span><span class="quality-pill-desc">CD 44.1 kHz</span></button>');
-  w('<button class="quality-pill on" data-q="HIRES_96" onclick="setQuality(this)"><span class="quality-pill-name">Hi-Res 96</span><span class="quality-pill-desc">24-bit / 96 kHz</span></button>');
+  w('<button class="quality-pill" data-q="HIRES_96" onclick="setQuality(this)"><span class="quality-pill-name">Hi-Res 96</span><span class="quality-pill-desc">24-bit / 96 kHz</span></button>');
   w('<button class="quality-pill" data-q="HIRES_192" onclick="setQuality(this)"><span class="quality-pill-name">Hi-Res 192</span><span class="quality-pill-desc">24-bit / 192 kHz</span></button>');
-  w('<button class="quality-pill" data-q="AUTO" onclick="setQuality(this)"><span class="quality-pill-name">Auto</span><span class="quality-pill-desc">Best available</span></button>');
+  w('<button class="quality-pill on" data-q="AUTO" onclick="setQuality(this)"><span class="quality-pill-name">Auto</span><span class="quality-pill-desc">Best available</span></button>');
   w('</div>');
-  w('<div class="quality-current"><span class="quality-current-label">Selected quality</span><span class="quality-current-value" id="qualityCurrentValue">Hi-Res 96 &mdash; 24-bit / 96 kHz</span></div>');
+  w('<div class="quality-current"><span class="quality-current-label">Selected quality</span><span class="quality-current-value" id="qualityCurrentValue">Auto &mdash; Best available</span></div>');
   w('<div class="field-hint" style="margin-top:10px">Only applies to Qobuz. Other sources use their native quality.</div>');
-  w('</div>');
-  w('<div id="perStreamQualitySection" style="display:none"><div class="tip">Per-stream quality is coming soon.</div></div>');
   w('<div class="nav-row"><button class="btn btn-ghost" onclick="goToStep(3)">Back</button><button class="btn btn-primary" onclick="goToStep(5)">Generate &amp; Install <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></button></div>');
   w('</div>'); // end panel 4
 
@@ -6798,7 +6791,7 @@ function buildConfigPage(baseUrl, env) {
   w('  bigger:{search:[{s:"deezer",on:true},{s:"sc",on:true},{s:"qobuz",on:false},{s:"hifi",on:false},{s:"ia",on:false}],stream:[{s:"qobuz",on:true},{s:"hifi",on:true},{s:"deezer",on:true},{s:"sc",on:true},{s:"ia",on:true}]},');
   w('  custom:{search:[{s:"qobuz",on:false},{s:"hifi",on:false},{s:"deezer",on:false},{s:"sc",on:false},{s:"ia",on:false}],stream:[{s:"qobuz",on:false},{s:"hifi",on:false},{s:"deezer",on:false},{s:"sc",on:false},{s:"ia",on:false}]}');
   w('};');
-  w('var state={step:1,content:{podcast:true,audiobook:false,radio:false,explicit:true},qualityMode:"general",qobuzQuality:"HIRES_96",preset:"full",searchOrder:JSON.parse(JSON.stringify(PRESETS.full.search)),streamOrder:JSON.parse(JSON.stringify(PRESETS.full.stream)),started:false};');
+  w('var state={step:1,content:{podcast:false,audiobook:false,radio:false,explicit:true},qualityMode:"general",qobuzQuality:"AUTO",preset:"full",searchOrder:JSON.parse(JSON.stringify(PRESETS.full.search)),streamOrder:JSON.parse(JSON.stringify(PRESETS.full.stream)),started:false};');
   w('var isrcToggles={musicbrainz:true,theaudiodb:true,deezer_isrc:true,qobuz_isrc:true};');
 
   w('function startSetup(){state.started=true;document.getElementById("heroSection").style.display="none";document.getElementById("stepsBar").style.display="flex";goToStep(1)}');
