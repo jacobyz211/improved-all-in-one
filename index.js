@@ -6628,7 +6628,7 @@ function buildConfigPage(baseUrl, env) {
   w('<div id="podcastCredsSection" style="display:none">');
   w('<div class="svc-card" data-svc="pi">');
   w('<div class="svc-head" onclick="this.closest(\'.svc-card\').classList.toggle(\'open\')">');
-  w('<div class="svc-info"><div class="svc-name-row"><span class="svc-name">Podcast Index</span><span class="svc-req">Required</span></div><div class="svc-desc">Podcast search, feed lookup and episode metadata</div></div>');
+  w('<div class="svc-info"><div class="svc-name-row"><span class="svc-name">Podcast Index</span><span class="svc-opt">Optional</span></div><div class="svc-desc">Podcast search, feed lookup and episode metadata</div></div>');
   w('<div class="svc-status off" id="status-pi">Not connected</div>');
   w('<svg class="svc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
   w('</div>');
@@ -6677,7 +6677,7 @@ function buildConfigPage(baseUrl, env) {
   // Deezer
   w('<div class="svc-card" data-svc="deezer">');
   w('<div class="svc-head" onclick="this.closest(\'.svc-card\').classList.toggle(\'open\')">');
-  w('<div class="svc-info"><div class="svc-name-row"><span class="svc-name">Deezer</span><span class="svc-req">ARL required</span></div><div class="svc-desc">FLAC or MP3 320 kbps &mdash; needs your ARL cookie to play</div></div>');
+  w('<div class="svc-info"><div class="svc-name-row"><span class="svc-name">Deezer</span><span class="svc-opt">Optional</span></div><div class="svc-desc">FLAC or MP3 320 kbps &mdash; needs your ARL cookie to play</div></div>');
   w('<div class="svc-status off" id="status-deezer">Not connected</div>');
   w('<svg class="svc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
   w('</div>');
