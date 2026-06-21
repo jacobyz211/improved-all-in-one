@@ -6432,17 +6432,19 @@ function buildConfigPage(baseUrl, env) {
   w('.content-name{font-size:.88rem;font-weight:600;color:var(--text);margin-bottom:2px}');
   w('.content-card.on .content-name{color:var(--accent)}');
   w('.content-desc{font-size:.7rem;color:var(--muted)}');
-  w('.svc-card{background:var(--glass-bg);border:1px solid var(--glass-border);border-radius:var(--r);margin-bottom:8px;overflow:hidden;transition:border-color var(--t);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}');
-  w('.svc-card.connected{border-color:var(--accent-bdr)}');
-  w('.svc-head{display:flex;align-items:center;gap:12px;padding:14px 16px;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;min-height:58px}');
-  w('.svc-icon{width:36px;height:36px;border-radius:10px;background:var(--glass-bg-active);border:1px solid var(--glass-border);display:flex;align-items:center;justify-content:center;font-size:1.1rem;flex-shrink:0;transition:all var(--t)}');
-  w('.svc-card.connected .svc-icon{background:var(--accent-dim);border-color:var(--accent-bdr)}');
+  w('.svc-card{background:rgba(255,255,255,.055);border:1px solid rgba(255,255,255,.13);border-radius:var(--r);margin-bottom:8px;overflow:hidden;transition:border-color var(--t),background var(--t);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur)}');
+  w('.svc-card:hover{background:rgba(255,255,255,.075);border-color:rgba(255,255,255,.18)}');
+  w('.svc-card.connected{border-color:var(--accent-bdr);background:var(--accent-dim)}');
+  w('.svc-head{display:flex;align-items:center;gap:10px;padding:14px 16px;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;min-height:60px}');
   w('.svc-info{flex:1;min-width:0}');
+  w('.svc-name-row{display:flex;align-items:center;gap:7px;flex-wrap:wrap;margin-bottom:3px}');
   w('.svc-name{font-size:.9rem;font-weight:700;color:var(--text);letter-spacing:-.01em}');
-  w('.svc-desc{font-size:.7rem;color:var(--muted);margin-top:2px}');
-  w('.svc-status{font-size:.65rem;font-weight:600;padding:3px 9px;border-radius:99px;flex-shrink:0}');
+  w('.svc-opt{font-size:.6rem;font-weight:700;padding:2px 7px;border-radius:99px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.13);color:rgba(255,255,255,.4);letter-spacing:.04em;text-transform:uppercase;flex-shrink:0}');
+  w('.svc-req{font-size:.6rem;font-weight:700;padding:2px 7px;border-radius:99px;background:rgba(251,191,36,.08);border:1px solid rgba(251,191,36,.22);color:rgba(251,191,36,.75);letter-spacing:.04em;text-transform:uppercase;flex-shrink:0}');
+  w('.svc-desc{font-size:.7rem;color:var(--muted);line-height:1.4}');
+  w('.svc-status{font-size:.65rem;font-weight:600;padding:4px 10px;border-radius:99px;flex-shrink:0;white-space:nowrap}');
   w('.svc-status.on{background:var(--accent-dim);border:1px solid var(--accent-bdr);color:var(--accent)}');
-  w('.svc-status.off{background:var(--glass-bg-active);border:1px solid var(--glass-border);color:var(--faint)}');
+  w('.svc-status.off{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.12);color:rgba(255,255,255,.45)}');
   w('.svc-chevron{color:var(--faint);transition:transform var(--t);flex-shrink:0}');
   w('.svc-card.open .svc-chevron{transform:rotate(180deg)}');
   w('.svc-body{display:none;padding:0 16px 16px;border-top:1px solid var(--glass-border)}');
@@ -6618,14 +6620,16 @@ function buildConfigPage(baseUrl, env) {
 
   // ── PANEL 2: Credentials
   w('<div class="panel glass" data-panel="2">');
-  w('<div class="panel-head"><div><div class="panel-title">Connect your accounts</div><div class="panel-desc"><strong>Everything below is optional.</strong> The addon works without any accounts. Connect yours only if you want direct access to your personal library or higher quality streams. Credentials are encoded in your URL only — never stored on any server.</div></div></div>');
+  w('<div class="panel-head"><div style="flex:1;min-width:0"><div style="display:flex;align-items:center;gap:8px;margin-bottom:4px"><div class="panel-title">Connect your accounts</div><span style="font-size:.6rem;font-weight:700;padding:2px 8px;border-radius:99px;background:rgba(255,255,255,.07);border:1px solid rgba(255,255,255,.13);color:rgba(255,255,255,.4);text-transform:uppercase;letter-spacing:.05em;flex-shrink:0">Optional</span></div><div class="panel-desc">Skip this step entirely — every service is pre-configured and works out of the box. Add your own credentials only if you want to use your personal account or higher quality streams.</div></div></div>');
+
+  w('<div class="tip"><b>All services are pre-configured.</b> Qobuz, Tidal, Deezer, and SoundCloud work without entering anything. Podcast Index and Taddy are only needed if you enabled Podcasts in the previous step.</div>');
 
   // Podcast Index + Taddy (shown at top when podcast selected)
   w('<div id="podcastCredsSection" style="display:none">');
   w('<div class="svc-card" data-svc="pi">');
   w('<div class="svc-head" onclick="this.closest(\'.svc-card\').classList.toggle(\'open\')">');
-  w('<div class="svc-info"><div class="svc-name">Podcast Index</div><div class="svc-desc">Improves podcast search results and metadata</div></div>');
-  w('<div class="svc-status off" id="status-pi">Optional</div>');
+  w('<div class="svc-info"><div class="svc-name-row"><span class="svc-name">Podcast Index</span><span class="svc-req">Required</span></div><div class="svc-desc">Podcast search, feed lookup and episode metadata</div></div>');
+  w('<div class="svc-status off" id="status-pi">Not connected</div>');
   w('<svg class="svc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
   w('</div>');
   w('<div class="svc-body">');
@@ -6634,8 +6638,8 @@ function buildConfigPage(baseUrl, env) {
   w('</div></div>');
   w('<div class="svc-card" data-svc="taddy">');
   w('<div class="svc-head" onclick="this.closest(\'.svc-card\').classList.toggle(\'open\')">');
-  w('<div class="svc-info"><div class="svc-name">Taddy</div><div class="svc-desc">Additional podcast metadata and discovery</div></div>');
-  w('<div class="svc-status off" id="status-taddy">Optional</div>');
+  w('<div class="svc-info"><div class="svc-name-row"><span class="svc-name">Taddy</span><span class="svc-opt">Optional</span></div><div class="svc-desc">Additional podcast metadata and discovery</div></div>');
+  w('<div class="svc-status off" id="status-taddy">Not connected</div>');
   w('<svg class="svc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
   w('</div>');
   w('<div class="svc-body">');
@@ -6646,13 +6650,12 @@ function buildConfigPage(baseUrl, env) {
   // Qobuz
   w('<div class="svc-card" data-svc="qobuz">');
   w('<div class="svc-head" onclick="this.closest(\'.svc-card\').classList.toggle(\'open\')">');
-  w('<div class="svc-info"><div class="svc-name">Qobuz</div><div class="svc-desc">Hi-Res FLAC up to 24-bit/192kHz</div></div>');
+  w('<div class="svc-info"><div class="svc-name-row"><span class="svc-name">Qobuz</span><span class="svc-opt">Optional</span></div><div class="svc-desc">Hi-Res FLAC up to 24-bit / 192kHz &mdash; pre-configured</div></div>');
   w('<div class="svc-status off" id="status-qobuz">Not connected</div>');
   w('<svg class="svc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
   w('</div>');
   w('<div class="svc-body">');
-  w('<div class="field"><label class="field-label">User Auth Token</label><input type="password" id="qobuzUserToken" class="field-input" placeholder="Your Qobuz user_auth_token"></div>');
-  w('<div class="field-hint">Get your token via qobuz-dl or by inspecting Qobuz app traffic.</div>');
+  w('<div class="field"><label class="field-label">User Auth Token</label><input type="password" id="qobuzUserToken" class="field-input" placeholder="Your Qobuz user_auth_token"><div class="field-hint">Only needed to access <b>your personal Qobuz library</b>. The shared pool works without this.</div></div>');
   w('<button class="adv-toggle" data-adv="qobuz" onclick="toggleAdv(this)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg> Advanced (App ID &amp; Secret)</button>');
   w('<div class="adv-box" data-adv-box="qobuz">');
   w('<div class="field-row"><div class="field"><label class="field-label">App ID</label><input type="text" id="qobuzAppId" class="field-input" placeholder="App ID"></div><div class="field"><label class="field-label">App Secret</label><input type="password" id="qobuzSecret" class="field-input" placeholder="Secret"></div></div>');
@@ -6662,30 +6665,30 @@ function buildConfigPage(baseUrl, env) {
   // Tidal HiFi
   w('<div class="svc-card" data-svc="tidal">');
   w('<div class="svc-head" onclick="this.closest(\'.svc-card\').classList.toggle(\'open\')">');
-  w('<div class="svc-info"><div class="svc-name">Tidal HiFi</div><div class="svc-desc">AAC 320 kbps via proxy</div></div>');
+  w('<div class="svc-info"><div class="svc-name-row"><span class="svc-name">Tidal HiFi</span><span class="svc-opt">Optional</span></div><div class="svc-desc">AAC 320 kbps via proxy &mdash; pre-configured</div></div>');
   w('<div class="svc-status off" id="status-tidal">Using public pool</div>');
   w('<svg class="svc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
   w('</div>');
   w('<div class="svc-body">');
-  w('<div class="field"><label class="field-label">HiFi Instance URL(s)</label><input type="text" id="hifiInst" class="field-input" placeholder="https://hifi.example.com,https://hifi2.example.com"><div class="field-hint">Comma-separated. Leave blank to use auto-discovered instances.</div></div>');
+  w('<div class="field"><label class="field-label">HiFi Instance URL(s)</label><input type="text" id="hifiInst" class="field-input" placeholder="https://hifi.example.com,https://hifi2.example.com"><div class="field-hint">Comma-separated. Leave blank to use auto-discovered public instances.</div></div>');
   w('<div id="hifiInstList" style="margin-top:10px"></div>');
   w('</div></div>');
 
   // Deezer
   w('<div class="svc-card" data-svc="deezer">');
   w('<div class="svc-head" onclick="this.closest(\'.svc-card\').classList.toggle(\'open\')">');
-  w('<div class="svc-info"><div class="svc-name">Deezer</div><div class="svc-desc">FLAC or MP3 320 kbps</div></div>');
+  w('<div class="svc-info"><div class="svc-name-row"><span class="svc-name">Deezer</span><span class="svc-req">ARL required</span></div><div class="svc-desc">FLAC or MP3 320 kbps &mdash; needs your ARL cookie to play</div></div>');
   w('<div class="svc-status off" id="status-deezer">Not connected</div>');
   w('<svg class="svc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
   w('</div>');
   w('<div class="svc-body">');
-  w('<div class="field"><label class="field-label">ARL Cookie</label><input type="password" id="deezerArl" class="field-input" placeholder="Your Deezer ARL cookie"><div class="field-hint"><strong>Required for Deezer playback.</strong> Without an ARL cookie, Deezer tracks appear in results but won\'t play.<br>Open deezer.com &rarr; DevTools &rarr; Application &rarr; Cookies &rarr; copy the <code class="inline">arl</code> value. Valid for ~3 months.</div></div>');
+  w('<div class="field"><label class="field-label">ARL Cookie</label><input type="password" id="deezerArl" class="field-input" placeholder="Your Deezer ARL cookie"><div class="field-hint">Deezer tracks appear in search without this, but <b>won\'t play until you add your ARL</b>.<br>Open deezer.com &rarr; DevTools &rarr; Application &rarr; Cookies &rarr; copy the <code class="inline">arl</code> value.</div></div>');
   w('</div></div>');
 
   // SoundCloud
   w('<div class="svc-card" data-svc="sc">');
   w('<div class="svc-head" onclick="this.closest(\'.svc-card\').classList.toggle(\'open\')">');
-  w('<div class="svc-info"><div class="svc-name">SoundCloud</div><div class="svc-desc">MP3 up to 320 kbps</div></div>');
+  w('<div class="svc-info"><div class="svc-name-row"><span class="svc-name">SoundCloud</span><span class="svc-opt">Optional</span></div><div class="svc-desc">MP3 up to 320 kbps &mdash; pre-configured, auto-discovered</div></div>');
   w('<div class="svc-status off" id="status-sc">Auto-discovered</div>');
   w('<svg class="svc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
   w('</div>');
