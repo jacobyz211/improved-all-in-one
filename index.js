@@ -6618,18 +6618,41 @@ function buildConfigPage(baseUrl, env) {
 
   // ── PANEL 2: Credentials
   w('<div class="panel glass" data-panel="2">');
-  w('<div class="panel-head"><div><div class="panel-title">Connect your services</div><div class="panel-desc">All fields are optional. Leave blank to use only free sources.</div></div></div>');
+  w('<div class="panel-head"><div><div class="panel-title">Connect your accounts</div><div class="panel-desc"><strong>Everything below is optional.</strong> The addon works without any accounts. Connect yours only if you want direct access to your personal library or higher quality streams. Credentials are encoded in your URL only — never stored on any server.</div></div></div>');
+
+  // Podcast Index + Taddy (shown at top when podcast selected)
+  w('<div id="podcastCredsSection" style="display:none">');
+  w('<div class="svc-card" data-svc="pi">');
+  w('<div class="svc-head" onclick="this.closest(\'.svc-card\').classList.toggle(\'open\')">');
+  w('<div class="svc-info"><div class="svc-name">Podcast Index</div><div class="svc-desc">Improves podcast search results and metadata</div></div>');
+  w('<div class="svc-status off" id="status-pi">Optional</div>');
+  w('<svg class="svc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
+  w('</div>');
+  w('<div class="svc-body">');
+  w('<div class="field-row"><div class="field"><label class="field-label">API Key</label><input type="text" id="piKey" class="field-input" placeholder="Podcast Index API Key"></div><div class="field"><label class="field-label">API Secret</label><input type="password" id="piSecret" class="field-input" placeholder="Secret"></div></div>');
+  w('<div class="field-hint">Free at <a href="https://podcastindex.org/developer" target="_blank" rel="noopener">podcastindex.org/developer</a></div>');
+  w('</div></div>');
+  w('<div class="svc-card" data-svc="taddy">');
+  w('<div class="svc-head" onclick="this.closest(\'.svc-card\').classList.toggle(\'open\')">');
+  w('<div class="svc-info"><div class="svc-name">Taddy</div><div class="svc-desc">Additional podcast metadata and discovery</div></div>');
+  w('<div class="svc-status off" id="status-taddy">Optional</div>');
+  w('<svg class="svc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
+  w('</div>');
+  w('<div class="svc-body">');
+  w('<div class="field-row"><div class="field"><label class="field-label">API Key</label><input type="text" id="taddyKey" class="field-input" placeholder="Taddy API Key"></div><div class="field"><label class="field-label">User ID</label><input type="text" id="taddyUid" class="field-input" placeholder="Taddy User ID"></div></div>');
+  w('</div></div>');
+  w('</div>'); // end podcastCredsSection
 
   // Qobuz
   w('<div class="svc-card" data-svc="qobuz">');
   w('<div class="svc-head" onclick="this.closest(\'.svc-card\').classList.toggle(\'open\')">');
-  w('<div class="svc-icon">&#127925;</div>');
-  w('<div class="svc-info"><div class="svc-name">Qobuz</div><div class="svc-desc">Hi-Res FLAC up to 192kHz</div></div>');
+  w('<div class="svc-info"><div class="svc-name">Qobuz</div><div class="svc-desc">Hi-Res FLAC up to 24-bit/192kHz</div></div>');
   w('<div class="svc-status off" id="status-qobuz">Not connected</div>');
   w('<svg class="svc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
   w('</div>');
   w('<div class="svc-body">');
   w('<div class="field"><label class="field-label">User Auth Token</label><input type="password" id="qobuzUserToken" class="field-input" placeholder="Your Qobuz user_auth_token"></div>');
+  w('<div class="field-hint">Get your token via qobuz-dl or by inspecting Qobuz app traffic.</div>');
   w('<button class="adv-toggle" data-adv="qobuz" onclick="toggleAdv(this)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg> Advanced (App ID &amp; Secret)</button>');
   w('<div class="adv-box" data-adv-box="qobuz">');
   w('<div class="field-row"><div class="field"><label class="field-label">App ID</label><input type="text" id="qobuzAppId" class="field-input" placeholder="App ID"></div><div class="field"><label class="field-label">App Secret</label><input type="password" id="qobuzSecret" class="field-input" placeholder="Secret"></div></div>');
@@ -6639,8 +6662,7 @@ function buildConfigPage(baseUrl, env) {
   // Tidal HiFi
   w('<div class="svc-card" data-svc="tidal">');
   w('<div class="svc-head" onclick="this.closest(\'.svc-card\').classList.toggle(\'open\')">');
-  w('<div class="svc-icon">&#127926;</div>');
-  w('<div class="svc-info"><div class="svc-name">Tidal HiFi</div><div class="svc-desc">AAC 320 via HiFi instances</div></div>');
+  w('<div class="svc-info"><div class="svc-name">Tidal HiFi</div><div class="svc-desc">AAC 320 kbps via proxy</div></div>');
   w('<div class="svc-status off" id="status-tidal">Using public pool</div>');
   w('<svg class="svc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
   w('</div>');
@@ -6652,53 +6674,26 @@ function buildConfigPage(baseUrl, env) {
   // Deezer
   w('<div class="svc-card" data-svc="deezer">');
   w('<div class="svc-head" onclick="this.closest(\'.svc-card\').classList.toggle(\'open\')">');
-  w('<div class="svc-icon">&#127928;</div>');
-  w('<div class="svc-info"><div class="svc-name">Deezer</div><div class="svc-desc">FLAC &amp; MP3 via ARL cookie</div></div>');
+  w('<div class="svc-info"><div class="svc-name">Deezer</div><div class="svc-desc">FLAC or MP3 320 kbps</div></div>');
   w('<div class="svc-status off" id="status-deezer">Not connected</div>');
   w('<svg class="svc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
   w('</div>');
   w('<div class="svc-body">');
-  w('<div class="field"><label class="field-label">ARL Cookie</label><input type="password" id="deezerArl" class="field-input" placeholder="Your Deezer ARL cookie"><div class="field-hint">Found in browser DevTools &rarr; Application &rarr; Cookies &rarr; deezer.com</div></div>');
+  w('<div class="field"><label class="field-label">ARL Cookie</label><input type="password" id="deezerArl" class="field-input" placeholder="Your Deezer ARL cookie"><div class="field-hint"><strong>Required for Deezer playback.</strong> Without an ARL cookie, Deezer tracks appear in results but won\'t play.<br>Open deezer.com &rarr; DevTools &rarr; Application &rarr; Cookies &rarr; copy the <code class="inline">arl</code> value. Valid for ~3 months.</div></div>');
   w('</div></div>');
 
   // SoundCloud
   w('<div class="svc-card" data-svc="sc">');
   w('<div class="svc-head" onclick="this.closest(\'.svc-card\').classList.toggle(\'open\')">');
-  w('<div class="svc-icon">&#9729;&#65039;</div>');
-  w('<div class="svc-info"><div class="svc-name">SoundCloud</div><div class="svc-desc">MP3 320 &mdash; auto-discovered</div></div>');
+  w('<div class="svc-info"><div class="svc-name">SoundCloud</div><div class="svc-desc">MP3 up to 320 kbps</div></div>');
   w('<div class="svc-status off" id="status-sc">Auto-discovered</div>');
   w('<svg class="svc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
   w('</div>');
   w('<div class="svc-body">');
-  w('<div class="field"><label class="field-label">Client ID <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--faint)">(optional)</span></label><input type="text" id="scId" class="field-input" placeholder="SoundCloud Client ID"><div class="field-hint">Usually auto-discovered. Only set this if auto-discovery fails.</div></div>');
+  w('<div class="field"><label class="field-label">Client ID <span style="font-weight:400;text-transform:none;letter-spacing:0;color:var(--faint)">(optional)</span></label><input type="text" id="scId" class="field-input" placeholder="SoundCloud Client ID"><div class="field-hint">Only set this if auto-discovery stops working.</div></div>');
   w('<button class="adv-toggle" data-adv="sc" onclick="toggleAdv(this)"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg> OAuth Token</button>');
   w('<div class="adv-box" data-adv-box="sc"><div class="field"><label class="field-label">OAuth Token</label><input type="password" id="scOauth" class="field-input" placeholder="OAuth token for higher quality"></div></div>');
   w('</div></div>');
-
-  // Podcast Index + Taddy (shown when podcast selected)
-  w('<div id="podcastCredsSection" style="display:none">');
-  w('<div class="svc-card" data-svc="pi">');
-  w('<div class="svc-head" onclick="this.closest(\'.svc-card\').classList.toggle(\'open\')">');
-  w('<div class="svc-icon">&#127897;&#65039;</div>');
-  w('<div class="svc-info"><div class="svc-name">Podcast Index</div><div class="svc-desc">Optional &mdash; improves podcast results</div></div>');
-  w('<div class="svc-status off" id="status-pi">Optional</div>');
-  w('<svg class="svc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
-  w('</div>');
-  w('<div class="svc-body">');
-  w('<div class="field-row"><div class="field"><label class="field-label">API Key</label><input type="text" id="piKey" class="field-input" placeholder="Podcast Index API Key"></div><div class="field"><label class="field-label">API Secret</label><input type="password" id="piSecret" class="field-input" placeholder="Secret"></div></div>');
-  w('<div class="field-hint">Free at <a href="https://podcastindex.org/developer" target="_blank" rel="noopener">podcastindex.org/developer</a></div>');
-  w('</div></div>');
-  w('<div class="svc-card" data-svc="taddy">');
-  w('<div class="svc-head" onclick="this.closest(\'.svc-card\').classList.toggle(\'open\')">');
-  w('<div class="svc-icon">&#127911;</div>');
-  w('<div class="svc-info"><div class="svc-name">Taddy</div><div class="svc-desc">Additional podcast metadata</div></div>');
-  w('<div class="svc-status off" id="status-taddy">Optional</div>');
-  w('<svg class="svc-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>');
-  w('</div>');
-  w('<div class="svc-body">');
-  w('<div class="field-row"><div class="field"><label class="field-label">API Key</label><input type="text" id="taddyKey" class="field-input" placeholder="Taddy API Key"></div><div class="field"><label class="field-label">User ID</label><input type="text" id="taddyUid" class="field-input" placeholder="Taddy User ID"></div></div>');
-  w('</div></div>');
-  w('</div>'); // end podcastCredsSection
 
   w('<div class="nav-row"><button class="btn btn-ghost" onclick="goToStep(1)">Back</button><button class="btn btn-primary" onclick="goToStep(3)">Next <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></button></div>');
   w('</div>'); // end panel 2
