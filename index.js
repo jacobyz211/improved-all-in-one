@@ -286,7 +286,7 @@ const QOBUZ_INSTANCES = [
 
 // ─── Qobuz Native Stream Credentials ────────────────────────────────────────
 const QOBUZ_APP_ID     = '312369995';
-const QOBUZ_USER_TOKEN = 'XX7seyZt4OaHGPgksFUldL2Ig0cH6jqcKSAfOAiAGBzw1HosDl9vfQTGRQEo2zkkcwP9ADc3L20nYNaI0l7E4g';
+const QOBUZ_USER_TOKEN = '3GrgNWkOKdBMmMrEGnY_IS6Zksf0NXLJo_-QTcFeugsSvryxHinS3MKDpogrTtmb8HE9bSaog3jefTRvLmO6DA';
 const QOBUZ_SECRET     = 'e79f8b9be485692b0e5f9dd895826368';
 
 // ─── Compact MD5 (Qobuz request signature) ───────────────────────────────────
