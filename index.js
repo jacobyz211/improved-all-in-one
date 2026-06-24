@@ -268,10 +268,6 @@ async function getSCClientId(providedId) {
 // ─── HiFi Instance Helpers ───────────────────────────────────────────────────
 const DEFAULT_HIFI_INSTANCES = [
   'https://hifi-api-bffw.onrender.com',
-  'https://hifi-2tzpyfhd.geeked.wtf/',
-  'https://hifi.geeked.wtf',
-  'https://vogel.qqdl.site',
-  'https://api.monochrome.tf',
 ];
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36';
 
@@ -281,7 +277,6 @@ const QOBUZ_INSTANCES = [
   'https://qobuz-api1.onrender.com',
   'https://trypt-hifi-dl-456461932686.us-west1.run.app',
   'https://qobuz-api.stremio123.duckdns.org',
-  'https://qobuz.kennyy.com.br/api',
 ];
 
 // ─── Qobuz Native Stream Credentials ────────────────────────────────────────
