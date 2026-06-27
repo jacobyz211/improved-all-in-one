@@ -268,6 +268,7 @@ async function getSCClientId(providedId) {
 // ─── HiFi Instance Helpers ───────────────────────────────────────────────────
 const DEFAULT_HIFI_INSTANCES = [
   'https://hifi-api1.onrender.com',
+  'https://hifi-api.thevolecitor.qzz.io/',
   'https://hifi-api-bffw.onrender.com',
 ];
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36';
